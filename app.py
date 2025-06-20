@@ -112,7 +112,7 @@ def load_all_artifacts():
         return None, None, None
     return artifacts, model, list(canonical_company_names)
 
-@st.cache_data
+'@st.cache_data
 def create_dynamic_analysis_plan(_query, company_catalog, available_indices):
     api_key = st.secrets["GEMINI_API_KEY"]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
