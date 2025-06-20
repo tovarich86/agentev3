@@ -278,27 +278,7 @@ def main():
         st.markdown("""
         Este agente é um especialista treinado para analisar Planos de Incentivo de Longo Prazo (ILPs) a partir dos documentos públicos (como o Formulário de Referência) das empresas listadas.
 
-        #### Tipos de Análise que o Agente Realiza:
-
-        O processo de análise ocorre em três etapas inteligentes:
-
-        1.  **🧠 Compreensão da Pergunta:** Primeiro, o agente identifica com alta precisão a(s) empresa(s) e os tópicos de interesse na sua pergunta. Ele é capaz de reconhecer nomes oficiais, apelidos (como "Magalu" ou "Vivo") e marcas famosas (como "Havaianas" ou "Riachuelo").
-        2.  **🔍 Busca Inteligente nos Documentos:** Com o plano definido, o agente realiza uma busca profunda nos arquivos.
-            - **Análise do Item 8.4:** Se você pedir especificamente pelo "item 8.4", o agente fará uma leitura completa e detalhada desta seção no documento da empresa.
-            - **Análise por Tópico:** Para perguntas gerais, ele busca por trechos e seções que foram pré-identificados com os tópicos do seu interesse (ex: Vesting, Lockup, etc.), garantindo respostas contextuais.
-        3.  **✍️ Síntese e Relatório:** Por fim, o agente entrega todo o material encontrado para a IA Generativa (Google Gemini), que atua como um analista financeiro sênior para redigir um relatório detalhado e estruturado, baseando-se **exclusivamente** nas informações contidas nos documentos.
-
-        #### Limitações Atuais:
-
-        É importante conhecer os limites do agente para usar seu potencial ao máximo:
-
-        * **Fonte de Dados:** O conhecimento do agente é **restrito aos documentos que foram carregados no sistema**. Ele não possui acesso à internet em tempo real e não sabe sobre eventos ou planos que não estejam nesta base.
-        * **Não é um Consultor:** O agente **não emite opiniões, conselhos de investimento ou previsões**. Sua função é localizar, extrair e resumir informações existentes.
-        * **Data dos Documentos:** A validade das respostas está diretamente ligada à data dos formulários de referência na base de dados. Sempre verifique as fontes citadas ao final da análise.
-        * **Ambiguidade:** Perguntas muito vagas podem gerar respostas imprecisas. Quanto mais clara e específica for a sua pergunta, melhor será o resultado.
-
-        ---
-        
+          
         ### ✨ Dicas para Perguntas Ideais
 
         Para obter os melhores resultados, utilize um dos formatos abaixo.
