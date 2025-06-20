@@ -276,33 +276,19 @@ def main():
     # CORREÇÃO: O expander agora contém apenas o texto informativo.
     with st.expander("💡 Entenda como funciona e veja dicas para perguntas ideais"):
         st.markdown("""
-        Este agente é um especialista treinado para analisar Planos de Incentivo de Longo Prazo (ILPs) a partir dos documentos públicos (como o Formulário de Referência) das empresas listadas.
+**Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) usando documentos públicos das empresas listadas.**
 
-          
-        ### ✨ Dicas para Perguntas Ideais
+###  Formatos de Pergunta Recomendados
 
-        Para obter os melhores resultados, utilize um dos formatos abaixo.
+**1. Perguntas Específicas** *(formato ideal)*  
+Combine tópicos + empresas: *"Qual a liquidação e dividendos da **Vale**?"* • *"Vesting da **Petrobras**"* • *"Ajustes de preço da **Ambev**"*
 
-        #### 1. Perguntas Específicas sobre Tópicos (Melhor formato)
-        *Combine um ou mais tópicos com uma ou mais empresas.*
-        - "Qual a forma de liquidação e o tratamento de dividendos da **Vale**?"
-        - "Descreva o cronograma de vesting dos planos da **Petrobras**."
-        - "Como a **Ambev** ajusta o preço de exercício em caso de eventos corporativos?"
-        - "Fale sobre o período de lockup para os executivos da **Magalu**."
-        - "Quais são as condições de carência para as ações restritas da **YDUQS**?"
+**2. Visão Geral (Item 8.4)**  
+Solicite a seção completa: *"Item 8.4 da **Vibra**"* • *"Resumo 8.4 da **Raia Drogasil**"*
 
-        #### 2. Perguntas de Visão Geral do Plano (Item 8.4)
-        *Peça pela seção completa do Formulário de Referência para ter uma visão geral.*
-        - "Me mostre o **item 8.4** completo da **Vibra Energia**."
-        - "Faça um resumo do **formulário de referência, seção 8.4**, da **Raia Drogasil**."
-        - "Resuma o item 8.4 da **WEG**."
-
-        #### 3. Perguntas Comparativas
-        *Compare características específicas entre duas ou mais empresas.*
-        - "Compare as condições de vesting e carência entre **Itaú** e **Santander**."
-        - "Quais as diferenças na forma de liquidação dos planos da **Localiza** e da **Movida**?"
-        - "Compare o tratamento de dividendos da **Eletrobras** com o da **Energisa**."
-        """)
+**3. Análise Comparativa**  
+Compare empresas: *"Vesting **Itaú** vs **Santander**"* • *"Liquidação **Localiza** vs **Movida**"*
+""")
 
     # CORREÇÃO: O campo de texto e o botão agora estão fora do expander.
     user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Fale sobre o vesting da Magalu ou planos da Vibra Energia")
