@@ -1,3 +1,6 @@
+# Este arquivo contém o catálogo enriquecido e completo de empresas para a busca.
+# Manter este catálogo em um arquivo separado facilita a manutenção.
+
 company_catalog_rich = [
     {
         "canonical_name": "2W ECOBANK S.A",
@@ -1016,4 +1019,3 @@ company_catalog_rich = [
         "aliases": ["zamp", "burger king brasil", "bk brasil"]
     }
 ]
-```
