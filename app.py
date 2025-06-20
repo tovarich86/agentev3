@@ -319,6 +319,7 @@ Solicite a seção completa do Formulário de Referência:
 Compare características entre empresas:
 - *"Liquidação **Localiza** vs **Movida**"*
 - *"Dividendos **Eletrobras** vs **Energisa**"*
+- *"Matching **Natura** vs **Gerdau**"*
 """)
 
     # CORREÇÃO: O campo de texto e o botão agora estão fora do expander.
