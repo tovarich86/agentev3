@@ -465,7 +465,7 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    st.title("🔍 Agente de Análise de Planos de Incentivo (LTIP)")
+    st.title("🔍 Agente de Análise de Planos de Incentivo Longo Prazo ILP")
     st.markdown("---")
     
     # Carrega os artefatos
