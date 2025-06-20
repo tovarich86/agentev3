@@ -322,7 +322,7 @@ Você é um analista financeiro sênior especializado em Formulários de Referê
 def main():
     st.set_page_config(
         page_title="Agente de Análise LTIP",
-        page_icon="f"🔍",
+        page_icon="f"",
         layout="wide",
         initial_sidebar_state="expanded"
     )
