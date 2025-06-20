@@ -15,6 +15,8 @@ import glob
 import os
 import re
 import unicodedata
+import logging
+from functools import lru_cache
 from catalog_data import company_catalog_rich
 
 # --- CONFIGURAÇÕES ---
@@ -157,90 +159,178 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
     return {"status": "success", "plan": plan}
 
 
-# Mantenha as constantes no topo do seu script
-MAX_CONTEXT_TOKENS = 12000
-MAX_CHUNKS_PER_TOPIC = 5
+
+
+# Configuração de logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Constantes de configuração
+class Config:
+    MAX_CONTEXT_TOKENS = 12000
+    MAX_CHUNKS_PER_TOPIC = 5
+    SCORE_THRESHOLD_GENERAL = 0.4
+    SCORE_THRESHOLD_ITEM_84 = 0.5
+    DEDUPLICATION_HASH_LENGTH = 100
 
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
-    """Executa o plano de busca e recupera contexto relevante."""
+    """
+    Executa o plano de busca com controle robusto de tokens e deduplicação.
+    """
     full_context = ""
     all_retrieved_docs = set()
-    
-    if query_intent == 'item_8_4_query':
-        # Busca exaustiva no item 8.4
-        for empresa in plan.get("empresas", []):
+    unique_chunks_content = set()  # Para deduplicação baseada em hash
+    current_token_count = 0
+    chunks_processed = 0
+
+    def estimate_tokens(text):
+        """Estima tokens de forma mais precisa."""
+        # Aproximação: 1 token ≈ 4 caracteres para português
+        return len(text) // 4
+
+    def generate_chunk_hash(chunk_text):
+        """Gera hash único para deduplicação de chunks."""
+        # Remove espaços e normaliza para comparação
+        normalized = re.sub(r'\s+', '', chunk_text.lower())
+        return hash(normalized[:Config.DEDUPLICATION_HASH_LENGTH])
+
+    def add_unique_chunk_to_context(chunk_text, source_info):
+        """
+        Adiciona chunk ao contexto com controle de tokens e deduplicação.
+        """
+        nonlocal full_context, current_token_count, chunks_processed
+        
+        # 1. Verificação de deduplicação
+        chunk_hash = generate_chunk_hash(chunk_text)
+        if chunk_hash in unique_chunks_content:
+            logger.debug(f"Chunk duplicado ignorado: {source_info[:50]}...")
+            return "DUPLICATE"
+        
+        # 2. Estimativa de tokens
+        estimated_chunk_tokens = estimate_tokens(chunk_text)
+        estimated_source_tokens = estimate_tokens(source_info)
+        total_estimated_tokens = estimated_chunk_tokens + estimated_source_tokens + 10  # Buffer
+        
+        # 3. Verificação de limite de tokens
+        if current_token_count + total_estimated_tokens > Config.MAX_CONTEXT_TOKENS:
+            logger.warning(f"Limite de tokens atingido. Atual: {current_token_count}, Tentando adicionar: {total_estimated_tokens}")
+            return "LIMIT_REACHED"
+        
+        # 4. Verificação de limite de chunks por tópico
+        if chunks_processed >= Config.MAX_CHUNKS_PER_TOPIC * len(plan.get("topicos", [])):
+            logger.info(f"Limite máximo de chunks atingido: {chunks_processed}")
+            return "MAX_CHUNKS_REACHED"
+        
+        # 5. Adiciona ao contexto
+        unique_chunks_content.add(chunk_hash)
+        full_context += f"--- {source_info} ---\n{chunk_text}\n\n"
+        current_token_count += total_estimated_tokens
+        chunks_processed += 1
+        
+        # 6. Extrai nome do documento para tracking
+        if "(Doc: " in source_info and ")" in source_info:
+            try:
+                doc_name = source_info.split("(Doc: ")[1].split(")")[0]
+                all_retrieved_docs.add(doc_name)
+            except IndexError:
+                logger.warning(f"Não foi possível extrair nome do documento de: {source_info}")
+        
+        logger.debug(f"Chunk adicionado. Tokens atuais: {current_token_count}, Chunks: {chunks_processed}")
+        return "SUCCESS"
+
+    # Processamento principal
+    for empresa in plan.get("empresas", []):
+        searchable_company_name = normalize_name(empresa).split(' ')[0]
+        logger.info(f"Processando empresa: {empresa}")
+        
+        if query_intent == 'item_8_4_query':
+            # --- LÓGICA ESPECÍFICA PARA ITEM 8.4 ---
             full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
             
             if 'item_8_4' in artifacts:
+                full_context += f"=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n"
+                
                 artifact_data = artifacts['item_8_4']
                 chunk_data = artifact_data['chunks']
+                item_84_chunks_added = 0
                 
-                empresa_chunks_8_4 = []
                 for i, mapping in enumerate(chunk_data.get('map', [])):
                     document_path = mapping['document_path']
-                    if re.search(re.escape(empresa.split(' ')[0]), document_path, re.IGNORECASE):
+                    if searchable_company_name in document_path.lower():
                         chunk_text = chunk_data["chunks"][i]
-                        all_retrieved_docs.add(str(document_path))
-                        empresa_chunks_8_4.append({
-                            'text': chunk_text,
-                            'path': document_path,
-                            'index': i
-                        })
+                        
+                        result = add_unique_chunk_to_context(
+                            chunk_text, 
+                            f"Chunk Item 8.4 (Doc: {document_path})"
+                        )
+                        
+                        if result == "LIMIT_REACHED":
+                            st.warning(f"⚠️ Limite de tokens atingido para {empresa}. Resultado pode estar incompleto.")
+                            break
+                        elif result == "MAX_CHUNKS_REACHED":
+                            st.info(f"ℹ️ Limite máximo de chunks atingido para {empresa}.")
+                            break
+                        elif result == "SUCCESS":
+                            item_84_chunks_added += 1
                 
-                full_context += f"=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n"
-                for chunk_info in empresa_chunks_8_4:
-                    full_context += f"--- Chunk Item 8.4 (Doc: {chunk_info['path']}) ---\n"
-                    full_context += f"{chunk_info['text']}\n\n"
-                
+                logger.info(f"Item 8.4: {item_84_chunks_added} chunks adicionados para {empresa}")
                 full_context += f"=== FIM DA SEÇÃO ITEM 8.4 - {empresa.upper()} ===\n\n"
             
-            # Busca complementar
+            # Busca complementar com controle de tokens
             complementary_indices = [idx for idx in artifacts.keys() if idx != 'item_8_4']
             
-            for topico in plan.get("topicos", [])[:10]:
+            for topico_idx, topico in enumerate(plan.get("topicos", [])[:10]):
+                if current_token_count >= Config.MAX_CONTEXT_TOKENS * 0.9:  # Para em 90% do limite
+                    logger.warning(f"Parando busca complementar - próximo ao limite de tokens")
+                    break
+                
                 expanded_terms = expand_search_terms(topico)
                 
-                for term in expanded_terms[:5]:
+                for term_idx, term in enumerate(expanded_terms[:5]):
                     search_query = f"item 8.4 {term} empresa {empresa}"
                     
                     for index_name in complementary_indices:
                         if index_name in artifacts:
-                            artifact_data = artifacts[index_name]
-                            index = artifact_data['index']
-                            chunk_data = artifact_data['chunks']
-                            
                             try:
+                                artifact_data = artifacts[index_name]
+                                index = artifact_data['index']
+                                chunk_data = artifact_data['chunks']
+                                
                                 query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                                 scores, indices = index.search(query_embedding, 3)
                                 
                                 chunks_found = 0
                                 for i, idx in enumerate(indices[0]):
-                                    if idx != -1 and idx < len(chunk_data.get("chunks", [])) and scores[0][i] > 0.5:
+                                    if idx != -1 and idx < len(chunk_data.get("chunks", [])) and scores[0][i] > Config.SCORE_THRESHOLD_ITEM_84:
                                         document_path = chunk_data["map"][idx]['document_path']
-                                        if re.search(re.escape(empresa.split(' ')[0]), document_path, re.IGNORECASE):
+                                        if searchable_company_name in document_path.lower():
                                             chunk_text = chunk_data["chunks"][idx]
                                             
-                                            chunk_hash = hash(chunk_text[:100])
-                                            if chunk_hash not in all_retrieved_docs:
-                                                all_retrieved_docs.add(chunk_hash)
-                                                score = scores[0][i]
-                                                full_context += f"--- Contexto COMPLEMENTAR para '{topico}' via '{term}' (Fonte: {index_name}, Score: {score:.3f}) ---\n{chunk_text}\n\n"
+                                            result = add_unique_chunk_to_context(
+                                                chunk_text,
+                                                f"Contexto COMPLEMENTAR para '{topico}' via '{term}' (Fonte: {index_name}, Score: {scores[0][i]:.3f})"
+                                            )
+                                            
+                                            if result == "LIMIT_REACHED":
+                                                logger.warning(f"Limite de tokens atingido na busca complementar")
+                                                break
+                                            elif result == "SUCCESS":
                                                 chunks_found += 1
                                 
-                                if chunks_found > 0:
+                                if chunks_found > 0 or current_token_count >= Config.MAX_CONTEXT_TOKENS * 0.8:
                                     break
+                                    
                             except Exception as e:
-                                st.error(f"Erro na busca semântica: {e}")
+                                logger.error(f"Erro na busca complementar em {index_name}: {e}")
                                 continue
                     
-                    if chunks_found > 0:
+                    if chunks_found > 0 or current_token_count >= Config.MAX_CONTEXT_TOKENS * 0.8:
                         break
             
             full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-    
-    else:
-        # Busca geral com tags e expansão de termos
-        for empresa in plan.get("empresas", []):
+        
+        else:
+            # --- LÓGICA PARA BUSCA GERAL ---
             full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
             
             # Busca por tags específicas
@@ -250,21 +340,35 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
                 target_tags.extend(expanded_terms)
             
             target_tags = list(set([tag.title() for tag in target_tags if len(tag) > 3]))
-            
             tagged_chunks = search_by_tags(artifacts, empresa, target_tags)
             
             if tagged_chunks:
                 full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
+                tags_chunks_added = 0
+                
                 for chunk_info in tagged_chunks:
-                    full_context += f"--- Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']}) ---\n"
-                    full_context += f"{chunk_info['text']}\n\n"
-                    all_retrieved_docs.add(str(chunk_info['path']))
+                    result = add_unique_chunk_to_context(
+                        chunk_info['text'], 
+                        f"Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']})"
+                    )
+                    
+                    if result == "LIMIT_REACHED":
+                        st.warning(f"⚠️ Limite de tokens atingido nos chunks com tags para {empresa}")
+                        break
+                    elif result == "SUCCESS":
+                        tags_chunks_added += 1
+                
+                logger.info(f"Tags: {tags_chunks_added} chunks adicionados para {empresa}")
                 full_context += f"=== FIM DOS CHUNKS COM TAGS - {empresa.upper()} ===\n\n"
             
-            # Busca semântica complementar
+            # Busca semântica complementar com controle rigoroso
             indices_to_search = list(artifacts.keys())
             
             for topico in plan.get("topicos", []):
+                if current_token_count >= Config.MAX_CONTEXT_TOKENS * 0.85:  # Para em 85% para busca geral
+                    logger.warning(f"Parando busca semântica - próximo ao limite de tokens")
+                    break
+                
                 expanded_terms = expand_search_terms(topico)
                 
                 for term in expanded_terms[:3]:
@@ -273,31 +377,36 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
                     chunks_found = 0
                     for index_name in indices_to_search:
                         if index_name in artifacts:
-                            artifact_data = artifacts[index_name]
-                            index = artifact_data['index']
-                            chunk_data = artifact_data['chunks']
-                            
                             try:
+                                artifact_data = artifacts[index_name]
+                                index = artifact_data['index']
+                                chunk_data = artifact_data['chunks']
+                                
                                 query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                                 scores, indices = index.search(query_embedding, TOP_K_SEARCH)
                                 
                                 for i, idx in enumerate(indices[0]):
-                                    if idx != -1 and scores[0][i] > 0.4:
+                                    if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                                         document_path = chunk_data["map"][idx]['document_path']
-                                        if re.search(re.escape(empresa.split(' ')[0]), document_path, re.IGNORECASE):
+                                        if searchable_company_name in document_path.lower():
                                             chunk_text = chunk_data["chunks"][idx]
                                             
-                                            chunk_hash = hash(chunk_text[:100])
-                                            if chunk_hash not in all_retrieved_docs:
-                                                all_retrieved_docs.add(chunk_hash)
-                                                score = scores[0][i]
-                                                full_context += f"--- Contexto para '{topico}' via '{term}' (Fonte: {index_name}, Score: {score:.3f}) ---\n{chunk_text}\n\n"
+                                            result = add_unique_chunk_to_context(
+                                                chunk_text,
+                                                f"Contexto para '{topico}' via '{term}' (Fonte: {index_name}, Score: {scores[0][i]:.3f})"
+                                            )
+                                            
+                                            if result == "LIMIT_REACHED":
+                                                logger.warning(f"Limite de tokens atingido na busca semântica")
+                                                break
+                                            elif result == "SUCCESS":
                                                 chunks_found += 1
                                 
                                 if chunks_found > 0:
                                     break
+                                    
                             except Exception as e:
-                                st.error(f"Erro na busca semântica: {e}")
+                                logger.error(f"Erro na busca semântica em {index_name}: {e}")
                                 continue
                     
                     if chunks_found > 0:
@@ -305,7 +414,17 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
             
             full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
     
-    return full_context, [str(doc) for doc in all_retrieved_docs]
+    # Verificação final
+    if not unique_chunks_content:
+        logger.warning("Nenhum chunk único encontrado")
+        return "Nenhuma informação única encontrada para os critérios especificados.", set()
+
+    # Log de estatísticas finais
+    logger.info(f"Processamento concluído - Tokens: {current_token_count}/{Config.MAX_CONTEXT_TOKENS}, "
+                f"Chunks únicos: {len(unique_chunks_content)}, Documentos: {len(all_retrieved_docs)}")
+    
+    return full_context, all_retrieved_docs
+
 
 
 # MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
