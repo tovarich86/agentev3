@@ -537,31 +537,30 @@ def main():
     st.header("💬 Faça sua pergunta")
 
     with st.expander("💡 Entenda como funciona e veja dicas para perguntas ideais"):
-        st.markdown("""
-        **Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) usando documentos públicos das empresas listadas.**
+    st.markdown("""
+    **Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) de empresas listadas.**
 
-        ### Formatos de Pergunta Recomendados
+    **Dica de Ouro:** Para máxima precisão, use **termos-chave** na sua pergunta. O agente prioriza estes termos para uma busca focada e rápida.
 
-        **1. Perguntas Específicas** *(formato ideal)*
-        Combine tópicos + empresas para análises direcionadas:
-        - *"Qual a liquidação e dividendos da **Vale**?"*
-        - *"Vesting da **Petrobras**"*
-        - *"Ajustes de preço da **Ambev**"*
-        - *"Período de lockup da **Magalu**"*
-        - *"Condições de carência **YDUQS**"*
+    ---
 
-        **2. Visão Geral (Item 8.4)**
-        Solicite a seção completa do Formulário de Referência:
-        - *"Item 8.4 da **Vibra**"*
-        - *"Resumo 8.4 da **Raia Drogasil**"*
-        - *"Formulário completo da **WEG**"*
+    #### **1. Para Análises Precisas (Método Ideal)**
+    Combine um **termo-chave** com os nomes das empresas.
 
-        **3. Análise Comparativa**
-        Compare características entre empresas:
-        - *"Liquidação **Localiza** vs **Movida**"*
-        - *"Dividendos **Eletrobras** vs **Energisa**"*
-        - *"Matching **Natura** vs **Gerdau**"*
-        """)
+    * **Análise de uma empresa:**
+        * *"Qual o período de **lockup** da Magalu?"*
+        * *"Como funciona o **vesting** da Petrobras?"*
+    * **Análise Comparativa:**
+        * *"Compare o **matching** da Natura com a Minerva."*
+        * *"**Dividendos**: Eletrobras vs Energisa"*
+
+    #### **2. Para uma Visão Geral Completa**
+    Peça pelo **Item 8.4** para obter o resumo estruturado do Formulário de Referência.
+    * *"Item 8.4 completo da Vibra"*
+    * *"Resumo 8.4 da Raia Drogasil"*
+
+     **Principais Termos-Chave:** `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Liquidação`.
+    """)
 
     user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale com a Petrobras")
 
