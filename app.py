@@ -508,7 +508,7 @@ def main():
             **🎯 Análises específicas:**
             - "Fale sobre o vesting e dividendos da CCR"
             - "Como funciona a liquidação na Vibra?"
-            - "Quais são os critérios de exercício da Petrobras?"
+            - "Quais são os critérios de exercício da Vale?"
             """)
         
         with col2:
