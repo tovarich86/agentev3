@@ -32,13 +32,22 @@ MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 GOOGLE_DRIVE_PATH = './dados'
 
 TERMOS_TECNICOS_LTIP = {
-    "tratamento de dividendos": ["tratamento de dividendos", "equivalente em dividendos", "dividendos", "juros sobre capital próprio", "proventos", "dividend equivalent", "dividendos pagos em ações", "ajustes por dividendos"],
-    "preço de exercício": ["preço de exercício", "strike price", "preço de compra", "preço fixo", "valor de exercício", "preço pré-estabelecido", "preço de aquisição"],
-    "forma de liquidação": ["forma de liquidação", "liquidação", "pagamento", "entrega física", "pagamento em dinheiro", "transferência de ações", "settlement"],
-    "vesting": ["vesting", "período de carência", "carência", "aquisição de direitos", "cronograma de vesting", "vesting schedule", "período de cliff"],
-    "eventos corporativos": ["eventos corporativos", "desdobramento", "grupamento", "dividendos pagos em ações", "bonificação", "split", "ajustes", "reorganização societária"],
-    "stock options": ["stock options", "opções de ações", "opções de compra", "SOP", "plano de opções", "ESOP", "opção de compra de ações"],
-    "ações restritas": ["ações restritas", "restricted shares", "RSU", "restricted stock units", "ações com restrição", "plano de ações restritas"]
+    "Ações Restritas": ["Restricted Shares", "Plano de Ações Restritas", "Outorga de Ações", "ações restritas"],
+    "Opções de Compra de Ações": ["Stock Options", "ESOP", "Plano de Opção de Compra", "Outorga de Opções", "opções", "Plano de Opção", "Plano de Opções"],
+    "Ações Fantasmas": ["Phantom Shares", "Ações Virtuais"],
+    "Opções Fantasmas (SAR)": ["Phantom Options", "SAR", "Share Appreciation Rights", "Direito à Valorização de Ações"],
+    "Bônus Diferido": ["Staying Bonus", "Retention Bonus", "Bônus de Permanência", "Bônus de Retenção", "bônus"],
+    "Planos com Condição de Performance": ["Performance Shares", "Performance Stock Options", "Plano de Desempenho", "Metas de Performance", "performance", "desempenho"],
+    "Vesting": ["Período de Carência", "Condições de Carência", "Aquisição de Direitos", "carência"],
+    "Antecipação de Vesting": ["Vesting Acelerado", "Accelerated Vesting", "Cláusula de Aceleração", "antecipação de carência", "antecipação do vesting", "antecipação"],
+    "Tranche / Lote": ["Tranche", "Lote", "Parcela do Vesting"],
+    "Cliff": ["Cliff Period", "Período de Cliff", "Carência Inicial"],
+    "Matching": ["Contrapartida", "Co-investimento", "Plano de Matching", "matching", "investimento"],
+    "Lockup": ["Período de Lockup", "Restrição de Venda", "lockup"],
+    "Estrutura do Plano/Programa": ["Plano", "Planos", "Programa", "Programas"],
+    "Ciclo de Vida do Exercício": ["pagamento", "liquidação", "vencimento", "expiração"],
+    "Eventos Corporativos": ["IPO", "grupamento", "desdobramento", "bonificações", "bonificação"],
+    "Encargos": ["Encargos", "Impostos", "Tributação", "Natureza Mercantil", "Natureza Remuneratória", "INSS", "IRRF"],
 }
 AVAILABLE_TOPICS = [
     "termos e condições gerais", "data de aprovação e órgão responsável", "número máximo de ações abrangidas", "número máximo de opções a serem outorgadas", "condições de aquisição de ações", "critérios para fixação do preço de aquisição ou exercício", "preço de exercício", "strike price", "critérios para fixação do prazo de aquisição ou exercício", "forma de liquidação", "liquidação", "pagamento", "restrições à transferência das ações", "critérios e eventos de suspensão/extinção", "efeitos da saída do administrador", "Tipos de Planos", "Condições de Carência", "Vesting", "período de carência", "cronograma de vesting", "Matching", "contrapartida", "co-investimento", "Lockup", "período de lockup", "restrição de venda", "Tratamento de Dividendos", "equivalente em dividendos", "proventos", "Stock Options", "opções de ações", "SOP", "Ações Restritas", "RSU", "restricted shares", "Eventos Corporativos", "IPO", "grupamento", "desdobramento"
@@ -71,8 +80,9 @@ def search_by_tags(artifacts, company_name, target_tags):
         chunk_data = artifact_data['chunks']
         for i, mapping in enumerate(chunk_data.get('map', [])):
             document_path = mapping['document_path']
-            if re.search(re.escape(company_name.split(' ')[0]), document_path, re.IGNORECASE):
+            if document_path.lower().startswith(company_name.lower()):
                 chunk_text = chunk_data["chunks"][i]
+                
                 for tag in target_tags:
                     if f"Tópicos:" in chunk_text and tag in chunk_text:
                         results.append({'text': chunk_text, 'path': document_path, 'source': index_name, 'tag_found': tag})
@@ -122,10 +132,17 @@ def create_dynamic_analysis_plan(_query, company_catalog, available_indices):
             for suffix in suffixes: name = re.sub(suffix, '', name, flags=re.IGNORECASE)
             return re.sub(r'\s+', '', name).strip()
         except Exception: return name.lower()
-    mentioned_companies = []; query_clean = _query.lower().strip()
+    query_words = set(re.findall(r'\b\w{3,}\b', _query.lower())) # Pega palavras com 3+ letras da pergunta
+    mentioned_companies = []
     for canonical_name in company_catalog:
-        if (canonical_name.lower() in query_clean or any(len(part) > 2 and re.search(r'\b' + re.escape(part.lower()) + r'\b', query_clean) for part in canonical_name.split(' ')) or (len(query_clean) > 2 and normalize_name(query_clean) in normalize_name(canonical_name))):
-            if canonical_name not in mentioned_companies: mentioned_companies.append(canonical_name)
+        # Verifica se alguma palavra da pergunta está no nome da empresa
+        # Isso é mais direto e menos propenso a erros
+        company_name_lower = canonical_name.lower()
+        for word in query_words:
+            if word in company_name_lower:
+                if canonical_name not in mentioned_companies:
+                    mentioned_companies.append(canonical_name)
+                break # Evita adicionar a mesma empresa várias vezes
     if not mentioned_companies and len(query_clean) <= 6:
         for canonical_name in company_catalog:
             if query_clean.upper() in canonical_name.upper():
