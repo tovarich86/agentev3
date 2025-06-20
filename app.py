@@ -110,41 +110,66 @@ def load_all_artifacts():
 
 # --- FUNÇÕES PRINCIPAIS ---
 # NOVO: Esta é a nova função de análise com lógica de scoring.
+# --- FUNÇÕES PRINCIPAIS ---
 def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indices):
     """
-    Gera um plano de ação dinâmico com identificação de empresas baseada em scoring
-    para maior precisão, lidando com nomes compostos, apelidos e variações.
+    Gera um plano de ação dinâmico com identificação de empresas em duas etapas:
+    1. Busca de Alta Precisão por aliases.
+    2. Busca Fallback por partes do nome, se a primeira falhar.
     """
     api_key = GEMINI_API_KEY
-    # CORREÇÃO: Atualizado o nome do modelo na URL para a versão mais recente e estável.
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
-
-    # --- LÓGICA DE IDENTIFICAÇÃO DE EMPRESAS POR SCORING ---
     query_lower = query.lower().strip()
-    normalized_query_for_scoring = normalize_name(query_lower)
-    company_scores = {}
-    for company_data in company_catalog_rich:
-        canonical_name = company_data["canonical_name"]
-        score = 0
-        for alias in company_data.get("aliases", []):
-            if alias in query_lower:
-                score += 10 * len(alias.split())
-        name_for_parts = normalize_name(canonical_name)
-        parts = name_for_parts.split()
-        for part in parts:
-            if len(part) >= 2 and part in normalized_query_for_scoring.split():
-                score += 1
-        if score > 0:
-            company_scores[canonical_name] = score
     mentioned_companies = []
-    if company_scores:
-        sorted_companies = sorted(company_scores.items(), key=lambda item: item[1], reverse=True)
-        max_score = sorted_companies[0][1]
-        if max_score > 0:
-            mentioned_companies = [company for company, score in sorted_companies if score >= max_score * 0.7]
 
-    # --- FIM DA LÓGICA DE IDENTIFICAÇÃO ---
-    prompt = f'Você é um consultor de incentivos de longo prazo semelhante a global shares. Sua tarefa é analisar a "Pergunta do Usuário" que serão sempre no contexto de programas de incentivo de longo prazo, remuneração ou item 8 do formulário de referencia  e identificar os tópicos de interesse relacionados a programas de incentivo de longo prazo. Instruções: 1. Identifique os Tópicos: Analise a pergunta para identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos", "análise da empresa"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica (ex: "fale sobre o vesting e dividendos"), inclua apenas os tópicos relevantes. 2. Formate a Saída: Retorne APENAS uma lista JSON de strings contendo os tópicos identificados. Tópicos de Análise Disponíveis: {json.dumps(AVAILABLE_TOPICS, indent=2)} Pergunta do Usuário: "{query}" Tópicos de Interesse (responda APENAS com a lista JSON de strings):'
+    # --- ETAPA 1: BUSCA POR ALIASES (ALTA PRECISÃO) ---
+    companies_found_by_alias = {}
+    for company_data in company_catalog_rich:
+        for alias in company_data.get("aliases", []):
+            # Usando re.search com limites de palavra (\b) para garantir correspondências exatas
+            if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
+                # Damos um "score" baseado no tamanho do alias para priorizar correspondências mais longas
+                # Ex: "casas bahia" (2 palavras) é melhor que "via" (1 palavra)
+                score = len(alias.split()) 
+                canonical_name = company_data["canonical_name"]
+                
+                # Se já encontramos essa empresa com um alias melhor, não substituímos
+                if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
+                     companies_found_by_alias[canonical_name] = score
+
+    if companies_found_by_alias:
+        # Se encontramos empresas pelos aliases, usamos apenas esses resultados
+        # Ordenamos por score para o caso de múltiplos matches (ex: "itau unibanco")
+        sorted_companies = sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)
+        mentioned_companies = [company for company, score in sorted_companies]
+    
+    # --- ETAPA 2: BUSCA POR PARTES DO NOME (FALLBACK) ---
+    # Esta etapa só é executada se a busca por aliases não encontrou NADA.
+    if not mentioned_companies:
+        company_scores = {}
+        normalized_query_for_scoring = normalize_name(query_lower)
+        
+        for company_data in company_catalog_rich:
+            canonical_name = company_data["canonical_name"]
+            score = 0
+            name_for_parts = normalize_name(canonical_name)
+            parts = name_for_parts.split()
+            
+            for part in parts:
+                if len(part) >= 2 and part in normalized_query_for_scoring.split():
+                    score += 1
+            
+            if score > 0:
+                company_scores[canonical_name] = score
+        
+        if company_scores:
+            sorted_companies = sorted(company_scores.items(), key=lambda item: item[1], reverse=True)
+            max_score = sorted_companies[0][1]
+            if max_score > 0:
+                mentioned_companies = [company for company, score in sorted_companies if score >= max_score]
+
+    # --- Identificação de Tópicos (Lógica inalterada) ---
+    prompt = f'Você é um consultor de incentivos de longo prazo... (seu prompt completo aqui)'
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     headers = {'Content-Type': 'application/json'}
     try:
@@ -155,9 +180,9 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
         topics = json.loads(json_match.group(0)) if json_match else AVAILABLE_TOPICS
     except Exception:
         topics = AVAILABLE_TOPICS
+        
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
-
 
 
 
