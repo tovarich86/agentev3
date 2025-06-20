@@ -322,12 +322,12 @@ Você é um analista financeiro sênior especializado em Formulários de Referê
 def main():
     st.set_page_config(
         page_title="Agente de Análise LTIP",
-        page_icon="🔍",
+        page_icon="f"🤖",
         layout="wide",
         initial_sidebar_state="expanded"
     )
     
-    st.title("🤖 M Agente de Análise de Planos de Incentivo Longo Prazo ILP")
+    st.title("🤖 Agente de Análise de Planos de Incentivo Longo Prazo ILP")
     st.markdown("---")
     
     # Carrega os artefatos
@@ -356,7 +356,7 @@ def main():
         st.markdown("---")
         st.markdown("### 🔧 Status do Sistema")
         st.success("✅ Sistema carregado")
-        st.info(f"🤖 Modelo: {MODEL_NAME}")
+        st.info(f"Modelo: {MODEL_NAME}")
     
     # Interface principal
     st.header("💬 Faça sua pergunta")
@@ -378,7 +378,7 @@ def main():
             **📋 Análises completas:**
             - "Mostre o item 8.4 completo da Vibra"
             - "Compare os planos entre CCR e Vibra"
-            - "Resumo dos planos de stock options"
+            - "Resumo dos planos de stock options Alpargatas"
             """)
     
     # Input da pergunta
