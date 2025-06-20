@@ -272,6 +272,58 @@ def main():
         st.info(f"Modelo: {MODEL_NAME}")
 
     st.header("💬 Faça sua pergunta")
+    # Na sua função main(), logo após o st.header("💬 Faça sua pergunta")
+
+with st.expander("💡 Entenda como funciona e veja dicas para perguntas ideais"):
+    st.markdown("""
+    Este agente é um especialista treinado para analisar Planos de Incentivo de Longo Prazo (ILPs) a partir dos documentos públicos (como o Formulário de Referência) das empresas listadas.
+
+    #### Tipos de Análise que o Agente Realiza:
+
+    O processo de análise ocorre em três etapas inteligentes:
+
+    1.  **🧠 Compreensão da Pergunta:** Primeiro, o agente identifica com alta precisão a(s) empresa(s) e os tópicos de interesse na sua pergunta. Ele é capaz de reconhecer nomes oficiais, apelidos (como "Magalu" ou "Vivo") e marcas famosas (como "Havaianas" ou "Riachuelo").
+    2.  **🔍 Busca Inteligente nos Documentos:** Com o plano definido, o agente realiza uma busca profunda nos arquivos.
+        - **Análise do Item 8.4:** Se você pedir especificamente pelo "item 8.4", o agente fará uma leitura completa e detalhada desta seção no documento da empresa.
+        - **Análise por Tópico:** Para perguntas gerais, ele busca por trechos e seções que foram pré-identificados com os tópicos do seu interesse (ex: Vesting, Lockup, etc.), garantindo respostas contextuais.
+    3.  **✍️ Síntese e Relatório:** Por fim, o agente entrega todo o material encontrado para a IA Generativa (Google Gemini), que atua como um analista financeiro sênior para redigir um relatório detalhado e estruturado, baseando-se **exclusivamente** nas informações contidas nos documentos.
+
+    #### Limitações Atuais:
+
+    É importante conhecer os limites do agente para usar seu potencial ao máximo:
+
+    * **Fonte de Dados:** O conhecimento do agente é **restrito aos documentos que foram carregados no sistema**. Ele não possui acesso à internet em tempo real e não sabe sobre eventos ou planos que não estejam nesta base.
+    * **Não é um Consultor:** O agente **não emite opiniões, conselhos de investimento ou previsões**. Sua função é localizar, extrair e resumir informações existentes.
+    * **Data dos Documentos:** A validade das respostas está diretamente ligada à data dos formulários de referência na base de dados. Sempre verifique as fontes citadas ao final da análise.
+    * **Ambiguidade:** Perguntas muito vagas podem gerar respostas imprecisas. Quanto mais clara e específica for a sua pergunta, melhor será o resultado.
+
+    ---
+    
+    ### ✨ Dicas para Perguntas Ideais
+
+    Para obter os melhores resultados, utilize um dos formatos abaixo.
+
+    #### 1. Perguntas Específicas sobre Tópicos (Melhor formato)
+    *Combine um ou mais tópicos com uma ou mais empresas.*
+    - "Qual a forma de liquidação e o tratamento de dividendos da **Vale**?"
+    - "Descreva o cronograma de vesting dos planos da **Petrobras**."
+    - "Como a **Ambev** ajusta o preço de exercício em caso de eventos corporativos?"
+    - "Fale sobre o período de lockup para os executivos da **Magalu**."
+    - "Quais são as condições de carência para as ações restritas da **YDUQS**?"
+
+    #### 2. Perguntas de Visão Geral do Plano (Item 8.4)
+    *Peça pela seção completa do Formulário de Referência para ter uma visão geral.*
+    - "Me mostre o **item 8.4** completo da **Vibra Energia**."
+    - "Faça um resumo do **formulário de referência, seção 8.4**, da **Raia Drogasil**."
+    - "Resuma o item 8.4 da **WEG**."
+
+    #### 3. Perguntas Comparativas
+    *Compare características específicas entre duas ou mais empresas.*
+    - "Compare as condições de vesting e carência entre **Itaú** e **Santander**."
+    - "Quais as diferenças na forma de liquidação dos planos da **Localiza** e da **Movida**?"
+    - "Compare o tratamento de dividendos da **Eletrobras** com o da **Energisa**."
+
+    """)
     user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Fale sobre o vesting da Magalu ou planos da Vibra Energia")
     
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
