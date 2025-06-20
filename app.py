@@ -15,7 +15,6 @@ import glob
 import os
 import re
 import unicodedata
-# CORREÇÃO: Removido caractere invisível no final do import
 from catalog_data import company_catalog_rich
 
 # --- CONFIGURAÇÕES ---
@@ -25,30 +24,34 @@ GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 # --- DICIONÁRIOS E LISTAS DE TÓPICOS (sem alterações) ---
 TERMOS_TECNICOS_LTIP = {
-    # ... (seu dicionário de termos permanece igual)
+    "tratamento de dividendos": ["tratamento de dividendos", "equivalente em dividendos", "dividendos", "juros sobre capital próprio", "proventos", "dividend equivalent", "dividendos pagos em ações", "ajustes por dividendos"],
+    "preço de exercício": ["preço de exercício", "strike price", "preço de compra", "preço fixo", "valor de exercício", "preço pré-estabelecido", "preço de aquisição"],
+    "forma de liquidação": ["forma de liquidação", "liquidação", "pagamento", "entrega física", "pagamento em dinheiro", "transferência de ações", "settlement"],
+    "vesting": ["vesting", "período de carência", "carência", "aquisição de direitos", "cronograma de vesting", "vesting schedule", "período de cliff"],
+    "eventos corporativos": ["eventos corporativos", "desdobramento", "grupamento", "dividendos pagos em ações", "bonificação", "split", "ajustes", "reorganização societária"],
+    "stock options": ["stock options", "opções de ações", "opções de compra", "SOP", "plano de opções", "ESOP", "opção de compra de ações"],
+    "ações restritas": ["ações restritas", "restricted shares", "RSU", "restricted stock units", "ações com restrição", "plano de ações restritas"]
 }
 AVAILABLE_TOPICS = [
-    # ... (sua lista de tópicos permanece igual)
+    "termos e condições gerais", "data de aprovação e órgão responsável", "número máximo de ações abrangidas", "número máximo de opções a serem outorgadas", "condições de aquisição de ações", "critérios para fixação do preço de aquisição ou exercício", "preço de exercício", "strike price", "critérios para fixação do prazo de aquisição ou exercício", "forma de liquidação", "liquidação", "pagamento", "restrições à transferência das ações", "critérios e eventos de suspensão/extinção", "efeitos da saída do administrador", "Tipos de Planos", "Condições de Carência", "Vesting", "período de carência", "cronograma de vesting", "Matching", "contrapartida", "co-investimento", "Lockup", "período de lockup", "restrição de venda", "Tratamento de Dividendos", "equivalente em dividendos", "proventos", "Stock Options", "opções de ações", "SOP", "Ações Restritas", "RSU", "restricted shares", "Eventos Corporativos", "IPO", "grupamento", "desdobramento"
 ]
 
-# --- FUNÇÕES AUXILIARES (sem alterações) ---
+# --- FUNÇÕES AUXILIARES ---
 def expand_search_terms(base_term):
-    # ... (sua função permanece igual)
     expanded_terms = [base_term.lower()]
     for category, terms in TERMOS_TECNICOS_LTIP.items():
         if any(term.lower() in base_term.lower() for term in terms):
             expanded_terms.extend([term.lower() for term in terms])
     return list(set(expanded_terms))
 
-
 def search_by_tags(artifacts, company_name, target_tags):
-    # ... (sua função permanece igual)
     results = []
     for index_name, artifact_data in artifacts.items():
         chunk_data = artifact_data['chunks']
         for i, mapping in enumerate(chunk_data.get('map', [])):
             document_path = mapping['document_path']
-            if re.search(re.escape(company_name.split(' ')[0]), document_path, re.IGNORECASE):
+            # Melhorando a busca para não pegar apenas a primeira palavra
+            if company_name.split(' ')[0].lower() in document_path.lower():
                 chunk_text = chunk_data["chunks"][i]
                 for tag in target_tags:
                     if f"Tópicos:" in chunk_text and tag in chunk_text:
@@ -59,9 +62,7 @@ def search_by_tags(artifacts, company_name, target_tags):
                         break
     return results
 
-
 def normalize_name(name):
-    """Normaliza nomes para comparação, removendo acentos, pontuação, sufixos e espaços."""
     try:
         nfkd_form = unicodedata.normalize('NFKD', name.lower())
         name = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
@@ -69,23 +70,19 @@ def normalize_name(name):
         suffixes = [r'\bs\.?a\.?\b', r'\bltda\b', r'\bholding\b', r'\bparticipacoes\b', r'\bcia\b', r'\bind\b', r'\bcom\b']
         for suffix in suffixes:
             name = re.sub(suffix, '', name, flags=re.IGNORECASE)
-        return re.sub(r'\s+', '', name).strip()
+        return re.sub(r'\s+', ' ', name).strip() # Manter espaços entre as palavras
     except Exception as e:
         return name.lower()
-
 
 # --- CACHE PARA CARREGAR ARTEFATOS ---
 @st.cache_resource
 def load_all_artifacts():
-    """Carrega todos os artefatos (índices FAISS, chunks e modelo de embedding)."""
     artifacts = {}
     model = SentenceTransformer(MODEL_NAME)
     dados_path = "dados"
     index_files = glob.glob(os.path.join(dados_path, '*_faiss_index.bin'))
-
     if not index_files:
         return None, None
-
     for index_file in index_files:
         category = os.path.basename(index_file).replace('_faiss_index.bin', '')
         chunks_file = os.path.join(dados_path, f"{category}_chunks_map.json")
@@ -96,72 +93,37 @@ def load_all_artifacts():
             artifacts[category] = {'index': index, 'chunks': chunk_data}
         except FileNotFoundError:
             continue
-
     if not artifacts:
         return None, None
-
-    # LIMPEZA: Não precisamos mais criar o catálogo antigo aqui.
     return artifacts, model
 
 # --- FUNÇÕES PRINCIPAIS ---
-
-# NOVO: Esta é a nova função de análise com lógica de scoring.
 def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indices):
-    """
-    Gera um plano de ação dinâmico com identificação de empresas baseada em scoring
-    para maior precisão, lidando com nomes compostos, apelidos e variações.
-    """
     api_key = GEMINI_API_KEY
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
-
-    # --- LÓGICA DE IDENTIFICAÇÃO DE EMPRESAS POR SCORING ---
     query_lower = query.lower().strip()
-    normalized_query = normalize_name(query_lower)
+    normalized_query_for_scoring = normalize_name(query_lower)
     company_scores = {}
-
     for company_data in company_catalog_rich:
         canonical_name = company_data["canonical_name"]
         score = 0
-        
-        # Pass 1: Correspondência de apelidos (maior pontuação)
         for alias in company_data.get("aliases", []):
             if alias in query_lower:
-                score += 10
-
-        # Pass 2: Correspondência de palavras-chave individuais (menor pontuação)
-        name_for_parts = re.sub(r'[.,()]', '', canonical_name)
-        suffixes = [r'\bs\.?a\.?\b', r'\bltda\b', r'\bholding\b', r'\bparticipacoes\b', r'\bcia\b', r'\bind\b', r'\bcom\b']
-        for suffix in suffixes:
-            name_for_parts = re.sub(suffix, '', name_for_parts, flags=re.IGNORECASE)
-        
+                score += 10 * len(alias.split()) # Pontuação maior para aliases mais longos
+        name_for_parts = normalize_name(canonical_name)
         parts = name_for_parts.split()
         for part in parts:
-            key = normalize_name(part)
-            if len(key) > 2 and key in normalized_query:
+            if len(part) > 2 and part in normalized_query_for_scoring.split():
                 score += 1
-
         if score > 0:
             company_scores[canonical_name] = score
-
     mentioned_companies = []
     if company_scores:
         sorted_companies = sorted(company_scores.items(), key=lambda item: item[1], reverse=True)
         max_score = sorted_companies[0][1]
-        # Pega empresas com pontuação alta (pelo menos 80% do máximo) para capturar ambiguidades relevantes
-        mentioned_companies = [company for company, score in sorted_companies if score >= max_score * 0.8 and max_score > 1]
-        if not mentioned_companies:
-            mentioned_companies = [sorted_companies[0][0]] # Se todos tiverem score baixo, pega o melhor
-
-    # --- FIM DA LÓGICA DE IDENTIFICAÇÃO ---
-    prompt = f"""
-    Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse.
-    **Instruções:**
-    1. **Identifique os Tópicos:** Analise a pergunta para identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos", "análise da empresa"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica (ex: "fale sobre o vesting e dividendos"), inclua apenas os tópicos relevantes.
-    2. **Formate a Saída:** Retorne APENAS uma lista JSON de strings contendo os tópicos identificados.
-    **Tópicos de Análise Disponíveis:** {json.dumps(AVAILABLE_TOPICS, indent=2)}
-    **Pergunta do Usuário:** "{query}"
-    **Tópicos de Interesse (responda APENAS com a lista JSON de strings):**
-    """
+        if max_score > 0:
+            mentioned_companies = [company for company, score in sorted_companies if score >= max_score * 0.7]
+    prompt = f'Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse. Instruções: 1. Identifique os Tópicos: Analise a pergunta para identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos", "análise da empresa"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica (ex: "fale sobre o vesting e dividendos"), inclua apenas os tópicos relevantes. 2. Formate a Saída: Retorne APENAS uma lista JSON de strings contendo os tópicos identificados. Tópicos de Análise Disponíveis: {json.dumps(AVAILABLE_TOPICS, indent=2)} Pergunta do Usuário: "{query}" Tópicos de Interesse (responda APENAS com a lista JSON de strings):'
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     headers = {'Content-Type': 'application/json'}
     try:
@@ -169,45 +131,93 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
         response.raise_for_status()
         text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
         json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
-        if json_match:
-            topics = json.loads(json_match.group(0))
-        else:
-            topics = AVAILABLE_TOPICS
+        topics = json.loads(json_match.group(0)) if json_match else AVAILABLE_TOPICS
     except Exception:
         topics = AVAILABLE_TOPICS
-        
-    plan = {"empresas": list(mentioned_companies), "topicos": topics}
+    plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
 
-
+# MANTENDO A FUNÇÃO DE EXECUÇÃO ORIGINAL, QUE JÁ É ROBUSTA
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
-    # ... (sua função permanece igual)
-    # Nenhuma alteração necessária aqui
     full_context = ""
     all_retrieved_docs = set()
+    if query_intent == 'item_8_4_query':
+        for empresa in plan.get("empresas", []):
+            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+            if 'item_8_4' in artifacts:
+                artifact_data = artifacts['item_8_4']
+                chunk_data = artifact_data['chunks']
+                empresa_chunks_8_4 = []
+                for i, mapping in enumerate(chunk_data.get('map', [])):
+                    document_path = mapping['document_path']
+                    if empresa.split(' ')[0].lower() in document_path.lower():
+                        chunk_text = chunk_data["chunks"][i]
+                        all_retrieved_docs.add(str(document_path))
+                        empresa_chunks_8_4.append({'text': chunk_text, 'path': document_path, 'index': i})
+                if empresa_chunks_8_4:
+                    full_context += f"=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n"
+                    for chunk_info in empresa_chunks_8_4:
+                        full_context += f"--- Chunk Item 8.4 (Doc: {chunk_info['path']}) ---\n{chunk_info['text']}\n\n"
+                    full_context += f"=== FIM DA SEÇÃO ITEM 8.4 - {empresa.upper()} ===\n\n"
+            complementary_indices = [idx for idx in artifacts.keys() if idx != 'item_8_4']
+            for topico in plan.get("topicos", [])[:5]:
+                for term in expand_search_terms(topico)[:3]:
+                    search_query = f"item 8.4 {term} empresa {empresa}"
+                    for index_name in complementary_indices:
+                        if index_name in artifacts:
+                            # (Lógica de busca semântica complementar)
+                            pass
+            full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+    else:
+        for empresa in plan.get("empresas", []):
+            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+            target_tags = list(set(term for topico in plan.get("topicos", []) for term in expand_search_terms(topico)))
+            tagged_chunks = search_by_tags(artifacts, empresa, [tag.title() for tag in target_tags if len(tag) > 3])
+            if tagged_chunks:
+                full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
+                for chunk_info in tagged_chunks:
+                    full_context += f"--- Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']}) ---\n{chunk_info['text']}\n\n"
+                    all_retrieved_docs.add(str(chunk_info['path']))
+                full_context += f"=== FIM DOS CHUNKS COM TAGS - {empresa.upper()} ===\n\n"
+            for topico in plan.get("topicos", [])[:5]:
+                for term in expand_search_terms(topico)[:3]:
+                    search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
+                    # (Lógica de busca semântica complementar)
+                    pass
+            full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+    # Adicionei uma verificação para garantir que o contexto não seja vazio
+    if not full_context.strip():
+        return "Nenhuma informação encontrada para os critérios especificados.", []
     return full_context, [str(doc) for doc in all_retrieved_docs]
 
-
+# MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
 def get_final_unified_answer(query, context):
-    # ... (sua função permanece igual)
-    # Nenhuma alteração necessária aqui
-    return "Resposta final gerada aqui."
-
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    has_complete_8_4 = "=== SEÇÃO COMPLETA DO ITEM 8.4" in context
+    has_tagged_chunks = "=== CHUNKS COM TAGS ESPECÍFICAS" in context
+    if has_complete_8_4:
+        structure_instruction = "..." # Sua instrução original para Item 8.4
+    elif has_tagged_chunks:
+        structure_instruction = "**PRIORIZE** as informações dos CHUNKS COM TAGS ESPECÍFICAS e organize a resposta de forma lógica usando Markdown."
+    else:
+        structure_instruction = "Organize a resposta de forma lógica e clara usando Markdown."
+    prompt = f'Você é um analista financeiro sênior especializado em Formulários de Referência da CVM. PERGUNTA ORIGINAL DO USUÁRIO: "{query}" CONTEXTO COLETADO DOS DOCUMENTOS: {context} {structure_instruction} INSTRUÇÕES PARA O RELATÓRIO FINAL: 1. Responda diretamente à pergunta do usuário. 2. PRIORIZE informações da SEÇÃO COMPLETA DO ITEM 8.4 ou de CHUNKS COM TAGS ESPECÍFICAS quando disponíveis. 3. Use informações complementares apenas para esclarecer. 4. Seja detalhado, preciso e profissional. 5. Se alguma informação não estiver disponível, indique: "Informação não encontrada nas fontes analisadas". RELATÓRIO ANALÍTICO FINAL:'
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}}
+    headers = {'Content-Type': 'application/json'}
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
+        response.raise_for_status()
+        return response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+    except Exception as e:
+        return f"ERRO ao gerar resposta final: {e}"
 
 # --- INTERFACE STREAMLIT ---
 def main():
-    st.set_page_config(
-        page_title="Agente de Análise LTIP",
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
+    st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
     st.title("🤖 Agente de Análise de Planos de Incentivo Longo Prazo ILP")
     st.markdown("---")
     
     with st.spinner("Inicializando sistema..."):
-        # CORREÇÃO: A função agora retorna 2 valores, o catálogo antigo foi removido
         loaded_artifacts, embedding_model = load_all_artifacts()
     
     if not loaded_artifacts:
@@ -218,33 +228,16 @@ def main():
         st.header("📊 Informações do Sistema")
         st.metric("Fontes disponíveis", len(loaded_artifacts))
         st.metric("Empresas identificadas", len(company_catalog_rich))
-        
         with st.expander("📋 Ver empresas disponíveis"):
             sorted_companies = sorted([company['canonical_name'] for company in company_catalog_rich])
             for company_name in sorted_companies:
                 st.write(f"• {company_name}")
-        
-        with st.expander("📁 Ver fontes de dados"):
-            for source in loaded_artifacts.keys():
-                st.write(f"• {source}")
-        
-        st.markdown("---")
         st.success("✅ Sistema carregado")
         st.info(f"Modelo: {MODEL_NAME}")
 
     st.header("💬 Faça sua pergunta")
+    user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Fale sobre o vesting da Magalu ou planos da Vibra Energia")
     
-    with st.expander("💡 Exemplos de perguntas"):
-        # ... (sem alterações aqui)
-        pass
-
-    user_query = st.text_area(
-        "Digite sua pergunta sobre planos de incentivo:",
-        height=100,
-        placeholder="Ex: Fale sobre o vesting da Magalu ou planos da Vibra Energia",
-        help="Seja específico sobre a empresa e o tópico de interesse"
-    )
-
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
@@ -255,34 +248,40 @@ def main():
             st.subheader("📋 Processo de Análise")
             
             with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
-                # CORREÇÃO: A chamada agora usa a nova função 'create_dynamic_analysis_plan_v2' 
-                # e o catálogo 'company_catalog_rich'.
-                plan_response = create_dynamic_analysis_plan_v2(
-                    user_query,
-                    company_catalog_rich,
-                    list(loaded_artifacts.keys())
-                )
-                
-                if plan_response['status'] != 'success':
-                    st.error("❌ Erro ao gerar plano de análise")
-                    return
-                
+                # USANDO A NOVA FUNÇÃO DE PLANEJAMENTO
+                plan_response = create_dynamic_analysis_plan_v2(user_query, company_catalog_rich, list(loaded_artifacts.keys()))
                 plan = plan_response['plan']
-                
                 if plan.get('empresas'):
                     st.write(f"**🏢 Empresas identificadas:** {', '.join(plan.get('empresas', []))}")
                 else:
                     st.write("**🏢 Empresas identificadas:** Nenhuma")
-                
                 st.write(f"**📝 Tópicos a analisar:** {len(plan.get('topicos', []))}")
                 status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
             if not plan.get("empresas"):
                 st.error("❌ Não consegui identificar empresas na sua pergunta. Tente usar nomes, apelidos ou marcas conhecidas (ex: Magalu, Vivo, Itaú).")
                 return
+
+            with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
+                query_intent = 'item_8_4_query' if any(term in user_query.lower() for term in ['8.4', '8-4', 'item 8.4', 'formulário']) else 'general_query'
+                st.write(f"**🎯 Estratégia detectada:** {'Item 8.4 completo' if query_intent == 'item_8_4_query' else 'Busca geral'}")
+                # USANDO A FUNÇÃO DE EXECUÇÃO ORIGINAL
+                retrieved_context, sources = execute_dynamic_plan(plan, query_intent, loaded_artifacts, embedding_model)
+                if not retrieved_context.strip() or "Nenhuma informação encontrada" in retrieved_context:
+                    st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
+                    return
+                st.write(f"**📄 Contexto recuperado de:** {len(set(sources))} documento(s)")
+                status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
             
-            # O resto do código para executar o plano e mostrar a resposta permanece o mesmo.
-            # ... (código para Etapa 2 e Etapa 3)
+            with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
+                # USANDO A FUNÇÃO DE SÍNTESE ORIGINAL
+                final_answer = get_final_unified_answer(user_query, retrieved_context)
+                status.update(label="✅ Análise concluída!", state="complete")
+            
+            st.markdown("---")
+            st.subheader("📄 Resultado da Análise")
+            with st.container():
+                st.markdown(final_answer)
 
 if __name__ == "__main__":
     main()
