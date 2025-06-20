@@ -170,56 +170,53 @@ def load_all_artifacts():
 # --- FUNÇÕES PRINCIPAIS ---
 
 def create_dynamic_analysis_plan(query, company_catalog, available_indices):
-    """Gera um plano de ação dinâmico em JSON."""
+    """
+    Gera um plano de ação dinâmico em JSON com identificação robusta de empresas,
+    incluindo siglas e nomes curtos.
+    """
     api_key = GEMINI_API_KEY
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     
-    # Identificação robusta de empresas
-    mentioned_companies = []
-    query_clean = query.lower().strip()
+    # --- LÓGICA DE IDENTIFICAÇÃO DE EMPRESAS APRIMORADA (VERSÃO 2) ---
     
+    mentioned_companies = set()
+    query_lower = query.lower().strip()
+
+    # 1. Pré-processamento: Criar um mapa de busca de empresas.
+    company_search_map = {}
     for canonical_name in company_catalog:
-        found = False
+        # Adiciona o nome completo normalizado
+        normalized_full_name = normalize_name(canonical_name)
+        if normalized_full_name not in company_search_map:
+            company_search_map[normalized_full_name] = []
+        company_search_map[normalized_full_name].append(canonical_name)
+
+        # Adiciona partes significativas do nome (incluindo siglas)
+        name_for_parts = re.sub(r'[.,()]', '', canonical_name)
+        suffixes = [r'\bs\.?a\.?\b', r'\bltda\b', r'\bholding\b', r'\bparticipacoes\b', r'\bcia\b', r'\bind\b', r'\bcom\b']
+        for suffix in suffixes:
+            name_for_parts = re.sub(suffix, '', name_for_parts, flags=re.IGNORECASE)
         
-        # Busca exata
-        if canonical_name.lower() == query_clean:
-            mentioned_companies.append(canonical_name)
-            found = True
-            continue
-        
-        # Busca por substring
-        if canonical_name.lower() in query_clean:
-            mentioned_companies.append(canonical_name)
-            found = True
-            continue
-        
-        # Busca por partes do nome
-        company_parts = canonical_name.split(' ')
-        for part in company_parts:
-            if len(part) > 2 and re.search(r'\b' + re.escape(part.lower()) + r'\b', query_clean):
-                if canonical_name not in mentioned_companies:
-                    mentioned_companies.append(canonical_name)
-                    found = True
-                break
-        
-        if found:
-            continue
-        
-        # Busca simplificada
-        normalized_canonical = normalize_name(canonical_name)
-        normalized_query = normalize_name(query_clean)
-        
-        if normalized_query and len(normalized_query) > 2:
-            if normalized_query in normalized_canonical:
-                mentioned_companies.append(canonical_name)
-    
-    # Busca mais agressiva se não encontrou empresas
-    if not mentioned_companies:
-        for canonical_name in company_catalog:
-            if len(query_clean) <= 6:  # Provável sigla
-                if query_clean.upper() in canonical_name.upper():
-                    mentioned_companies.append(canonical_name)
-    
+        parts = name_for_parts.split()
+        for part in parts:
+            # CORREÇÃO: Alterado de len(part) > 3 para len(part) >= 2 para incluir B3, CCR, etc.
+            if len(part) >= 2:
+                key = normalize_name(part)
+                if key not in company_search_map:
+                    company_search_map[key] = []
+                if canonical_name not in company_search_map[key]:
+                    company_search_map[key].append(canonical_name)
+
+    # 2. Busca: Tokenizar a consulta do usuário e verificar cada token no mapa.
+    query_tokens = re.split(r'[\s,.-]+', query_lower)
+    for token in query_tokens:
+        normalized_token = normalize_name(token)
+        if normalized_token in company_search_map:
+            for company_name in company_search_map[normalized_token]:
+                mentioned_companies.add(company_name)
+
+    # --- FIM DA LÓGICA DE IDENTIFICAÇÃO ---
+
     prompt = f"""
 Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse.
 
@@ -244,150 +241,15 @@ Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuár
         json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
         if json_match:
             topics = json.loads(json_match.group(0))
-            plan = {"empresas": mentioned_companies, "topicos": topics}
+            plan = {"empresas": list(mentioned_companies), "topicos": topics}
             return {"status": "success", "plan": plan}
         else:
-            plan = {"empresas": mentioned_companies, "topicos": AVAILABLE_TOPICS}
+            plan = {"empresas": list(mentioned_companies), "topicos": AVAILABLE_TOPICS}
             return {"status": "success", "plan": plan}
     except Exception as e:
-        plan = {"empresas": mentioned_companies, "topicos": AVAILABLE_TOPICS}
+        plan = {"empresas": list(mentioned_companies), "topicos": AVAILABLE_TOPICS}
         return {"status": "success", "plan": plan}
-
-def execute_dynamic_plan(plan, query_intent, artifacts, model):
-    """Executa o plano de busca e recupera contexto relevante."""
-    full_context = ""
-    all_retrieved_docs = set()
-    
-    if query_intent == 'item_8_4_query':
-        # Busca exaustiva no item 8.4
-        for empresa in plan.get("empresas", []):
-            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-            
-            if 'item_8_4' in artifacts:
-                artifact_data = artifacts['item_8_4']
-                chunk_data = artifact_data['chunks']
-                
-                empresa_chunks_8_4 = []
-                for i, mapping in enumerate(chunk_data.get('map', [])):
-                    document_path = mapping['document_path']
-                    if re.search(re.escape(empresa.split(' ')[0]), document_path, re.IGNORECASE):
-                        chunk_text = chunk_data["chunks"][i]
-                        all_retrieved_docs.add(str(document_path))
-                        empresa_chunks_8_4.append({
-                            'text': chunk_text,
-                            'path': document_path,
-                            'index': i
-                        })
-                
-                full_context += f"=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n"
-                for chunk_info in empresa_chunks_8_4:
-                    full_context += f"--- Chunk Item 8.4 (Doc: {chunk_info['path']}) ---\n"
-                    full_context += f"{chunk_info['text']}\n\n"
-                
-                full_context += f"=== FIM DA SEÇÃO ITEM 8.4 - {empresa.upper()} ===\n\n"
-            
-            # Busca complementar
-            complementary_indices = [idx for idx in artifacts.keys() if idx != 'item_8_4']
-            
-            for topico in plan.get("topicos", [])[:10]:
-                expanded_terms = expand_search_terms(topico)
-                
-                for term in expanded_terms[:5]:
-                    search_query = f"item 8.4 {term} empresa {empresa}"
-                    
-                    for index_name in complementary_indices:
-                        if index_name in artifacts:
-                            artifact_data = artifacts[index_name]
-                            index = artifact_data['index']
-                            chunk_data = artifact_data['chunks']
-                            
-                            query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
-                            scores, indices = index.search(query_embedding, 3)
-                            
-                            chunks_found = 0
-                            for i, idx in enumerate(indices[0]):
-                                if idx != -1 and idx < len(chunk_data.get("chunks", [])) and scores[0][i] > 0.5:
-                                    document_path = chunk_data["map"][idx]['document_path']
-                                    if re.search(re.escape(empresa.split(' ')[0]), document_path, re.IGNORECASE):
-                                        chunk_text = chunk_data["chunks"][idx]
-                                        
-                                        chunk_hash = hash(chunk_text[:100])
-                                        if chunk_hash not in all_retrieved_docs:
-                                            all_retrieved_docs.add(chunk_hash)
-                                            score = scores[0][i]
-                                            full_context += f"--- Contexto COMPLEMENTAR para '{topico}' via '{term}' (Fonte: {index_name}, Score: {score:.3f}) ---\n{chunk_text}\n\n"
-                                            chunks_found += 1
-                            
-                            if chunks_found > 0:
-                                break
-                    
-                    if chunks_found > 0:
-                        break
-            
-            full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-    
-    else:
-        # Busca geral com tags e expansão de termos
-        for empresa in plan.get("empresas", []):
-            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-            
-            # Busca por tags específicas
-            target_tags = []
-            for topico in plan.get("topicos", []):
-                expanded_terms = expand_search_terms(topico)
-                target_tags.extend(expanded_terms)
-            
-            target_tags = list(set([tag.title() for tag in target_tags if len(tag) > 3]))
-            
-            tagged_chunks = search_by_tags(artifacts, empresa, target_tags)
-            
-            if tagged_chunks:
-                full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
-                for chunk_info in tagged_chunks:
-                    full_context += f"--- Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']}) ---\n"
-                    full_context += f"{chunk_info['text']}\n\n"
-                    all_retrieved_docs.add(str(chunk_info['path']))
-                full_context += f"=== FIM DOS CHUNKS COM TAGS - {empresa.upper()} ===\n\n"
-            
-            # Busca semântica complementar
-            indices_to_search = list(artifacts.keys())
-            
-            for topico in plan.get("topicos", []):
-                expanded_terms = expand_search_terms(topico)
-                
-                for term in expanded_terms[:3]:
-                    search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
-                    
-                    chunks_found = 0
-                    for index_name in indices_to_search:
-                        if index_name in artifacts:
-                            artifact_data = artifacts[index_name]
-                            index = artifact_data['index']
-                            chunk_data = artifact_data['chunks']
-                            
-                            query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
-                            scores, indices = index.search(query_embedding, TOP_K_SEARCH)
-                            
-                            for i, idx in enumerate(indices[0]):
-                                if idx != -1 and scores[0][i] > 0.4:
-                                    document_path = chunk_data["map"][idx]['document_path']
-                                    if re.search(re.escape(empresa.split(' ')[0]), document_path, re.IGNORECASE):
-                                        chunk_text = chunk_data["chunks"][idx]
-                                        
-                                        chunk_hash = hash(chunk_text[:100])
-                                        if chunk_hash not in all_retrieved_docs:
-                                            all_retrieved_docs.add(chunk_hash)
-                                            score = scores[0][i]
-                                            full_context += f"--- Contexto para '{topico}' via '{term}' (Fonte: {index_name}, Score: {score:.3f}) ---\n{chunk_text}\n\n"
-                                            chunks_found += 1
-                    
-                    if chunks_found > 0:
-                        break
-            
-            full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-    
-    return full_context, [str(doc) for doc in all_retrieved_docs]
-
+        
 def get_final_unified_answer(query, context):
     """Gera a resposta final usando o contexto recuperado."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
