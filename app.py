@@ -281,13 +281,20 @@ def main():
 ###  Formatos de Pergunta Recomendados
 
 **1. Perguntas Específicas** *(formato ideal)*  
-Combine tópicos + empresas: *"Qual a liquidação e dividendos da **Vale**?"* • *"Vesting da **Petrobras**"* • *"Ajustes de preço da **Ambev**"*
+Combine tópicos + empresas: 
+*"Qual a liquidação e dividendos da **Vale**?" 
+*"Vesting da **Petrobras**"* 
+*"Ajustes de preço da **Ambev**"*
 
 **2. Visão Geral (Item 8.4)**  
-Solicite a seção completa: *"Item 8.4 da **Vibra**"* • *"Resumo 8.4 da **Raia Drogasil**"*
+Solicite a seção completa: 
+*"Item 8.4 da **Vibra**"
+*"Resumo 8.4 da **Raia Drogasil**"*
 
 **3. Análise Comparativa**  
-Compare empresas: *"Vesting **Itaú** vs **Santander**"* • *"Liquidação **Localiza** vs **Movida**"*
+Compare empresas: 
+*"Vesting **Itaú** vs **Santander**"
+* "Liquidação **Localiza** vs **Movida**"*
 """)
 
     # CORREÇÃO: O campo de texto e o botão agora estão fora do expander.
