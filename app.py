@@ -121,7 +121,7 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
         name_for_parts = normalize_name(canonical_name)
         parts = name_for_parts.split()
         for part in parts:
-            if len(part) > 2 and part in normalized_query_for_scoring.split():
+            if len(part) >= 2 and part in normalized_query_for_scoring.split():
                 score += 1
         if score > 0:
             company_scores[canonical_name] = score
@@ -148,16 +148,14 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
     return {"status": "success", "plan": plan}
 
 
-# Adicione estas constantes no topo do seu script
-MAX_CONTEXT_TOKENS = 12000  # Limite seguro de tokens para o contexto
-MAX_CHUNKS_PER_TOPIC = 5    # Limite de chunks por tópico, para garantir variedade
+# Mantenha as constantes no topo do seu script
+MAX_CONTEXT_TOKENS = 12000
+MAX_CHUNKS_PER_TOPIC = 5
 
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
     """
-    Executa o plano de busca com um sistema de defesa de 3 camadas:
-    1. De-duplicação exata de chunks.
-    2. Limite de chunks por tópico para garantir variedade.
-    3. Limite rígido de tokens para evitar erros 400.
+    Executa o plano de busca restaurando a lógica específica para Item 8.4
+    e melhorando a associação de documentos com empresas.
     """
     full_context = ""
     all_retrieved_docs = set()
@@ -165,67 +163,69 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
     current_token_count = 0
 
     def estimate_tokens(text):
-        """Estima o número de tokens de um texto."""
         return len(text.split())
 
     def add_unique_chunk_to_context(chunk_text, source_info):
-        """Adiciona chunks ao contexto, respeitando os limites."""
         nonlocal full_context, current_token_count
-        
         chunk_key = re.sub(r'\s+', '', chunk_text).lower()
         if chunk_key in unique_chunks_content:
-            return False # Já é duplicata
-
+            return False
+        
         estimated_chunk_tokens = estimate_tokens(chunk_text)
         if current_token_count + estimated_chunk_tokens > MAX_CONTEXT_TOKENS:
-            # Se adicionar este chunk estourar o limite, paramos por aqui.
             return "LIMIT_REACHED"
-
+        
         unique_chunks_content.add(chunk_key)
         full_context += f"--- {source_info} ---\n{chunk_text}\n\n"
         current_token_count += estimated_chunk_tokens
+        all_retrieved_docs.add(source_info.split("(Doc: ")[1].split(")")[0])
         return True
 
-    # Processa cada empresa no plano
     for empresa in plan.get("empresas", []):
+        # MELHORIA: Cria um nome de busca mais robusto para a empresa
+        searchable_company_name = normalize_name(empresa).split(' ')[0]
+
+        # --- LÓGICA RESTAURADA PARA ITEM 8.4 ---
+        if query_intent == 'item_8_4_query':
+            if 'item_8_4' in artifacts:
+                full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+                full_context += f"=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n"
+                
+                artifact_data = artifacts['item_8_4']
+                chunk_data = artifact_data['chunks']
+                for i, mapping in enumerate(chunk_data.get('map', [])):
+                    document_path = mapping['document_path']
+                    # A verificação aqui deve ser mais robusta
+                    if searchable_company_name in document_path.lower():
+                        chunk_text = chunk_data["chunks"][i]
+                        result = add_unique_chunk_to_context(chunk_text, f"Chunk Item 8.4 (Doc: {document_path})")
+                        if result == "LIMIT_REACHED":
+                            st.warning(f"Atingido o limite de tokens ao processar o Item 8.4 de {empresa}. O resultado pode estar incompleto.")
+                            break
+                full_context += f"=== FIM DA SEÇÃO ITEM 8.4 - {empresa.upper()} ===\n\n"
         
-        # Lógica para busca geral (mais comum)
-        if query_intent == 'general_query':
-            # Adiciona os chunks com tags primeiro (alta relevância)
+        # --- LÓGICA PARA BUSCA GERAL ---
+        else: # general_query
+            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
             target_tags = list(set(term for topico in plan.get("topicos", []) for term in expand_search_terms(topico)))
             tagged_chunks = search_by_tags(artifacts, empresa, [tag.title() for tag in target_tags if len(tag) > 3])
             
             if tagged_chunks:
+                full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
                 for chunk_info in tagged_chunks:
                     result = add_unique_chunk_to_context(chunk_info['text'], f"Chunk Relevante (Doc: {chunk_info['path']})")
                     if result == "LIMIT_REACHED":
                         break
                 if result == "LIMIT_REACHED":
-                    continue # Pula para a próxima empresa se o limite foi atingido
-
-            # Lógica de busca semântica complementar com limites
-            for topico in plan.get("topicos", []):
-                chunks_found_for_this_topic = 0
-                search_terms = expand_search_terms(topico)
-                
-                # Aqui entraria sua busca semântica, iterando pelos search_terms
-                # Exemplo de como a lógica de controle se encaixaria:
-                # for chunk_encontrado_na_busca_semantica in resultados:
-                #     if chunks_found_for_this_topic >= MAX_CHUNKS_PER_TOPIC:
-                #         break
-                #     
-                #     result = add_unique_chunk_to_context(chunk_encontrado_na_busca_semantica, f"Contexto para '{topico}'")
-                #     if result == True:
-                #         chunks_found_for_this_topic += 1
-                #     elif result == "LIMIT_REACHED":
-                #         break
-                # if result == "LIMIT_REACHED":
-                #     break
-
+                    continue
+                full_context += f"=== FIM DOS CHUNKS COM TAGS - {empresa.upper()} ===\n\n"
+            
+            # Aqui entraria a sua lógica de busca semântica, se houver...
+    
     if not unique_chunks_content:
-        return "Nenhuma informação única encontrada para os critérios especificados.", []
-        
-    return full_context, [str(doc) for doc in all_retrieved_docs]
+        return "Nenhuma informação única encontrada para os critérios especificados.", set()
+
+    return full_context, all_retrieved_docs
 
 # MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
 # MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
