@@ -148,57 +148,78 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
     return {"status": "success", "plan": plan}
 
 
-# MANTENDO A FUNÇÃO DE EXECUÇÃO ORIGINAL, QUE JÁ É ROBUSTA
+# Adicione esta constante no topo do seu script para controle
+MAX_CHUNKS_PER_TOPIC = 3 # Limite de chunks por tópico, para controle de token
+
+# MANTENDO A FUNÇÃO DE EXECUÇÃO ORIGINAL, AGORA COM DE-DUPLICAÇÃO
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
     full_context = ""
     all_retrieved_docs = set()
+    
+    # --- LÓGICA DE DEDUPLICAÇÃO ---
+    # Usamos um set para armazenar o conteúdo dos chunks e evitar duplicatas exatas.
+    unique_chunks_content = set()
+
+    def add_unique_chunk_to_context(chunk_text, source_info):
+        """Função auxiliar para adicionar chunks ao contexto, evitando duplicatas."""
+        nonlocal full_context # Permite modificar a variável do escopo externo
+        
+        # Usamos uma versão simplificada do texto como chave para o set
+        chunk_key = re.sub(r'\s+', '', chunk_text).lower()
+
+        if chunk_key not in unique_chunks_content:
+            unique_chunks_content.add(chunk_key)
+            full_context += f"--- {source_info} ---\n{chunk_text}\n\n"
+            return True
+        return False
+
     if query_intent == 'item_8_4_query':
         for empresa in plan.get("empresas", []):
             full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
             if 'item_8_4' in artifacts:
                 artifact_data = artifacts['item_8_4']
                 chunk_data = artifact_data['chunks']
-                empresa_chunks_8_4 = []
+                
+                context_added = False
                 for i, mapping in enumerate(chunk_data.get('map', [])):
                     document_path = mapping['document_path']
                     if empresa.split(' ')[0].lower() in document_path.lower():
                         chunk_text = chunk_data["chunks"][i]
                         all_retrieved_docs.add(str(document_path))
-                        empresa_chunks_8_4.append({'text': chunk_text, 'path': document_path, 'index': i})
-                if empresa_chunks_8_4:
-                    full_context += f"=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n"
-                    for chunk_info in empresa_chunks_8_4:
-                        full_context += f"--- Chunk Item 8.4 (Doc: {chunk_info['path']}) ---\n{chunk_info['text']}\n\n"
+                        # Tenta adicionar o chunk e verifica se foi bem-sucedido (se não era duplicata)
+                        if add_unique_chunk_to_context(chunk_text, f"Chunk Item 8.4 (Doc: {mapping['document_path']})"):
+                            context_added = True
+                
+                # Adiciona os cabeçalhos apenas se algum conteúdo foi realmente adicionado
+                if context_added:
+                    full_context = f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n" + full_context.split(f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n")[1]
                     full_context += f"=== FIM DA SEÇÃO ITEM 8.4 - {empresa.upper()} ===\n\n"
-            complementary_indices = [idx for idx in artifacts.keys() if idx != 'item_8_4']
-            for topico in plan.get("topicos", [])[:5]:
-                for term in expand_search_terms(topico)[:3]:
-                    search_query = f"item 8.4 {term} empresa {empresa}"
-                    for index_name in complementary_indices:
-                        if index_name in artifacts:
-                            # (Lógica de busca semântica complementar)
-                            pass
+
+            # A busca complementar pode continuar aqui...
             full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-    else:
+    else: # Busca geral
         for empresa in plan.get("empresas", []):
             full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+            
+            # Busca por tags com de-duplicação
             target_tags = list(set(term for topico in plan.get("topicos", []) for term in expand_search_terms(topico)))
             tagged_chunks = search_by_tags(artifacts, empresa, [tag.title() for tag in target_tags if len(tag) > 3])
+            
+            # Adiciona os chunks com tags primeiro, pois são de alta relevância
             if tagged_chunks:
                 full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
                 for chunk_info in tagged_chunks:
-                    full_context += f"--- Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']}) ---\n{chunk_info['text']}\n\n"
-                    all_retrieved_docs.add(str(chunk_info['path']))
+                    add_unique_chunk_to_context(chunk_info['text'], f"Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']})")
                 full_context += f"=== FIM DOS CHUNKS COM TAGS - {empresa.upper()} ===\n\n"
-            for topico in plan.get("topicos", [])[:5]:
-                for term in expand_search_terms(topico)[:3]:
-                    search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
-                    # (Lógica de busca semântica complementar)
-                    pass
+            
+            # Busca semântica complementar (ainda não implementada no seu código, mas a lógica de de-duplicação se aplicaria aqui também)
+            # ...
+            
             full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-    # Adicionei uma verificação para garantir que o contexto não seja vazio
-    if not full_context.strip():
+
+    if not unique_chunks_content:
         return "Nenhuma informação encontrada para os critérios especificados.", []
+        
     return full_context, [str(doc) for doc in all_retrieved_docs]
 
 # MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
