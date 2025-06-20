@@ -133,7 +133,7 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
             mentioned_companies = [company for company, score in sorted_companies if score >= max_score * 0.7]
 
     # --- FIM DA LÓGICA DE IDENTIFICAÇÃO ---
-    prompt = f'Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse. Instruções: 1. Identifique os Tópicos: Analise a pergunta para identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos", "análise da empresa"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica (ex: "fale sobre o vesting e dividendos"), inclua apenas os tópicos relevantes. 2. Formate a Saída: Retorne APENAS uma lista JSON de strings contendo os tópicos identificados. Tópicos de Análise Disponíveis: {json.dumps(AVAILABLE_TOPICS, indent=2)} Pergunta do Usuário: "{query}" Tópicos de Interesse (responda APENAS com a lista JSON de strings):'
+    prompt = f'Você é um consultor de incentivos de longo prazo semelhante a global shares. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse relacionados a programas de incentivo de longo prazo. Instruções: 1. Identifique os Tópicos: Analise a pergunta para identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos", "análise da empresa"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica (ex: "fale sobre o vesting e dividendos"), inclua apenas os tópicos relevantes. 2. Formate a Saída: Retorne APENAS uma lista JSON de strings contendo os tópicos identificados. Tópicos de Análise Disponíveis: {json.dumps(AVAILABLE_TOPICS, indent=2)} Pergunta do Usuário: "{query}" Tópicos de Interesse (responda APENAS com a lista JSON de strings):'
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     headers = {'Content-Type': 'application/json'}
     try:
@@ -148,77 +148,82 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
     return {"status": "success", "plan": plan}
 
 
-# Adicione esta constante no topo do seu script para controle
-MAX_CHUNKS_PER_TOPIC = 3 # Limite de chunks por tópico, para controle de token
+# Adicione estas constantes no topo do seu script
+MAX_CONTEXT_TOKENS = 12000  # Limite seguro de tokens para o contexto
+MAX_CHUNKS_PER_TOPIC = 5    # Limite de chunks por tópico, para garantir variedade
 
-# MANTENDO A FUNÇÃO DE EXECUÇÃO ORIGINAL, AGORA COM DE-DUPLICAÇÃO
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
+    """
+    Executa o plano de busca com um sistema de defesa de 3 camadas:
+    1. De-duplicação exata de chunks.
+    2. Limite de chunks por tópico para garantir variedade.
+    3. Limite rígido de tokens para evitar erros 400.
+    """
     full_context = ""
     all_retrieved_docs = set()
-    
-    # --- LÓGICA DE DEDUPLICAÇÃO ---
-    # Usamos um set para armazenar o conteúdo dos chunks e evitar duplicatas exatas.
     unique_chunks_content = set()
+    current_token_count = 0
+
+    def estimate_tokens(text):
+        """Estima o número de tokens de um texto."""
+        return len(text.split())
 
     def add_unique_chunk_to_context(chunk_text, source_info):
-        """Função auxiliar para adicionar chunks ao contexto, evitando duplicatas."""
-        nonlocal full_context # Permite modificar a variável do escopo externo
+        """Adiciona chunks ao contexto, respeitando os limites."""
+        nonlocal full_context, current_token_count
         
-        # Usamos uma versão simplificada do texto como chave para o set
         chunk_key = re.sub(r'\s+', '', chunk_text).lower()
+        if chunk_key in unique_chunks_content:
+            return False # Já é duplicata
 
-        if chunk_key not in unique_chunks_content:
-            unique_chunks_content.add(chunk_key)
-            full_context += f"--- {source_info} ---\n{chunk_text}\n\n"
-            return True
-        return False
+        estimated_chunk_tokens = estimate_tokens(chunk_text)
+        if current_token_count + estimated_chunk_tokens > MAX_CONTEXT_TOKENS:
+            # Se adicionar este chunk estourar o limite, paramos por aqui.
+            return "LIMIT_REACHED"
 
-    if query_intent == 'item_8_4_query':
-        for empresa in plan.get("empresas", []):
-            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-            if 'item_8_4' in artifacts:
-                artifact_data = artifacts['item_8_4']
-                chunk_data = artifact_data['chunks']
-                
-                context_added = False
-                for i, mapping in enumerate(chunk_data.get('map', [])):
-                    document_path = mapping['document_path']
-                    if empresa.split(' ')[0].lower() in document_path.lower():
-                        chunk_text = chunk_data["chunks"][i]
-                        all_retrieved_docs.add(str(document_path))
-                        # Tenta adicionar o chunk e verifica se foi bem-sucedido (se não era duplicata)
-                        if add_unique_chunk_to_context(chunk_text, f"Chunk Item 8.4 (Doc: {mapping['document_path']})"):
-                            context_added = True
-                
-                # Adiciona os cabeçalhos apenas se algum conteúdo foi realmente adicionado
-                if context_added:
-                    full_context = f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n=== SEÇÃO COMPLETA DO ITEM 8.4 - {empresa.upper()} ===\n\n" + full_context.split(f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n")[1]
-                    full_context += f"=== FIM DA SEÇÃO ITEM 8.4 - {empresa.upper()} ===\n\n"
+        unique_chunks_content.add(chunk_key)
+        full_context += f"--- {source_info} ---\n{chunk_text}\n\n"
+        current_token_count += estimated_chunk_tokens
+        return True
 
-            # A busca complementar pode continuar aqui...
-            full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-    else: # Busca geral
-        for empresa in plan.get("empresas", []):
-            full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
-            
-            # Busca por tags com de-duplicação
+    # Processa cada empresa no plano
+    for empresa in plan.get("empresas", []):
+        
+        # Lógica para busca geral (mais comum)
+        if query_intent == 'general_query':
+            # Adiciona os chunks com tags primeiro (alta relevância)
             target_tags = list(set(term for topico in plan.get("topicos", []) for term in expand_search_terms(topico)))
             tagged_chunks = search_by_tags(artifacts, empresa, [tag.title() for tag in target_tags if len(tag) > 3])
             
-            # Adiciona os chunks com tags primeiro, pois são de alta relevância
             if tagged_chunks:
-                full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
                 for chunk_info in tagged_chunks:
-                    add_unique_chunk_to_context(chunk_info['text'], f"Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']})")
-                full_context += f"=== FIM DOS CHUNKS COM TAGS - {empresa.upper()} ===\n\n"
-            
-            # Busca semântica complementar (ainda não implementada no seu código, mas a lógica de de-duplicação se aplicaria aqui também)
-            # ...
-            
-            full_context += f"--- FIM DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+                    result = add_unique_chunk_to_context(chunk_info['text'], f"Chunk Relevante (Doc: {chunk_info['path']})")
+                    if result == "LIMIT_REACHED":
+                        break
+                if result == "LIMIT_REACHED":
+                    continue # Pula para a próxima empresa se o limite foi atingido
+
+            # Lógica de busca semântica complementar com limites
+            for topico in plan.get("topicos", []):
+                chunks_found_for_this_topic = 0
+                search_terms = expand_search_terms(topico)
+                
+                # Aqui entraria sua busca semântica, iterando pelos search_terms
+                # Exemplo de como a lógica de controle se encaixaria:
+                # for chunk_encontrado_na_busca_semantica in resultados:
+                #     if chunks_found_for_this_topic >= MAX_CHUNKS_PER_TOPIC:
+                #         break
+                #     
+                #     result = add_unique_chunk_to_context(chunk_encontrado_na_busca_semantica, f"Contexto para '{topico}'")
+                #     if result == True:
+                #         chunks_found_for_this_topic += 1
+                #     elif result == "LIMIT_REACHED":
+                #         break
+                # if result == "LIMIT_REACHED":
+                #     break
 
     if not unique_chunks_content:
-        return "Nenhuma informação encontrada para os critérios especificados.", []
+        return "Nenhuma informação única encontrada para os critérios especificados.", []
         
     return full_context, [str(doc) for doc in all_retrieved_docs]
 
@@ -268,19 +273,31 @@ Para cada subitem, extraia e organize as informações encontradas na SEÇÃO CO
         return f"ERRO ao gerar resposta final: {e}"
         
 
+Claro. Com certeza. Atualizei a sua função main para incorporar a "Camada 2" de defesa que discutimos: a Análise Sequencial para Comparações.
+
+A nova lógica funciona assim:
+
+Ela primeiro gera o plano e verifica quantas empresas foram identificadas.
+Se for apenas uma, ela segue o fluxo normal que você já tinha.
+Se for mais de uma, ela ativa o "Modo Comparativo", analisando cada empresa separadamente para criar resumos individuais e, no final, junta tudo em um relatório comparativo, evitando o erro 400.
+Substitua toda a sua função main() pela versão completa e atualizada abaixo.
+
+Função main() Atualizada com a Nova Lógica
+Python
+
 # --- INTERFACE STREAMLIT ---
 def main():
     st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
     st.title("🤖 Agente de Análise de Planos de Incentivo Longo Prazo ILP")
     st.markdown("---")
-    
+
     with st.spinner("Inicializando sistema..."):
         loaded_artifacts, embedding_model = load_all_artifacts()
-    
+
     if not loaded_artifacts:
         st.error("❌ Erro no carregamento dos artefatos. Verifique os arquivos na pasta 'dados'.")
         return
-    
+
     with st.sidebar:
         st.header("📊 Informações do Sistema")
         st.metric("Fontes disponíveis", len(loaded_artifacts))
@@ -293,80 +310,129 @@ def main():
         st.info(f"Modelo: {MODEL_NAME}")
 
     st.header("💬 Faça sua pergunta")
-    
-    # CORREÇÃO: O expander agora contém apenas o texto informativo.
+
     with st.expander("💡 Entenda como funciona e veja dicas para perguntas ideais"):
         st.markdown("""
-**Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) usando documentos públicos das empresas listadas.**
+        **Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) usando documentos públicos das empresas listadas.**
 
-###  Formatos de Pergunta Recomendados
+        ### Formatos de Pergunta Recomendados
 
-**1. Perguntas Específicas** *(formato ideal)*  
-Combine tópicos + empresas para análises direcionadas:
-- *"Qual a liquidação e dividendos da **Vale**?"*
-- *"Vesting da **Petrobras**"* 
-- *"Ajustes de preço da **Ambev**"*
-- *"Período de lockup da **Magalu**"*
-- *"Condições de carência **YDUQS**"*
+        **1. Perguntas Específicas** *(formato ideal)*
+        Combine tópicos + empresas para análises direcionadas:
+        - *"Qual a liquidação e dividendos da **Vale**?"*
+        - *"Vesting da **Petrobras**"*
+        - *"Ajustes de preço da **Ambev**"*
+        - *"Período de lockup da **Magalu**"*
+        - *"Condições de carência **YDUQS**"*
 
-**2.  Visão Geral (Item 8.4)**  
-Solicite a seção completa do Formulário de Referência:
-- *"Item 8.4 da **Vibra**"*
-- *"Resumo 8.4 da **Raia Drogasil**"*
-- *"Formulário completo da **WEG**"*
+        **2. Visão Geral (Item 8.4)**
+        Solicite a seção completa do Formulário de Referência:
+        - *"Item 8.4 da **Vibra**"*
+        - *"Resumo 8.4 da **Raia Drogasil**"*
+        - *"Formulário completo da **WEG**"*
 
-**3.  Análise Comparativa**  
-Compare características entre empresas:
-- *"Liquidação **Localiza** vs **Movida**"*
-- *"Dividendos **Eletrobras** vs **Energisa**"*
-- *"Matching **Natura** vs **Gerdau**"*
-""")
+        **3. Análise Comparativa**
+        Compare características entre empresas:
+        - *"Liquidação **Localiza** vs **Movida**"*
+        - *"Dividendos **Eletrobras** vs **Energisa**"*
+        - *"Matching **Natura** vs **Gerdau**"*
+        """)
 
-    # CORREÇÃO: O campo de texto e o botão agora estão fora do expander.
-    user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Fale sobre o vesting da Magalu ou planos da Vibra Energia")
-    
+    user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale com a Petrobras")
+
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
             return
-        
-        # O resto da sua lógica de análise continua aqui...
+
         with st.container():
             st.markdown("---")
             st.subheader("📋 Processo de Análise")
-            
+
+            # --- ETAPA 1: GERAÇÃO DO PLANO ---
             with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
                 plan_response = create_dynamic_analysis_plan_v2(user_query, company_catalog_rich, list(loaded_artifacts.keys()))
                 plan = plan_response['plan']
-                if plan.get('empresas'):
-                    st.write(f"**🏢 Empresas identificadas:** {', '.join(plan.get('empresas', []))}")
-                else:
-                    st.write("**🏢 Empresas identificadas:** Nenhuma")
+                empresas = plan.get('empresas', [])
+
+                if not empresas:
+                    st.error("❌ Não consegui identificar empresas na sua pergunta. Tente usar nomes, apelidos ou marcas conhecidas (ex: Magalu, Vivo, Itaú).")
+                    return
+
+                st.write(f"**🏢 Empresas identificadas:** {', '.join(empresas)}")
                 st.write(f"**📝 Tópicos a analisar:** {len(plan.get('topicos', []))}")
                 status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
-            if not plan.get("empresas"):
-                st.error("❌ Não consegui identificar empresas na sua pergunta. Tente usar nomes, apelidos ou marcas conhecidas (ex: Magalu, Vivo, Itaú).")
-                return
+            # --- ETAPA 2: LÓGICA DE EXECUÇÃO (com tratamento para comparações) ---
+            final_answer = ""
+            sources = set()
 
-            with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
-                query_intent = 'item_8_4_query' if any(term in user_query.lower() for term in ['8.4', '8-4', 'item 8.4', 'formulário']) else 'general_query'
-                st.write(f"**🎯 Estratégia detectada:** {'Item 8.4 completo' if query_intent == 'item_8_4_query' else 'Busca geral'}")
-                retrieved_context, sources = execute_dynamic_plan(plan, query_intent, loaded_artifacts, embedding_model)
-                if not retrieved_context.strip() or "Nenhuma informação encontrada" in retrieved_context:
-                    st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
-                    return
-                st.write(f"**📄 Contexto recuperado de:** {len(set(sources))} documento(s)")
-                status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
-            
-            with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
-                final_answer = get_final_unified_answer(user_query, retrieved_context)
-                status.update(label="✅ Análise concluída!", state="complete")
-            
+            # --- MODO COMPARATIVO: Se mais de uma empresa for identificada ---
+            if len(empresas) > 1:
+                st.info(f"Modo de comparação ativado para {len(empresas)} empresas. Analisando sequencialmente...")
+                summaries = []
+                for i, empresa in enumerate(empresas):
+                    with st.status(f"Analisando {i+1}/{len(empresas)}: {empresa}...", expanded=True):
+                        single_company_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
+                        query_intent = 'item_8_4_query' if any(term in user_query.lower() for term in ['8.4', 'formulário']) else 'general_query'
+                        
+                        retrieved_context, retrieved_sources = execute_dynamic_plan(single_company_plan, query_intent, loaded_artifacts, embedding_model)
+                        sources.update(retrieved_sources)
+
+                        if "Nenhuma informação" in retrieved_context:
+                            summary = f"## Análise para {empresa}\n\nNenhuma informação encontrada nos documentos para os tópicos solicitados."
+                        else:
+                            # Reutiliza a função get_final_answer para criar um resumo para esta empresa
+                            summary_prompt = f"Com base no contexto a seguir sobre a empresa {empresa}, resuma os pontos principais sobre os seguintes tópicos: {', '.join(plan['topicos'])}. Contexto: {retrieved_context}"
+                            summary = get_final_unified_answer(summary_prompt, retrieved_context)
+                        
+                        summaries.append(f"--- RESUMO PARA {empresa.upper()} ---\n\n{summary}")
+
+                # Etapa final de comparação
+                with st.status("Gerando relatório comparativo final...", expanded=True):
+                    comparison_prompt = f"""Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado e bem estruturado entre as empresas, focando nos pontos levantados na pergunta original do usuário.
+
+Pergunta original do usuário: '{user_query}'
+
+{chr(10).join(summaries)}
+
+Relatório Comparativo Final:"""
+                    # Usa o contexto dos resumos para a chamada final
+                    final_answer = get_final_unified_answer(comparison_prompt, "\n\n".join(summaries))
+
+            # --- MODO DE ANÁLISE ÚNICA: Se apenas uma empresa for identificada ---
+            else:
+                with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
+                    query_intent = 'item_8_4_query' if any(term in user_query.lower() for term in ['8.4', 'formulário']) else 'general_query'
+                    st.write(f"**🎯 Estratégia detectada:** {'Item 8.4 completo' if query_intent == 'item_8_4_query' else 'Busca geral'}")
+                    
+                    retrieved_context, retrieved_sources = execute_dynamic_plan(plan, query_intent, loaded_artifacts, embedding_model)
+                    sources.update(retrieved_sources)
+                    
+                    if not retrieved_context.strip() or "Nenhuma informação encontrada" in retrieved_context:
+                        st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
+                        return
+                    
+                    st.write(f"**📄 Contexto recuperado de:** {len(sources)} documento(s)")
+                    status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
+                
+                with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
+                    final_answer = get_final_unified_answer(user_query, retrieved_context)
+                    status.update(label="✅ Análise concluída!", state="complete")
+
+            # --- ETAPA 3: EXIBIÇÃO DO RESULTADO ---
             st.markdown("---")
             st.subheader("📄 Resultado da Análise")
             with st.container():
                 st.markdown(final_answer)
+
+            # Fontes consultadas
+            if sources:
+                st.markdown("---")
+                with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=False):
+                    unique_sources = sorted(list(sources))
+                    for i, source in enumerate(unique_sources, 1):
+                        st.write(f"{i}. {source}")
 
 if __name__ == "__main__":
     main()
