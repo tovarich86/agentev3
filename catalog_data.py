@@ -1,17 +1,3 @@
-Com certeza. O ideal é ter a cobertura mais completa possível no seu catálogo para maximizar a precisão da busca.
-
-Peguei a sua lista original e a combinei com o catálogo enriquecido que já havíamos criado, preenchendo as empresas que faltavam. Para as novas empresas, segui a mesma lógica: criei aliases baseados no nome principal e em variações comuns.
-
-Abaixo está o `company_catalog_rich` completo e em ordem alfabética. Substitua o conteúdo do seu arquivo `catalog_data.py` por esta lista completa.
-
-### Catálogo de Empresas Completo (`company_catalog_rich`)
-
-Copie e cole este bloco de código inteiro no seu arquivo `catalog_data.py`, substituindo a lista anterior.
-
-```python
-# Este arquivo contém o catálogo enriquecido e completo de empresas para a busca.
-# Manter este catálogo em um arquivo separado facilita a manutenção.
-
 company_catalog_rich = [
     {
         "canonical_name": "2W ECOBANK S.A",
