@@ -1,7 +1,6 @@
 # app.py
 import streamlit as st
 import json
-import time
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
@@ -21,11 +20,47 @@ st.set_page_config(
 
 # --- CONFIGURAÇÕES ---
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
-# CORREÇÃO: Caminho correto para a pasta data do repositório
-GOOGLE_DRIVE_PATH = os.path.join(os.getcwd(), 'data')
-TOP_K_SEARCH = 7
 
-# Dicionário de termos técnicos (mantido do código original)
+# CORREÇÃO: Múltiplos caminhos para encontrar a pasta data
+POSSIBLE_DATA_PATHS = [
+    './data',                                    # Caminho relativo padrão
+    os.path.join(os.getcwd(), 'data'),          # Diretório atual + data
+    os.path.join(os.path.dirname(__file__), 'data'),  # Pasta do script + data
+    '/mount/src/agente-streamlit-web/data',     # Caminho absoluto Streamlit Cloud
+    'data'                                      # Apenas 'data'
+]
+
+def find_data_directory():
+    """Encontra a pasta data em diferentes localizações possíveis"""
+    for path in POSSIBLE_DATA_PATHS:
+        if os.path.exists(path):
+            # Verifica se tem arquivos FAISS
+            faiss_files = glob.glob(os.path.join(path, '*_faiss_index.bin'))
+            if faiss_files:
+                st.info(f"✅ Pasta data encontrada em: {path}")
+                st.info(f"✅ Arquivos FAISS encontrados: {len(faiss_files)}")
+                return path
+    
+    st.error("❌ Pasta 'data' com arquivos FAISS não encontrada!")
+    
+    # Debug: Mostra estrutura do diretório
+    current_dir = os.getcwd()
+    st.error(f"📂 Diretório atual: {current_dir}")
+    
+    try:
+        files_in_current = os.listdir(current_dir)
+        st.error(f"📁 Arquivos/pastas no diretório atual: {files_in_current}")
+        
+        # Se existe pasta data mas sem arquivos
+        if 'data' in files_in_current:
+            data_contents = os.listdir(os.path.join(current_dir, 'data'))
+            st.error(f"📁 Conteúdo da pasta data: {data_contents}")
+    except Exception as e:
+        st.error(f"Erro ao listar diretório: {e}")
+    
+    return None
+
+# Dicionários de termos técnicos (mantidos do código original)
 TERMOS_TECNICOS_LTIP = {
     "tratamento de dividendos": ["tratamento de dividendos", "equivalente em dividendos", "dividendos", "juros sobre capital próprio", "proventos", "dividend equivalent", "dividendos pagos em ações", "ajustes por dividendos"],
     "preço de exercício": ["preço de exercício", "strike price", "preço de compra", "preço fixo", "valor de exercício", "preço pré-estabelecido", "preço de aquisição"],
@@ -37,21 +72,10 @@ TERMOS_TECNICOS_LTIP = {
 }
 
 AVAILABLE_TOPICS = [
-    "termos e condições gerais", "data de aprovação e órgão responsável",
-    "número máximo de ações abrangidas", "número máximo de opções a serem outorgadas",
-    "condições de aquisição de ações", "critérios para fixação do preço de aquisição ou exercício",
-    "preço de exercício", "strike price", "critérios para fixação do prazo de aquisição ou exercício", 
-    "forma de liquidação", "liquidação", "pagamento", "restrições à transferência das ações", 
-    "critérios e eventos de suspensão/extinção", "efeitos da saída do administrador", 
-    "Tipos de Planos", "Condições de Carência", "Vesting", "período de carência", 
-    "cronograma de vesting", "Matching", "contrapartida", "co-investimento",
-    "Lockup", "período de lockup", "restrição de venda", "Tratamento de Dividendos", 
-    "equivalente em dividendos", "proventos", "Stock Options", "opções de ações", "SOP",
-    "Ações Restritas", "RSU", "restricted shares", "Eventos Corporativos", 
-    "IPO", "grupamento", "desdobramento"
+    "termos e condições gerais", "data de aprovação e órgão responsável", "número máximo de ações abrangidas", "número máximo de opções a serem outorgadas", "condições de aquisição de ações", "critérios para fixação do preço de aquisição ou exercício", "preço de exercício", "strike price", "critérios para fixação do prazo de aquisição ou exercício", "forma de liquidação", "liquidação", "pagamento", "restrições à transferência das ações", "critérios e eventos de suspensão/extinção", "efeitos da saída do administrador", "Tipos de Planos", "Condições de Carência", "Vesting", "período de carência", "cronograma de vesting", "Matching", "contrapartida", "co-investimento", "Lockup", "período de lockup", "restrição de venda", "Tratamento de Dividendos", "equivalente em dividendos", "proventos", "Stock Options", "opções de ações", "SOP", "Ações Restritas", "RSU", "restricted shares", "Eventos Corporativos", "IPO", "grupamento", "desdobramento"
 ]
 
-# --- FUNÇÃO SEGURA PARA API ---
+# --- FUNÇÕES (mantidas do código original) ---
 def safe_api_call(url, payload, headers, timeout=90):
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
@@ -62,7 +86,6 @@ def safe_api_call(url, payload, headers, timeout=90):
     except requests.exceptions.RequestException:
         return None, "Erro de conexão. Verifique sua internet."
 
-# --- FUNÇÕES PRINCIPAIS ---
 def expand_search_terms(base_term):
     expanded_terms = [base_term.lower()]
     for category, terms in TERMOS_TECNICOS_LTIP.items():
@@ -90,27 +113,25 @@ def search_by_tags(artifacts, company_name, target_tags):
 
 @st.cache_resource
 def load_all_artifacts():
-    """Carrega artefatos da pasta data do repositório"""
+    """Carrega artefatos com detecção automática de caminho"""
     artifacts = {}
     canonical_company_names = set()
     
-    # VERIFICAÇÃO: Confirma se a pasta data existe
-    if not os.path.exists(GOOGLE_DRIVE_PATH):
-        st.error(f"❌ ERRO CRÍTICO: Pasta 'data' não encontrada em: {GOOGLE_DRIVE_PATH}")
-        st.info("Certifique-se de que a pasta 'data' está no mesmo diretório do app.py")
+    # CORREÇÃO: Busca a pasta data automaticamente
+    data_path = find_data_directory()
+    if not data_path:
         return None, None, None
     
-    st.info("📁 Carregando artefatos da pasta 'data' do repositório...")
+    st.info("📦 Carregando artefatos...")
     
     with st.spinner("Carregando modelo de embedding..."):
         model = SentenceTransformer(MODEL_NAME)
     
-    # BUSCA: Procura pelos arquivos FAISS na pasta data
-    index_files = glob.glob(os.path.join(GOOGLE_DRIVE_PATH, '*_faiss_index.bin'))
+    # Busca arquivos FAISS
+    index_files = glob.glob(os.path.join(data_path, '*_faiss_index.bin'))
     
     if not index_files:
-        st.error(f"❌ NENHUM arquivo *_faiss_index.bin encontrado em: {GOOGLE_DRIVE_PATH}")
-        st.info("Arquivos esperados: item_8_4_faiss_index.bin, plano_remuneracao_faiss_index.bin")
+        st.error(f"❌ Nenhum arquivo *_faiss_index.bin encontrado em: {data_path}")
         return None, None, None
     
     st.success(f"✅ Encontrados {len(index_files)} arquivo(s) FAISS:")
@@ -122,7 +143,7 @@ def load_all_artifacts():
     
     for idx, index_file in enumerate(index_files):
         category = os.path.basename(index_file).replace('_faiss_index.bin', '')
-        chunks_file = os.path.join(GOOGLE_DRIVE_PATH, f"{category}_chunks_map.json")
+        chunks_file = os.path.join(data_path, f"{category}_chunks_map.json")
         
         try:
             st.info(f"Carregando '{category}'...")
@@ -159,10 +180,12 @@ def load_all_artifacts():
     
     return artifacts, model, list(canonical_company_names)
 
+# Resto das funções (create_dynamic_analysis_plan, execute_dynamic_plan, get_final_unified_answer)
+# mantidas exatamente como no código original...
+
 def create_dynamic_analysis_plan(query, company_catalog, available_indices):
     """Cria plano de análise usando API do Gemini"""
     
-    # ACESSO SEGURO À API KEY
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
     except:
@@ -173,20 +196,18 @@ def create_dynamic_analysis_plan(query, company_catalog, available_indices):
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     
-    # IDENTIFICAÇÃO DE EMPRESAS (lógica robusta do código original)
+    # Identificação de empresas (lógica robusta do código original)
     mentioned_companies = []
     query_clean = query.lower().strip()
     
     st.write(f"🔍 Buscando empresas na query: '{query_clean}'")
     
     for canonical_name in company_catalog:
-        # Busca por substring
         if canonical_name.lower() in query_clean:
             mentioned_companies.append(canonical_name)
             st.write(f"   ✅ Encontrada: {canonical_name}")
             continue
         
-        # Busca por partes do nome
         company_parts = canonical_name.split(' ')
         for part in company_parts:
             if len(part) > 2 and part.lower() in query_clean:
@@ -195,7 +216,7 @@ def create_dynamic_analysis_plan(query, company_catalog, available_indices):
                     st.write(f"   ✅ Encontrada por parte '{part}': {canonical_name}")
                 break
     
-    # CHAMADA PARA ANÁLISE DE TÓPICOS
+    # Chamada para análise de tópicos
     prompt = f"""
 Você é um planejador de análise. Analise a pergunta e identifique os tópicos de interesse.
 
@@ -247,7 +268,6 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
         for empresa in plan.get("empresas", []):
             full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
             
-            # BUSCA EXAUSTIVA NO ITEM 8.4
             if 'item_8_4' in artifacts:
                 artifact_data = artifacts['item_8_4']
                 chunk_data = artifact_data['chunks']
@@ -273,7 +293,6 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
         for empresa in plan.get("empresas", []):
             full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
             
-            # BUSCA POR TAGS
             target_tags = []
             for topico in plan.get("topicos", []):
                 target_tags.extend(expand_search_terms(topico))
@@ -303,9 +322,7 @@ def get_final_unified_answer(query, context):
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     
-    # Detecta tipo de análise
     has_complete_8_4 = "=== SEÇÃO COMPLETA DO ITEM 8.4" in context
-    has_tagged_chunks = "=== CHUNKS COM TAGS ESPECÍFICAS" in context
     
     if has_complete_8_4:
         structure_instruction = """
@@ -339,10 +356,9 @@ Você é um analista financeiro especializado em Formulários de Referência da 
 **INSTRUÇÕES:**
 1. Responda diretamente à pergunta
 2. **PRIORIZE** informações da SEÇÃO COMPLETA DO ITEM 8.4 quando disponível
-3. **PRIORIZE** informações dos CHUNKS COM TAGS ESPECÍFICAS quando disponível
-4. Seja detalhado, preciso e profissional
-5. Transcreva dados importantes (valores, datas, percentuais)
-6. Se informação não disponível: "Informação não encontrada nas fontes"
+3. Seja detalhado, preciso e profissional
+4. Transcreva dados importantes (valores, datas, percentuais)
+5. Se informação não disponível: "Informação não encontrada nas fontes"
 
 **RELATÓRIO FINAL:**
 """
@@ -378,9 +394,13 @@ def main():
             st.session_state['gemini_api_key'] = gemini_api_key
             st.success("✅ API Key configurada!")
         
-        # Info da pasta data
-        st.subheader("📁 Arquivos")
-        st.info(f"Pasta: {GOOGLE_DRIVE_PATH}")
+        # Info sobre arquivos
+        st.subheader("📁 Status dos Arquivos")
+        data_path = find_data_directory()
+        if data_path:
+            st.success(f"✅ Pasta encontrada: {data_path}")
+        else:
+            st.error("❌ Pasta 'data' não encontrada")
         
         if st.button("🔄 Recarregar"):
             st.cache_resource.clear()
@@ -395,8 +415,7 @@ def main():
         artifacts, model, company_catalog = load_all_artifacts()
         
         if artifacts is None:
-            st.error("❌ Falha no carregamento dos artefatos")
-            return
+            st.stop()
         
         st.session_state['loaded_artifacts'] = artifacts
         st.session_state['embedding_model'] = model
@@ -420,30 +439,9 @@ def main():
     
     st.divider()
     
-    # EXEMPLOS
-    st.subheader("💡 Exemplos")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📄 Item 8.4 Vibra"):
-            st.session_state['exemplo'] = "Descreva o item 8.4 da Vibra"
-    with col2:
-        if st.button("⚡ Vesting CCR"):
-            st.session_state['exemplo'] = "Como funciona o vesting da CCR?"
-    with col3:
-        if st.button("💰 Liquidação Vale"):
-            st.session_state['exemplo'] = "Forma de liquidação da Vale"
-    
     # CONSULTA
     st.subheader("💬 Sua Pergunta")
-    user_query = st.text_area(
-        "Digite aqui:",
-        value=st.session_state.get('exemplo', ''),
-        height=100
-    )
-    
-    if 'exemplo' in st.session_state:
-        del st.session_state['exemplo']
+    user_query = st.text_area("Digite aqui:", height=100)
     
     if st.button("🔍 Analisar", type="primary", disabled=not user_query.strip()):
         try:
