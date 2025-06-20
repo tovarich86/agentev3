@@ -98,9 +98,17 @@ def load_all_artifacts():
     return artifacts, model
 
 # --- FUNÇÕES PRINCIPAIS ---
+# NOVO: Esta é a nova função de análise com lógica de scoring.
 def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indices):
+    """
+    Gera um plano de ação dinâmico com identificação de empresas baseada em scoring
+    para maior precisão, lidando com nomes compostos, apelidos e variações.
+    """
     api_key = GEMINI_API_KEY
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+    # CORREÇÃO: Atualizado o nome do modelo na URL para a versão mais recente e estável.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+
+    # --- LÓGICA DE IDENTIFICAÇÃO DE EMPRESAS POR SCORING ---
     query_lower = query.lower().strip()
     normalized_query_for_scoring = normalize_name(query_lower)
     company_scores = {}
@@ -109,7 +117,7 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
         score = 0
         for alias in company_data.get("aliases", []):
             if alias in query_lower:
-                score += 10 * len(alias.split()) # Pontuação maior para aliases mais longos
+                score += 10 * len(alias.split())
         name_for_parts = normalize_name(canonical_name)
         parts = name_for_parts.split()
         for part in parts:
@@ -123,6 +131,8 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
         max_score = sorted_companies[0][1]
         if max_score > 0:
             mentioned_companies = [company for company, score in sorted_companies if score >= max_score * 0.7]
+
+    # --- FIM DA LÓGICA DE IDENTIFICAÇÃO ---
     prompt = f'Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse. Instruções: 1. Identifique os Tópicos: Analise a pergunta para identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos", "análise da empresa"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica (ex: "fale sobre o vesting e dividendos"), inclua apenas os tópicos relevantes. 2. Formate a Saída: Retorne APENAS uma lista JSON de strings contendo os tópicos identificados. Tópicos de Análise Disponíveis: {json.dumps(AVAILABLE_TOPICS, indent=2)} Pergunta do Usuário: "{query}" Tópicos de Interesse (responda APENAS com a lista JSON de strings):'
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     headers = {'Content-Type': 'application/json'}
@@ -136,6 +146,7 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
         topics = AVAILABLE_TOPICS
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
+
 
 # MANTENDO A FUNÇÃO DE EXECUÇÃO ORIGINAL, QUE JÁ É ROBUSTA
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
@@ -191,25 +202,50 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
     return full_context, [str(doc) for doc in all_retrieved_docs]
 
 # MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
+# MANTENDO A FUNÇÃO DE GERAÇÃO DE RESPOSTA ORIGINAL
 def get_final_unified_answer(query, context):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    """Gera a resposta final usando o contexto recuperado."""
+    # CORREÇÃO: Atualizado o nome do modelo na URL para a versão mais recente e estável.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+    
     has_complete_8_4 = "=== SEÇÃO COMPLETA DO ITEM 8.4" in context
     has_tagged_chunks = "=== CHUNKS COM TAGS ESPECÍFICAS" in context
+    
     if has_complete_8_4:
-        structure_instruction = "..." # Sua instrução original para Item 8.4
+        structure_instruction = """
+**ESTRUTURA OBRIGATÓRIA PARA ITEM 8.4:**
+Use a estrutura oficial do item 8.4 do Formulário de Referência:
+a) Termos e condições gerais dos planos
+b) Data de aprovação e órgão responsável
+c) Número máximo de ações abrangidas pelos planos
+d) Número máximo de opções a serem outorgadas
+e) Condições de aquisição de ações
+f) Critérios para fixação do preço de aquisição ou exercício
+g) Critérios para fixação do prazo de aquisição ou exercício
+h) Forma de liquidação
+i) Restrições à transferência das ações
+j) Critérios e eventos que, quando verificados, ocasionarão a suspensão, alteração ou extinção do plano
+k) Efeitos da saída do administrador do cargo na manutenção dos seus direitos no plano
+
+Para cada subitem, extraia e organize as informações encontradas na SEÇÃO COMPLETA DO ITEM 8.4.
+"""
     elif has_tagged_chunks:
         structure_instruction = "**PRIORIZE** as informações dos CHUNKS COM TAGS ESPECÍFICAS e organize a resposta de forma lógica usando Markdown."
     else:
         structure_instruction = "Organize a resposta de forma lógica e clara usando Markdown."
+        
     prompt = f'Você é um analista financeiro sênior especializado em Formulários de Referência da CVM. PERGUNTA ORIGINAL DO USUÁRIO: "{query}" CONTEXTO COLETADO DOS DOCUMENTOS: {context} {structure_instruction} INSTRUÇÕES PARA O RELATÓRIO FINAL: 1. Responda diretamente à pergunta do usuário. 2. PRIORIZE informações da SEÇÃO COMPLETA DO ITEM 8.4 ou de CHUNKS COM TAGS ESPECÍFICAS quando disponíveis. 3. Use informações complementares apenas para esclarecer. 4. Seja detalhado, preciso e profissional. 5. Se alguma informação não estiver disponível, indique: "Informação não encontrada nas fontes analisadas". RELATÓRIO ANALÍTICO FINAL:'
+    
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}}
     headers = {'Content-Type': 'application/json'}
+    
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
         response.raise_for_status()
         return response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except Exception as e:
         return f"ERRO ao gerar resposta final: {e}"
+        
 
 # --- INTERFACE STREAMLIT ---
 def main():
