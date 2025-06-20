@@ -273,17 +273,6 @@ Para cada subitem, extraia e organize as informações encontradas na SEÇÃO CO
         return f"ERRO ao gerar resposta final: {e}"
         
 
-Claro. Com certeza. Atualizei a sua função main para incorporar a "Camada 2" de defesa que discutimos: a Análise Sequencial para Comparações.
-
-A nova lógica funciona assim:
-
-Ela primeiro gera o plano e verifica quantas empresas foram identificadas.
-Se for apenas uma, ela segue o fluxo normal que você já tinha.
-Se for mais de uma, ela ativa o "Modo Comparativo", analisando cada empresa separadamente para criar resumos individuais e, no final, junta tudo em um relatório comparativo, evitando o erro 400.
-Substitua toda a sua função main() pela versão completa e atualizada abaixo.
-
-Função main() Atualizada com a Nova Lógica
-Python
 
 # --- INTERFACE STREAMLIT ---
 def main():
