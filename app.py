@@ -1,11 +1,12 @@
 # app.py
 # -*- coding: utf-8 -*-
 """
-AGENTE COM PLANEJAMENTO DINÂMICO - VERSÃO FINAL STREAMLIT (MAP-REDUCE E SEGURA)
+AGENTE COM PLANEJAMENTO DINÂMICO - VERSÃO FINAL (STREAMLIT, MAP-REDUCE, SEGURA E ESCALÁVEL)
 
 Este script implementa o agente de análise de LTIP como uma aplicação web interativa
-usando Streamlit. A arquitetura usa "Map-Reduce" para escalabilidade e inclui um
-tratamento de erros centralizado e seguro para proteger as chaves de API.
+usando Streamlit. A arquitetura usa "Map-Reduce com Agrupamento de Chunks" para analisar
+grandes volumes de documentos de forma rápida e escalável, evitando erros de limite de
+requisições (429) e protegendo chaves de API contra exposição em erros.
 """
 
 # --- IMPORTAÇÕES ---
@@ -22,15 +23,14 @@ import unicodedata
 import time
 
 # --- CONFIGURAÇÃO DA PÁGINA STREAMLIT ---
-st.set_page_config(page_title="Agente de Análise LTIP", layout="wide")
-st.title("🤖 Agente de Análise de Planos de Incentivo")
-st.caption("Uma aplicação que usa IA para analisar Formulários de Referência da CVM de forma escalável e segura.")
+st.set_page_config(page_title="Agente de Análise ILP", layout="wide")
+st.title("🤖 Agente de Análise de Planos de Incentivo de Longo Prazo")
+st.caption("Uma aplicação de IA para analisar documentos de ILP de forma escalável.")
 
 # --- CONFIGURAÇÕES E ESTRUTURAS DE CONHECIMENTO ---
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 GOOGLE_DRIVE_PATH = './dados'
 
-# (O resto das constantes como TERMOS_TECNICOS_LTIP e AVAILABLE_TOPICS permanecem as mesmas)
 TERMOS_TECNICOS_LTIP = {
     "tratamento de dividendos": ["tratamento de dividendos", "equivalente em dividendos", "dividendos", "juros sobre capital próprio", "proventos", "dividend equivalent", "dividendos pagos em ações", "ajustes por dividendos"],
     "preço de exercício": ["preço de exercício", "strike price", "preço de compra", "preço fixo", "valor de exercício", "preço pré-estabelecido", "preço de aquisição"],
@@ -44,31 +44,20 @@ AVAILABLE_TOPICS = [
     "termos e condições gerais", "data de aprovação e órgão responsável", "número máximo de ações abrangidas", "número máximo de opções a serem outorgadas", "condições de aquisição de ações", "critérios para fixação do preço de aquisição ou exercício", "preço de exercício", "strike price", "critérios para fixação do prazo de aquisição ou exercício", "forma de liquidação", "liquidação", "pagamento", "restrições à transferência das ações", "critérios e eventos de suspensão/extinção", "efeitos da saída do administrador", "Tipos de Planos", "Condições de Carência", "Vesting", "período de carência", "cronograma de vesting", "Matching", "contrapartida", "co-investimento", "Lockup", "período de lockup", "restrição de venda", "Tratamento de Dividendos", "equivalente em dividendos", "proventos", "Stock Options", "opções de ações", "SOP", "Ações Restritas", "RSU", "restricted shares", "Eventos Corporativos", "IPO", "grupamento", "desdobramento"
 ]
 
-
-# --- NOVA FUNÇÃO SEGURA PARA CHAMADAS DE API ---
+# --- FUNÇÃO SEGURA PARA CHAMADAS DE API ---
 def safe_api_call(url, payload, headers, timeout=90):
-    """
-    Realiza uma chamada POST para a API de forma segura, tratando erros
-    sem expor a URL completa ou a chave de API.
-    Retorna (dados_json, None) em caso de sucesso, ou (None, mensagem_de_erro_segura) em caso de falha.
-    """
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
-        response.raise_for_status()  # Gera um erro para códigos de status 4xx ou 5xx
+        response.raise_for_status()
         return response.json(), None
     except requests.exceptions.HTTPError as e:
-        # Captura erros HTTP e extrai apenas informações seguras
         status_code = e.response.status_code
         reason = e.response.reason
         return None, f"Erro de API com código {status_code}: {reason}. Por favor, tente novamente mais tarde."
-    except requests.exceptions.RequestException as e:
-        # Captura outros erros de requisição (conexão, timeout, etc.)
-        return None, f"Erro de conexão ao tentar contatar a API. Verifique sua conexão com a internet."
+    except requests.exceptions.RequestException:
+        return None, "Erro de conexão ao tentar contatar a API. Verifique sua conexão com a internet."
 
-
-# --- FUNÇÕES DE LÓGICA (Refatoradas para usar safe_api_call) ---
-
-# (As funções expand_search_terms, search_by_tags e load_all_artifacts permanecem iguais)
+# --- FUNÇÕES DE LÓGICA ---
 def expand_search_terms(base_term):
     expanded_terms = [base_term.lower()]
     for category, terms in TERMOS_TECNICOS_LTIP.items():
@@ -99,7 +88,7 @@ def load_all_artifacts():
     
     index_files = glob.glob(os.path.join(GOOGLE_DRIVE_PATH, '*_faiss_index.bin'))
     if not index_files:
-        st.error(f"ERRO CRÍTICO: Nenhum arquivo de índice (*_faiss_index.bin) encontrado na pasta '{GOOGLE_DRIVE_PATH}'. Verifique se os arquivos de dados estão na pasta 'dados' no GitHub e se o nome da pasta está em minúsculas.")
+        st.error(f"ERRO CRÍTICO: Nenhum arquivo de índice (*.bin) encontrado na pasta '{GOOGLE_DRIVE_PATH}'. Verifique se os arquivos de dados estão na pasta 'dados' no GitHub.")
         return None, None, None
 
     for index_file in index_files:
@@ -121,16 +110,12 @@ def load_all_artifacts():
     if not artifacts:
         st.error("ERRO CRÍTICO: Nenhum artefato foi carregado com sucesso.")
         return None, None, None
-
     return artifacts, model, list(canonical_company_names)
-
 
 @st.cache_data
 def create_dynamic_analysis_plan(_query, company_catalog, available_indices):
     api_key = st.secrets["GEMINI_API_KEY"]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
-    
-    # (A lógica de identificação de empresa permanece a mesma)
     def normalize_name(name):
         try:
             nfkd_form = unicodedata.normalize('NFKD', name.lower()); name = "".join([c for c in nfkd_form if not unicodedata.combining(c)]); name = re.sub(r'[.,-]', '', name); suffixes = [r'\bs\.?a\.?\b', r'\bltda\b', r'\bholding\b', r'\bparticipacoes\b', r'\bcia\b', r'\bind\b', r'\bcom\b'];
@@ -146,32 +131,24 @@ def create_dynamic_analysis_plan(_query, company_catalog, available_indices):
             if query_clean.upper() in canonical_name.upper():
                 if canonical_name not in mentioned_companies: mentioned_companies.append(canonical_name)
     
-    prompt = f'Você é um planejador de análise... (seu prompt completo aqui)'
+    prompt = f'Você é um planejador de análise. Sua tarefa é analisar a "Pergunta do Usuário" e identificar os tópicos de interesse. Se a pergunta for genérica (ex: "resumo dos planos"), inclua todos os "Tópicos de Análise Disponíveis". Se for específica, inclua apenas os tópicos relevantes. Retorne APENAS uma lista JSON de strings. Tópicos de Análise Disponíveis: {json.dumps(AVAILABLE_TOPICS)}. Pergunta do Usuário: "{_query}". Tópicos de Interesse (JSON):'
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     headers = {'Content-Type': 'application/json'}
-
-    # USO DA FUNÇÃO SEGURA
     response_data, error_message = safe_api_call(url, payload, headers)
-
     if error_message:
         st.warning(f"Erro no planejamento: {error_message}")
-        # Fallback em caso de erro
         plan = {"empresas": list(set(mentioned_companies)), "topicos": AVAILABLE_TOPICS}
         return {"status": "success", "plan": plan}
-
     text_response = response_data['candidates'][0]['content']['parts'][0]['text']
     json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
     if json_match:
         topics = json.loads(json_match.group(0))
         plan = {"empresas": list(set(mentioned_companies)), "topicos": topics}
         return {"status": "success", "plan": plan}
-    
-    # Fallback se o JSON não for encontrado
     plan = {"empresas": list(set(mentioned_companies)), "topicos": AVAILABLE_TOPICS}
     return {"status": "success", "plan": plan}
 
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
-    # (Esta função não faz chamadas de API, então permanece inalterada)
     full_context = ""
     all_retrieved_docs = set()
     for empresa in plan.get("empresas", []):
@@ -192,66 +169,65 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
             all_retrieved_docs.add(chunk_info['path'])
     return full_context, [str(doc) for doc in all_retrieved_docs]
 
-
-# --- FUNÇÕES DE SÍNTESE (ESTRATÉGIA MAP-REDUCE SEGURA) ---
-
+# --- FUNÇÕES DE SÍNTESE (ESTRATÉGIA MAP-REDUCE) ---
 def summarize_chunk(chunk_text, query):
-    """(MAP) Pede à IA para resumir um único chunk de texto de forma segura."""
     api_key = st.secrets["GEMINI_API_KEY"]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
     prompt = f'Com base na pergunta do usuário e no chunk de texto abaixo, extraia e resuma APENAS as informações relevantes. Se o chunk não contiver informações relevantes, responda com "N/A".\n\nPergunta do Usuário: "{query}"\n\nChunk de Texto:\n---\n{chunk_text}\n---\n\nResumo Conciso das Informações Relevantes:'
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.0, "maxOutputTokens": 1024}}
     headers = {'Content-Type': 'application/json'}
-    
-    # USO DA FUNÇÃO SEGURA
     response_data, error_message = safe_api_call(url, payload, headers)
-
     if error_message:
-        # Se houver erro, apenas o ignoramos e continuamos para o próximo chunk
-        print(f"Erro ao resumir chunk: {error_message}") # Log no console do servidor, não para o usuário
+        print(f"Erro ao resumir chunk: {error_message}")
         return None
-
     summary = response_data['candidates'][0]['content']['parts'][0]['text'].strip()
     if summary.upper() != "N/A" and len(summary) > 20:
         return summary
     return None
 
-
 def get_final_unified_answer(query, context, plan):
-    """(REDUCE) Sintetiza a resposta final de forma segura."""
     chunks = re.split(r'--- Chunk|--- INÍCIO DA ANÁLISE PARA:', context)
     relevant_chunks = [chunk.strip() for chunk in chunks if len(chunk.strip()) > 100]
-    st.info(f"Analisando {len(relevant_chunks)} chunks de informação relevantes...")
-    summaries = []
-    progress_bar = st.progress(0, text="Mapeando e resumindo chunks...")
+    if not relevant_chunks:
+        return "Não encontrei conteúdo relevante nos documentos para analisar."
 
-    for i, chunk in enumerate(relevant_chunks):
-        summary = summarize_chunk(chunk, query)
+    TOKEN_LIMIT_PER_BATCH = 6000
+    chunk_batches = []; current_batch = []; current_batch_tokens = 0
+    st.info(f"Encontrados {len(relevant_chunks)} chunks. Agrupando em lotes otimizados...")
+    for chunk in relevant_chunks:
+        chunk_tokens = len(chunk) / 3
+        if current_batch_tokens + chunk_tokens > TOKEN_LIMIT_PER_BATCH and current_batch:
+            chunk_batches.append("\n\n---\n\n".join(current_batch))
+            current_batch = [chunk]; current_batch_tokens = chunk_tokens
+        else:
+            current_batch.append(chunk); current_batch_tokens += chunk_tokens
+    if current_batch:
+        chunk_batches.append("\n\n---\n\n".join(current_batch))
+    st.info(f"Chunks agrupados em {len(chunk_batches)} lotes para uma análise mais rápida.")
+    
+    summaries = []
+    progress_bar = st.progress(0, text="Mapeando e resumindo lotes de chunks...")
+    for i, batch_text in enumerate(chunk_batches):
+        summary = summarize_chunk(batch_text, query)
         if summary: summaries.append(summary)
         time.sleep(1.1)
-        progress_bar.progress((i + 1) / len(relevant_chunks), text=f"Mapeando e resumindo chunks... ({i+1}/{len(relevant_chunks)})")
-    
+        progress_bar.progress((i + 1) / len(chunk_batches), text=f"Mapeando e resumindo lotes... ({i+1}/{len(chunk_batches)})")
     progress_bar.empty()
 
     if not summaries:
         return "Não foi possível extrair informações relevantes dos documentos para montar um relatório."
 
-    st.info("Todos os chunks foram analisados. Sintetizando o relatório final...")
+    st.info("Todos os lotes foram analisados. Sintetizando o relatório final...")
     final_context = "\n\n---\n\n".join(summaries)
     api_key = st.secrets["GEMINI_API_KEY"]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
-    final_prompt = f'Você é um analista financeiro sênior... (seu prompt completo aqui)'
+    final_prompt = f'Você é um analista financeiro sênior. Sua tarefa é criar um relatório coeso e bem estruturado respondendo à pergunta do usuário. Use os resumos de contexto fornecidos abaixo, que foram extraídos de vários documentos. Sintetize as informações em uma única resposta final. Não liste os resumos, use-os para construir seu texto.\n\nPergunta Original do Usuário: "{query}"\n\nResumos de Contexto para usar como base:\n---\n{final_context}\n---\n\nRelatório Analítico Final (responda de forma completa e profissional):'
     payload = {"contents": [{"parts": [{"text": final_prompt}]}], "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}}
     headers = {'Content-Type': 'application/json'}
-    
-    # USO DA FUNÇÃO SEGURA
     response_data, error_message = safe_api_call(url, payload, headers, timeout=180)
-
     if error_message:
         return f"ERRO ao gerar a síntese final do relatório: {error_message}"
-    
     return response_data['candidates'][0]['content']['parts'][0]['text'].strip()
-
 
 # --- LÓGICA PRINCIPAL DA APLICAÇÃO STREAMLIT ---
 try:
@@ -263,16 +239,13 @@ except Exception as e:
 if loaded_artifacts:
     if "messages" not in st.session_state:
         st.session_state.messages = [{"role": "assistant", "content": "Olá! Qual empresa ou plano de incentivo você gostaria de analisar?"}]
-
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-
-    if prompt := st.chat_input("Digite sua pergunta sobre CCR, Vibra, etc."):
+    if prompt := st.chat_input("Digite sua pergunta sobre CCR, Vale, Vibra, etc."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-
         with st.chat_message("assistant"):
             with st.spinner("Iniciando análise..."):
                 plan_response = create_dynamic_analysis_plan(prompt, company_catalog, list(loaded_artifacts.keys()))
@@ -295,3 +268,4 @@ if loaded_artifacts:
                                     st.write(f"- {source}")
             st.markdown(response_text)
         st.session_state.messages.append({"role": "assistant", "content": response_text})
+
