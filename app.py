@@ -24,10 +24,10 @@ MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 # CORREÇÃO: Múltiplos caminhos para encontrar a pasta data
 POSSIBLE_DATA_PATHS = [
     './data',                                    # Caminho relativo padrão
-    os.path.join(os.getcwd(), 'data'),          # Diretório atual + data
-    os.path.join(os.path.dirname(__file__), 'data'),  # Pasta do script + data
+    os.path.join(os.getcwd(), 'dados'),          # Diretório atual + data
+    os.path.join(os.path.dirname(__file__), 'dados'),  # Pasta do script + data
     '/mount/src/agente-streamlit-web/data',     # Caminho absoluto Streamlit Cloud
-    'data'                                      # Apenas 'data'
+    'dados'                                      # Apenas 'data'
 ]
 
 def find_data_directory():
