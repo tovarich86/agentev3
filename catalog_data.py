@@ -916,7 +916,7 @@ company_catalog_rich = [
     },
     {
         "canonical_name": "TIM S.A",
-        "aliases": ["tim", "TIM", "TIMS.A.", "tim s.a."]
+        "aliases": ["tim", "TIM", "TIMS.A.", "tim s.a.", "Tim"]
     },
     {
         "canonical_name": "TOTVS S.A",
