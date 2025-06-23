@@ -559,11 +559,10 @@ def main():
         st.code("Como funciona o lockup da Magazine Luiza?")
         st.code("Resumo item 8.4 Movida")
 
-    # Cole esta linha no seu app.py
     st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, `SAR`")
 
 
-    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas?")
+    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas? ")
 
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
