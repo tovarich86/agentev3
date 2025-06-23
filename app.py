@@ -565,7 +565,7 @@ def main():
         st.code("Resumo item 8.4 Vale")
         
 
-    st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, )
+    st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting` )
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas?")
 
