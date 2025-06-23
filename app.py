@@ -174,54 +174,49 @@ def criar_mapa_de_alias():
 
 def handle_aggregate_query(query, summary_data, alias_map):
     """
-    Lida com perguntas agregadas ("quais", "quantas").
-    Retorna a resposta formatada como uma string Markdown.
+    Lida com perguntas agregadas, sempre retornando a contagem junto com a lista de empresas.
     """
     query_lower = query.lower()
     
-    # 1. Extrair o tópico da pergunta usando o mapa de alias
-    topico_canonico_encontrado = None
-    # Iterar pelas chaves ordenadas pela mais longa primeiro para evitar correspondências parciais
+    # 1. Encontrar TODOS os tópicos mencionados na pergunta (lógica mantida)
+    topicos_canonicos_encontrados = set()
     sorted_aliases = sorted(alias_map.keys(), key=len, reverse=True)
     
     for alias in sorted_aliases:
         if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
-            topico_canonico_encontrado = alias_map[alias]
-            break
+            topicos_canonicos_encontrados.add(alias_map[alias])
 
-    if not topico_canonico_encontrado:
-        return "Não consegui identificar um tópico conhecido (como 'performance', 'matching', 'opções') na sua pergunta para fazer a busca. Por favor, tente novamente."
+    if not topicos_canonicos_encontrados:
+        st.warning("Não consegui identificar um tópico conhecido (como 'performance', 'matching', 'opções') na sua pergunta.")
+        return # A função agora não retorna mais texto, apenas controla a UI
 
-    # 2. Buscar as empresas no JSON
-    empresas_encontradas = []
-    if summary_data:
-        for empresa, dados in summary_data.items():
-            if topico_canonico_encontrado in dados.get("topicos_encontrados", []):
-                empresas_encontradas.append(empresa)
+    topicos_list = sorted(list(topicos_canonicos_encontrados))
+    st.info(f"Tópicos identificados para a busca: **{', '.join(topicos_list)}**")
+
+    # 2. Filtrar as empresas iterativamente (lógica mantida)
+    empresas_encontradas = list(summary_data.keys())
     
-    empresas_encontradas.sort()
+    for topico in topicos_list:
+        empresas_encontradas = [
+            empresa for empresa in empresas_encontradas 
+            if topico in summary_data.get(empresa, {}).get("topicos_encontrados", [])
+        ]
 
-    # 3. Formatar a resposta
+    # 3. Formatar e exibir a resposta unificada
+    import pandas as pd
+
     if not empresas_encontradas:
-        return f"Nenhuma empresa foi encontrada com planos sobre **'{topico_canonico_encontrado}'** nos documentos analisados."
+        st.warning(f"Nenhuma empresa foi encontrada com **TODOS** os tópicos mencionados.")
+        return
 
-    num_empresas = len(empresas_encontradas)
+    # --- LÓGICA UNIFICADA ---
+    # Agora sempre exibe a contagem e a lista, removendo a distinção "quais" vs "quantas"
     
-    if "quantas" in query_lower:
-        return f"✅ **{num_empresas} empresa(s)** encontrada(s) com planos sobre **'{topico_canonico_encontrado}'**."
-
-    resposta_md = f"✅ **{num_empresas} empresa(s)** encontrada(s) com planos sobre **'{topico_canonico_encontrado}'**:\n\n"
+    st.success(f"✅ **{len(empresas_encontradas)} empresa(s)** encontrada(s) com **TODOS** os tópicos mencionados:")
+    df = pd.DataFrame(sorted(empresas_encontradas), columns=["Empresa"])
+    st.dataframe(df, use_container_width=True, hide_index=True)
     
-    if num_empresas > 0:
-        # Apresenta em até 3 colunas para melhor visualização
-        num_cols = min(3, num_empresas)
-        cols = st.columns(num_cols)
-        for i, empresa in enumerate(empresas_encontradas):
-            with cols[i % num_cols]:
-                st.markdown(f"- {empresa}")
-    
-    # Retorna a parte textual, as colunas são renderizadas diretamente
-    return resposta_md
+    return # A função agora não precisa retornar nenhum texto
 
 
 def handle_rag_query(query, artifacts, model, company_catalog_rich):
