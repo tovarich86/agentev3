@@ -556,11 +556,16 @@ def main():
     with col1:
         st.info("**Experimente uma análise agregada:**")
         st.code("Quais empresas possuem planos com matching?")
-        st.code("Quantas empresas têm vesting acelerado?")
+        st.code("Quantas empresas têm performance?")
+        st.code("Quantas empresas têm Stock Options?")
     with col2:
-        st.info("**Ou uma análise profunda (RAG):**")
-        st.code("Compare o vesting da Vale com a Petrobras")
+        st.info("**Ou uma análise profunda :**")
+        st.code("Compare o vesting da Natura com a Gerdau ")
         st.code("Como funciona o lockup da Magazine Luiza?")
+        st.code("Resumo item 8.4 Vale")
+        
+
+    st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, )
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas?")
 
