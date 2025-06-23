@@ -299,25 +299,159 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
 def execute_dynamic_plan(plan, query_intent, artifacts, model):
     """
     Executa o plano de busca com controle robusto de tokens e deduplicação.
-    (Esta função permanece exatamente como no seu código original)
     """
-    # ... (Cole aqui o corpo inteiro da sua função `execute_dynamic_plan` original)
-    # Nenhuma alteração é necessária nesta função.
-    # Por brevidade, o corpo foi omitido aqui, mas deve ser colado integralmente.
-    full_context = "Contexto recuperado pela função execute_dynamic_plan." # Placeholder
-    all_retrieved_docs = {"doc1.pdf", "doc2.pdf"} # Placeholder
+    full_context = ""
+    all_retrieved_docs = set()
+    unique_chunks_content = set()
+    current_token_count = 0
+    chunks_processed = 0
+
+    class Config: # Usando uma classe interna para manter as constantes da função
+        MAX_CONTEXT_TOKENS = 12000
+        MAX_CHUNKS_PER_TOPIC = 5
+        SCORE_THRESHOLD_GENERAL = 0.4
+        SCORE_THRESHOLD_ITEM_84 = 0.5
+        DEDUPLICATION_HASH_LENGTH = 100
+
+    def estimate_tokens(text):
+        return len(text) // 4
+
+    def generate_chunk_hash(chunk_text):
+        normalized = re.sub(r'\s+', '', chunk_text.lower())
+        return hash(normalized[:Config.DEDUPLICATION_HASH_LENGTH])
+
+    def add_unique_chunk_to_context(chunk_text, source_info):
+        nonlocal full_context, current_token_count, chunks_processed, unique_chunks_content, all_retrieved_docs
+        
+        chunk_hash = generate_chunk_hash(chunk_text)
+        if chunk_hash in unique_chunks_content:
+            logger.debug(f"Chunk duplicado ignorado: {source_info[:50]}...")
+            return "DUPLICATE"
+        
+        estimated_chunk_tokens = estimate_tokens(chunk_text) + estimate_tokens(source_info) + 10
+        
+        if current_token_count + estimated_chunk_tokens > Config.MAX_CONTEXT_TOKENS:
+            logger.warning(f"Limite de tokens atingido. Atual: {current_token_count}")
+            return "LIMIT_REACHED"
+        
+        unique_chunks_content.add(chunk_hash)
+        full_context += f"--- {source_info} ---\n{chunk_text}\n\n"
+        current_token_count += estimated_chunk_tokens
+        chunks_processed += 1
+        
+        try:
+            doc_name = source_info.split("(Doc: ")[1].split(")")[0]
+            all_retrieved_docs.add(doc_name)
+        except IndexError:
+            pass # Ignora se não conseguir extrair o nome
+        
+        logger.debug(f"Chunk adicionado. Tokens atuais: {current_token_count}")
+        return "SUCCESS"
+
+    for empresa in plan.get("empresas", []):
+        searchable_company_name = unicodedata.normalize('NFKD', empresa.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
+        logger.info(f"Processando empresa: {empresa}")
+
+        # Lógica para busca geral (pode ser adaptada para item_8_4 também)
+        full_context += f"--- INÍCIO DA ANÁLISE PARA: {empresa.upper()} ---\n\n"
+        
+        # Busca por tags
+        target_tags = []
+        for topico in plan.get("topicos", []):
+            target_tags.extend(expand_search_terms(topico))
+        target_tags = list(set([tag.title() for tag in target_tags if len(tag) > 3]))
+        
+        # A função search_by_tags precisa estar definida no seu script
+        tagged_chunks = search_by_tags(artifacts, empresa, target_tags)
+        
+        if tagged_chunks:
+            full_context += f"=== CHUNKS COM TAGS ESPECÍFICAS - {empresa.upper()} ===\n\n"
+            for chunk_info in tagged_chunks:
+                add_unique_chunk_to_context(
+                    chunk_info['text'], 
+                    f"Chunk com tag '{chunk_info['tag_found']}' (Doc: {chunk_info['path']})"
+                )
+
+        # Busca semântica complementar
+        for topico in plan.get("topicos", []):
+            expanded_terms = expand_search_terms(topico)
+            for term in expanded_terms[:3]:
+                search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
+                query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
+                
+                for index_name, artifact_data in artifacts.items():
+                    index = artifact_data['index']
+                    chunk_data = artifact_data['chunks']
+                    scores, indices = index.search(query_embedding, TOP_K_SEARCH)
+                    
+                    for i, idx in enumerate(indices[0]):
+                        if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
+                            document_path = chunk_data["map"][idx]['document_path']
+                            if searchable_company_name in document_path.lower():
+                                chunk_text = chunk_data["chunks"][idx]
+                                add_unique_chunk_to_context(
+                                    chunk_text,
+                                    f"Contexto para '{topico}' via '{term}' (Fonte: {index_name}, Score: {scores[0][i]:.3f}, Doc: {document_path})"
+                                )
+
+    if not unique_chunks_content:
+        logger.warning("Nenhum chunk único encontrado para o plano de execução.")
+        return "Nenhuma informação única encontrada para os critérios especificados.", set()
+
+    logger.info(f"Processamento concluído - Tokens: {current_token_count}, Chunks únicos: {len(unique_chunks_content)}")
     return full_context, all_retrieved_docs
 
-
 def get_final_unified_answer(query, context):
+    """Gera a resposta final usando o contexto recuperado e a API do Gemini."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+    
+    has_complete_8_4 = "=== SEÇÃO COMPLETA DO ITEM 8.4" in context
+    has_tagged_chunks = "=== CHUNKS COM TAGS ESPECÍFICAS" in context
+    
+    structure_instruction = "Organize a resposta de forma lógica e clara usando Markdown."
+    if has_complete_8_4:
+        structure_instruction = """
+**ESTRUTURA OBRIGATÓRIA PARA ITEM 8.4:**
+Use a estrutura oficial do item 8.4 do Formulário de Referência:
+a) Termos e condições gerais; b) Data de aprovação e órgão; c) Máximo de ações; d) Máximo de opções; 
+e) Condições de aquisição; f) Critérios de preço; g) Critérios de prazo; h) Forma de liquidação; 
+i) Restrições à transferência; j) Suspensão/extinção; k) Efeitos da saída.
+Para cada subitem, extraia e organize as informações encontradas na SEÇÃO COMPLETA DO ITEM 8.4.
+"""
+    elif has_tagged_chunks:
+        structure_instruction = "**PRIORIZE** as informações dos CHUNKS COM TAGS ESPECÍFICAS e organize a resposta de forma lógica usando Markdown."
+        
+    prompt = f"""Você é um consultor especialista em planos de incentivo de longo prazo (ILP) e no item 8 do formulário de referência da CVM.
+    
+    PERGUNTA ORIGINAL DO USUÁRIO: "{query}"
+    
+    CONTEXTO COLETADO DOS DOCUMENTOS:
+    {context}
+    
+    {structure_instruction}
+    
+    INSTRUÇÕES PARA O RELATÓRIO FINAL:
+    1. Responda diretamente à pergunta do usuário com base no contexto fornecido.
+    2. PRIORIZE informações da "SEÇÃO COMPLETA DO ITEM 8.4" ou de "CHUNKS COM TAGS ESPECÍFICAS" quando disponíveis. Use o resto do contexto para complementar.
+    3. Seja detalhado, preciso e profissional na sua linguagem. Use formatação Markdown (negrito, listas) para clareza.
+    4. Se uma informação específica pedida não estiver no contexto, declare explicitamente: "Informação não encontrada nas fontes analisadas.". Não invente dados.
+    
+    RELATÓRIO ANALÍTICO FINAL:
     """
-    Gera a resposta final usando o contexto recuperado.
-    (Esta função permanece exatamente como no seu código original)
-    """
-    # ... (Cole aqui o corpo inteiro da sua função `get_final_unified_answer` original)
-    # Nenhuma alteração é necessária nesta função.
-    # Por brevidade, o corpo foi omitido aqui, mas deve ser colado integralmente.
-    return f"Resposta final gerada por LLM para a query: '{query}' com base no contexto." # Placeholder
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}
+    }
+    headers = {'Content-Type': 'application/json'}
+    
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
+        response.raise_for_status()
+        return response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
+    except Exception as e:
+        logger.error(f"ERRO ao gerar resposta final com LLM: {e}")
+        return f"ERRO ao gerar resposta final: Ocorreu um problema ao contatar o modelo de linguagem. Detalhes: {e}"
 
 
 # --- INTERFACE STREAMLIT (Aplicação Principal) ---
