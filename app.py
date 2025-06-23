@@ -41,6 +41,7 @@ TERMOS_TECNICOS_LTIP = {
     "Estrutura do Plano/Programa": ["Plano", "Planos", "Programa", "Programas"],
     "Ciclo de Vida do Exercício": ["pagamento", "liquidação", "vencimento", "expiração"],
     "Eventos Corporativos": ["IPO", "grupamento", "desdobramento", "bonificações", "bonificação"],
+    "Dividendos": ["Dividendos", "Dividendo", "JCP", "Juros sobre capital próprio"],
     "Encargos": ["Encargos", "Impostos", "Tributação", "Natureza Mercantil", "Natureza Remuneratória", "INSS", "IRRF"],
 }
 AVAILABLE_TOPICS = [
