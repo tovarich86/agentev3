@@ -546,24 +546,22 @@ def main():
     # --- Corpo Principal ---
     st.header("💬 Faça sua pergunta")
     
-    # Colunas para exemplos de perguntas
-    # Cole este bloco de código no lugar das colunas e do st.caption
-    with st.expander("💡 Como fazer a pergunta ideal? Clique para ver exemplos e dicas."):
-        st.markdown("""
-        O agente responde a dois tipos de perguntas:
-        
-        **1. Análises Amplas (Busca Rápida):** Use `quais` ou `liste` para descobrir empresas com uma característica. A resposta é quase instantânea.
-        - *Quais empresas possuem planos com matching?*
-        - *Liste as empresas que oferecem ações restritas.*
-        
-        **2. Análises Profundas (Busca Detalhada - RAG):** Peça detalhes sobre empresas específicas para obter uma análise completa.
-        - *Compare o vesting da Natura com a Gerdau*
-        - *Como funciona o lockup da Magazine Luiza?*
-        - *Resumo item 8.4 da Vale*
-        
-        ---
-        **Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, `SAR`
-        """)
+        # Colunas para exemplos de perguntas
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("**Experimente uma análise agregada:**")
+        st.code("Quais empresas possuem planos com matching?")
+        st.code("Quantas empresas têm performance?")
+        st.code("Quantas empresas têm Stock Options?")
+    with col2:
+        st.info("**Ou uma análise profunda :**")
+        st.code("Compare o vesting da Vale com a Gerdau")
+        st.code("Como funciona o lockup da Magazine Luiza?")
+        st.code("Resumo item 8.4 Movida")
+
+    # Cole esta linha no seu app.py
+    st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, `SAR`")
+
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas?")
 
