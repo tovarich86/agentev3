@@ -538,7 +538,7 @@ def main():
 
     with st.expander("💡 Entenda como funciona e veja dicas para perguntas ideais"):
         st.markdown("""
-        **Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) E O item 8.4 do FRE de empresas listadas.**
+        **Este agente analisa Planos de Incentivo de Longo Prazo (ILPs) e o item 8.4 do FRE de empresas listadas.**
 
         > **Dica de Ouro:** Para máxima precisão, use **termos-chave** na sua pergunta. O agente prioriza estes termos para uma busca focada e rápida.
 
