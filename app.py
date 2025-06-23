@@ -555,8 +555,8 @@ def main():
         st.code("Quantas empresas têm Stock Options?")
     with col2:
         st.info("**Ou uma análise profunda :**")
-        st.code("Compare o vesting da Vale com a Gerdau")
-        st.code("Como funciona o lockup da Magazine Luiza?")
+        st.code("Compare dividendos da Vale com a Gerdau")
+        st.code("Como é o plano Magazine Luiza?")
         st.code("Resumo item 8.4 Movida")
 
     st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, `SAR`")
