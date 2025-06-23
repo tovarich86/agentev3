@@ -125,27 +125,28 @@ def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indic
     mentioned_companies = []
     companies_found_by_alias = {}
     for company_data in company_catalog_rich:
-    for alias in company_data.get("aliases", []):
-        alias_lower = alias.lower().strip()
+        for alias in company_data.get("aliases", []):  # ✅ CORRETO: Com identação
+            alias_lower = alias.lower().strip()
         
         # Para aliases curtos (≤3 caracteres), usar busca mais específica
-        if len(alias_lower) <= 3:
-            # Verifica se o alias aparece como palavra isolada
-            words_in_query = query_lower.split()
-            if alias_lower in words_in_query:
-                score = len(alias.split()) + 5  # Bonus para aliases curtos
-                canonical_name = company_data["canonical_name"]
-                if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
-                    companies_found_by_alias[canonical_name] = score
-                print(f"DEBUG: Alias curto encontrado - '{alias_lower}' -> {canonical_name}")
-        else:
-            # Para aliases longos, manter a lógica original
-            if re.search(r'\b' + re.escape(alias_lower) + r'\b', query_lower):
-                score = len(alias.split())
-                canonical_name = company_data["canonical_name"]
-                if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
-                    companies_found_by_alias[canonical_name] = score
-                print(f"DEBUG: Alias longo encontrado - '{alias_lower}' -> {canonical_name}")
+            if len(alias_lower) <= 3:
+                # Verifica se o alias aparece como palavra isolada
+                words_in_query = query_lower.split()
+                if alias_lower in words_in_query:
+                    score = len(alias.split()) + 5  # Bonus para aliases curtos
+                    canonical_name = company_data["canonical_name"]
+                    if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
+                        companies_found_by_alias[canonical_name] = score
+                    print(f"DEBUG: Alias curto encontrado - '{alias_lower}' -> {canonical_name}")
+            else:
+                # Para aliases longos, manter a lógica original
+                if re.search(r'\b' + re.escape(alias_lower) + r'\b', query_lower):
+                    score = len(alias.split())
+                    canonical_name = company_data["canonical_name"]
+                    if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
+                        companies_found_by_alias[canonical_name] = score
+                    print(f"DEBUG: Alias longo encontrado - '{alias_lower}' -> {canonical_name}")
+
 
     
     if companies_found_by_alias:
