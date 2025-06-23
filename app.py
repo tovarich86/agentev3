@@ -18,6 +18,64 @@ import unicodedata
 import logging
 from functools import lru_cache
 
+
+# --- FUNÇÕES AUXILIARES GLOBAIS ---
+# Estas funções são usadas pelo fluxo de análise profunda (RAG)
+
+def expand_search_terms(base_term):
+    """Expande um termo de busca para incluir sinônimos do dicionário principal."""
+    expanded_terms = [base_term.lower()]
+    # Usando TERMOS_TECNICOS_LTIP que já está definido globalmente
+    for category, terms in TERMOS_TECNICOS_LTIP.items():
+        # Verificamos se o 'base_term' ou a 'category' estão relacionados
+        if base_term.lower() in (t.lower() for t in terms) or base_term.lower() == category.lower():
+            expanded_terms.extend([term.lower() for term in terms])
+    return list(set(expanded_terms))
+
+def search_by_tags(artifacts, company_name, target_tags):
+    """Busca por chunks que contenham tags de tópicos pré-processados."""
+    results = []
+    # Normaliza o nome da empresa para a busca no caminho do arquivo
+    searchable_company_name = unicodedata.normalize('NFKD', company_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
+
+    for index_name, artifact_data in artifacts.items():
+        chunk_data = artifact_data.get('chunks', {})
+        for i, mapping in enumerate(chunk_data.get('map', [])):
+            document_path = mapping.get('document_path', '')
+            
+            if searchable_company_name in document_path.lower():
+                chunk_text = chunk_data.get("chunks", [])[i]
+                for tag in target_tags:
+                    # A busca pela tag deve ser case-insensitive
+                    if re.search(r'Tópicos:.*?'+ re.escape(tag), chunk_text, re.IGNORECASE):
+                        results.append({
+                            'text': chunk_text, 'path': document_path, 'index': i,
+                            'source': index_name, 'tag_found': tag
+                        })
+                        break # Para no primeiro tag encontrado para este chunk
+    return results
+
+def normalize_name(name):
+    """Normaliza nomes de empresas removendo acentos, pontuação e sufixos comuns."""
+    try:
+        # Converte para minúsculas e remove acentos
+        nfkd_form = unicodedata.normalize('NFKD', name.lower())
+        name = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+        
+        # Remove pontuação e caracteres especiais
+        name = re.sub(r'[.,-]', '', name)
+        
+        # Remove sufixos comuns de empresas
+        suffixes = [r'\bs\.?a\.?\b', r'\bltda\b', r'\bholding\b', r'\bparticipacoes\b', r'\bcia\b', r'\bind\b', r'\bcom\b']
+        for suffix in suffixes:
+            name = re.sub(suffix, '', name, flags=re.IGNORECASE)
+            
+        # Remove espaços extras
+        return re.sub(r'\s+', ' ', name).strip()
+    except Exception as e:
+        # Fallback em caso de erro
+        return name.lower()
+
 # --- CONFIGURAÇÕES GERAIS ---
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 TOP_K_SEARCH = 7
