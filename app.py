@@ -564,7 +564,7 @@ def main():
         ---
          **Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Liquidação`
         """)
-    user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale com a Petrobras")
+    user_query = st.text_area("Digite sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale com a Braskem")
 
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
