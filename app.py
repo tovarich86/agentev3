@@ -584,7 +584,7 @@ def main():
         st.code("Como é o plano Magazine Luiza?")
         st.code("Resumo item 8.4 Movida")
 
-    st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Matching`, `Lockup`, `Stock Options`, `Ações Restritas`, `Performance`, `Dividendos`, `Antecipação de Vesting`, `SAR`")
+  st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Stock Options`, `Ações Restritas`, `Performance`, `Matching`, `Lockup`, `SAR`, `ESPP`, `Malus e Clawback`, `Dividendos`")
 
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas? ")
