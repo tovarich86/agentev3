@@ -33,7 +33,10 @@ def expand_search_terms(base_term):
     return list(set(expanded_terms))
 
 def search_by_tags(artifacts, company_name, target_tags):
-    """Busca por chunks que contenham tags de tópicos pré-processados."""
+    """
+    Busca por chunks que contenham tags de tópicos pré-processados,
+    considerando tanto 'Tópicos:' quanto 'Item 8.4 - Subitens:'.
+    """
     results = []
     # Normaliza o nome da empresa para a busca no caminho do arquivo
     searchable_company_name = unicodedata.normalize('NFKD', company_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
@@ -46,8 +49,9 @@ def search_by_tags(artifacts, company_name, target_tags):
             if searchable_company_name in document_path.lower():
                 chunk_text = chunk_data.get("chunks", [])[i]
                 for tag in target_tags:
-                    # A busca pela tag deve ser case-insensitive
-                    if re.search(r'Tópicos:.*?'+ re.escape(tag), chunk_text, re.IGNORECASE):
+                    # LÓGICA CORRIGIDA: A regex agora procura pela tag após qualquer um dos dois prefixos.
+                    pattern = r'(Tópicos:|Item 8.4 - Subitens:).*?' + re.escape(tag)
+                    if re.search(pattern, chunk_text, re.IGNORECASE):
                         results.append({
                             'text': chunk_text, 'path': document_path, 'index': i,
                             'source': index_name, 'tag_found': tag
@@ -89,24 +93,45 @@ logger = logging.getLogger(__name__)
 # --- DICIONÁRIOS DE CONHECIMENTO ---
 
 # Dicionário principal para tradução de termos e busca de tópicos
-TERMOS_TECNICOS_LTIP = {
-    "Ações Restritas": ["Restricted Shares", "Plano de Ações Restritas", "Outorga de Ações", "ações restritas", "RSU"],
+TERMOS_TECNICOS_LTIP =  {
+    # --- TIPOS DE PLANOS ---
+    "Ações Restritas": ["Restricted Shares", "Plano de Ações Restritas", "Outorga de Ações", "ações restritas", "RSU", "Restricted Stock Units"],
     "Opções de Compra de Ações": ["Stock Options", "ESOP", "Plano de Opção de Compra", "Outorga de Opções", "opções", "Plano de Opção", "Plano de Opções", "SOP"],
     "Ações Fantasmas": ["Phantom Shares", "Ações Virtuais"],
     "Opções Fantasmas (SAR)": ["Phantom Options", "SAR", "Share Appreciation Rights", "Direito à Valorização de Ações"],
-    "Bônus Diferido": ["Staying Bonus", "Retention Bonus", "Bônus de Permanência", "Bônus de Retenção", "bônus"],
-    "Planos com Condição de Performance": ["Performance Shares", "Performance Stock Options", "Plano de Desempenho", "Metas de Performance", "performance", "desempenho"],
+    "Planos com Condição de Performance": ["Performance Shares", "Performance Units", "PSU", "Plano de Desempenho", "Metas de Performance", "performance", "desempenho"],
+    "Plano de Compra de Ações (ESPP)": ["Plano de Compra de Ações", "Employee Stock Purchase Plan", "ESPP", "Ações com Desconto"], # (NOVA CATEGORIA)
+    "Bônus Diferido": ["Staying Bonus", "Retention Bonus", "Bônus de Permanência", "Bônus de Retenção", "bônus", "Deferred Bonus"],
+    "Matching": ["Matching", "Contrapartida", "Co-investimento", "Plano de Matching", "investimento"],
+
+    # --- MECÂNICAS E CICLO DE VIDA ---
+    "Outorga": ["Outorga", "Concessão", "Grant", "Grant Date", "Data da Outorga", "Aprovação"],
     "Vesting": ["Vesting", "Período de Carência", "Condições de Carência", "Aquisição de Direitos", "carência", "cronograma de vesting"],
     "Antecipação de Vesting": ["Vesting Acelerado", "Accelerated Vesting", "Cláusula de Aceleração", "antecipação de carência", "antecipação do vesting", "antecipação"],
     "Tranche / Lote": ["Tranche", "Lote", "Parcela do Vesting"],
     "Cliff": ["Cliff Period", "Período de Cliff", "Carência Inicial"],
-    "Matching": ["Matching", "Contrapartida", "Co-investimento", "Plano de Matching", "investimento"],
-    "Lockup": ["Lockup", "Período de Lockup", "Restrição de Venda"],
+    "Preço": ["Preço", "Preço de Exercício", "Strike", "Strike Price"],
+    "Ciclo de Vida do Exercício": ["Exercício", "Período de Exercício", "pagamento", "liquidação", "vencimento", "expiração", "forma de liquidação"],
+    "Lockup": ["Lockup", "Período de Lockup", "Restrição de Venda", "período de restrição"],
+
+    # --- GOVERNANÇA E RISCO ---
+    "Governança e Documentos": ["Regulamento", "Regulamento do Plano", "Contrato de Adesão", "Termo de Outorga", "Comitê de Remuneração", "Comitê de Pessoas", "Deliberação"], # (NOVA CATEGORIA)
+    "Malus e Clawback": ["Malus", "Clawback", "Redução", "Devolução", "Cláusula de Recuperação", "Forfeiture", "Cancelamento", "Perda do Direito"], # (NOVA CATEGORIA)
     "Estrutura do Plano/Programa": ["Plano", "Planos", "Programa", "Programas", "termos e condições gerais"],
-    "Ciclo de Vida do Exercício": ["pagamento", "liquidação", "vencimento", "expiração", "forma de liquidação"],
-    "Eventos Corporativos": ["IPO", "grupamento", "desdobramento", "bonificações", "bonificação"],
-    "Dividendos": ["Dividendos", "Dividendo", "JCP", "Juros sobre capital próprio", "Tratamento de Dividendos", "equivalente em dividendos", "proventos"],
+    "Diluição": ["Diluição", "Dilution", "Capital Social"], # (NOVA CATEGORIA)
+
+    # --- PARTICIPANTES E CONDIÇÕES ---
+    "Elegíveis": ["Participantes", "Beneficiários", "Elegíveis", "Empregados", "Administradores", "Executivos", "Colaboradores", "Conselheiros"],
+    "Condição de Saída": ["Desligamento", "Saída", "Término do Contrato", "Rescisão", "Demissão", "Good Leaver", "Bad Leaver"],
+    "Tratamento em Casos Especiais": ["Aposentadoria", "Morte", "Invalidez", "Reforma", "Afastamento"], # (NOVA CATEGORIA)
+    "Indicadores": ["TSR", "Total Shareholder Return", "Retorno Total ao Acionista", "CDI", "IPCA", "Selic", "ROIC", "EBITDA", "LAIR", "Lucro", "CAGR", "Metas ESG", "Receita Líquida"],
+
+    # --- EVENTOS E ASPECTOS FINANCEIROS ---
+    "Eventos Corporativos": ["IPO", "grupamento", "desdobramento", "cisão", "fusão", "incorporação", "bonificações", "bonificação"],
+    "Mudança de Controle": ["Mudança de Controle", "Change of Control", "Evento de Liquidez"], # (NOVA CATEGORIA)
+    "Dividendos": ["Dividendos", "Dividendo", "JCP", "Juros sobre capital próprio", "Tratamento de Dividendos", "dividend equivalent", "proventos"],
     "Encargos": ["Encargos", "Impostos", "Tributação", "Natureza Mercantil", "Natureza Remuneratória", "INSS", "IRRF"],
+    "Contabilidade e Normas": ["IFRS 2", "CPC 10", "Valor Justo", "Fair Value", "Black-Scholes", "Despesa Contábil", "Volatilidade"] # (NOVA CATEGORIA)
 }
 
 # Tópicos para o fallback do LLM na análise profunda (RAG)
