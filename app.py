@@ -186,11 +186,15 @@ def load_all_artifacts():
 @st.cache_data
 def criar_mapa_de_alias():
     """
-    Cria um dicionário que mapeia cada apelido ao seu tópico canônico para buscas rápidas.
-    Ex: {'performance': 'Planos com Condição de Performance'}
+    Cria um dicionário que mapeia cada apelido E o próprio nome do tópico ao seu tópico canônico.
+    Ex: {'performance': 'Planos com Condição de Performance', 'planos com condição de performance': 'Planos com Condição de Performance'}
     """
     alias_to_canonical = {}
     for canonical_name, aliases in TERMOS_TECNICOS_LTIP.items():
+        # 1. Adiciona o próprio nome canônico como um alias para si mesmo
+        alias_to_canonical[canonical_name.lower()] = canonical_name
+        
+        # 2. Adiciona todos os outros sinônimos
         for alias in aliases:
             alias_to_canonical[alias.lower()] = canonical_name
     return alias_to_canonical
