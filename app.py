@@ -146,15 +146,9 @@ AVAILABLE_TOPICS = list(TERMOS_TECNICOS_LTIP.keys()) + [
 @st.cache_resource
 def load_all_artifacts():
     """
-    Carrega todos os artefatos necessários para a aplicação:
-    - Modelo de embedding
-    - Índices FAISS e chunks (para RAG)
-    - Resumo de características (para buscas agregadas)
+    Carrega todos os artefatos, incluindo o novo resumo DETALHADO.
     """
-    # 1. Carregar Modelo de Embedding
     model = SentenceTransformer(MODEL_NAME)
-    
-    # 2. Carregar Artefatos do RAG (FAISS e Chunks)
     artifacts = {}
     index_files = glob.glob(os.path.join(DADOS_PATH, '*_faiss_index.bin'))
     if not index_files:
@@ -171,6 +165,18 @@ def load_all_artifacts():
             except FileNotFoundError:
                 logger.warning(f"Arquivo de chunks para a categoria '{category}' não encontrado. Pulando.")
                 continue
+    
+    # Carrega o NOVO arquivo de resumo detalhado
+    summary_data = None
+    summary_file_path = os.path.join(DADOS_PATH, 'resumo_caracteristicas_detalhado.json')
+    try:
+        with open(summary_file_path, 'r', encoding='utf-8') as f:
+            summary_data = json.load(f)
+    except FileNotFoundError:
+        logger.error("Arquivo 'resumo_caracteristicas_detalhado.json' não encontrado. Buscas agregadas não funcionarão.")
+        
+    return model, artifacts, summary_data
+
     
     # 3. Carregar Resumo de Características
     summary_data = None
@@ -203,49 +209,53 @@ def criar_mapa_de_alias():
 
 def handle_aggregate_query(query, summary_data, alias_map):
     """
-    Lida com perguntas agregadas, sempre retornando a contagem junto com a lista de empresas.
+    Lida com perguntas agregadas usando o resumo detalhado para filtros precisos.
     """
     query_lower = query.lower()
     
-    # 1. Encontrar TODOS os tópicos mencionados na pergunta (lógica mantida)
-    topicos_canonicos_encontrados = set()
+    # 1. Encontrar TODOS os termos específicos mencionados na pergunta (ex: 'tsr', 'vesting')
+    query_keywords = set()
     sorted_aliases = sorted(alias_map.keys(), key=len, reverse=True)
     
+    temp_query = query_lower
     for alias in sorted_aliases:
-        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
-            topicos_canonicos_encontrados.add(alias_map[alias])
+        # Busca e substitui para não contar sub-palavras de termos já encontrados
+        if re.search(r'\b' + re.escape(alias) + r'\b', temp_query):
+            query_keywords.add(alias)
+            # Remove a palavra encontrada para evitar matches duplicados (ex: "ações" e "ações restritas")
+            temp_query = temp_query.replace(alias, "")
 
-    if not topicos_canonicos_encontrados:
-        st.warning("Não consegui identificar um tópico conhecido (como 'performance', 'matching', 'opções') na sua pergunta.")
-        return # A função agora não retorna mais texto, apenas controla a UI
+    if not query_keywords:
+        st.warning("Não consegui identificar um termo técnico conhecido (como 'TSR', 'vesting', 'matching') na sua pergunta.")
+        return
 
-    topicos_list = sorted(list(topicos_canonicos_encontrados))
-    st.info(f"Tópicos identificados para a busca: **{', '.join(topicos_list)}**")
+    st.info(f"Termos específicos identificados para a busca: **{', '.join(sorted(list(query_keywords)))}**")
 
-    # 2. Filtrar as empresas iterativamente (lógica mantida)
-    empresas_encontradas = list(summary_data.keys())
-    
-    for topico in topicos_list:
-        empresas_encontradas = [
-            empresa for empresa in empresas_encontradas 
-            if topico in summary_data.get(empresa, {}).get("topicos_encontrados", [])
-        ]
+    # 2. Filtrar as empresas com base nos termos específicos
+    empresas_encontradas = []
+    for empresa, data in summary_data.items():
+        # Coleta todas as palavras-chave encontradas para uma empresa em um único set
+        all_found_keywords_for_company = set()
+        # A estrutura agora é: {'Tópico': ['keyword1', 'keyword2']}
+        for topic, keywords_list in data.get("topicos_encontrados", {}).items():
+            all_found_keywords_for_company.update([k.lower() for k in keywords_list])
+            # Adiciona o próprio nome do tópico como uma keyword pesquisável
+            all_found_keywords_for_company.add(topic.lower().split(' - ')[-1]) # Trata "Item 8.4 - a"
 
-    # 3. Formatar e exibir a resposta unificada
+        # A empresa é uma candidata se TODOS os termos da pergunta estiverem no conjunto de palavras-chave dela
+        if query_keywords.issubset(all_found_keywords_for_company):
+            empresas_encontradas.append(empresa)
+
+    # 3. Formatar e exibir a resposta
     import pandas as pd
 
     if not empresas_encontradas:
-        st.warning(f"Nenhuma empresa foi encontrada com **TODOS** os tópicos mencionados.")
+        st.warning(f"Nenhuma empresa foi encontrada com **TODOS** os termos específicos mencionados.")
         return
 
-    # --- LÓGICA UNIFICADA ---
-    # Agora sempre exibe a contagem e a lista, removendo a distinção "quais" vs "quantas"
-    
-    st.success(f"✅ **{len(empresas_encontradas)} empresa(s)** encontrada(s) com **TODOS** os tópicos mencionados:")
+    st.success(f"✅ **{len(empresas_encontradas)} empresa(s)** encontrada(s) com os termos específicos: **{', '.join(sorted(list(query_keywords)))}**")
     df = pd.DataFrame(sorted(empresas_encontradas), columns=["Empresa"])
     st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    return # A função agora não precisa retornar nenhum texto
 
 
 def handle_rag_query(query, artifacts, model, company_catalog_rich):
