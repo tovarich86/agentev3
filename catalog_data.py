@@ -612,7 +612,7 @@ company_catalog_rich = [
     },
     {
         "canonical_name": "M.DIAS BRANCO S.A. IND COM DE ALIMENTOS",
-        "aliases": ["m dias branco", "mdias branco"]
+        "aliases": ["m dias branco", "mdias branco", "mdias", "m.dias"]
     },
     {
         "canonical_name": "MADERO INDUSTRIA E COMERCIO S.A",
