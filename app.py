@@ -168,12 +168,12 @@ def load_all_artifacts():
     
     # Carrega o NOVO arquivo de resumo detalhado
     summary_data = None
-    summary_file_path = os.path.join(DADOS_PATH, 'resumo_caracteristicas_detalhado.json')
+    summary_file_path = os.path.join(DADOS_PATH, 'resumo_caracteristicas.json')
     try:
         with open(summary_file_path, 'r', encoding='utf-8') as f:
             summary_data = json.load(f)
     except FileNotFoundError:
-        logger.error("Arquivo 'resumo_caracteristicas_detalhado.json' não encontrado. Buscas agregadas não funcionarão.")
+        logger.error("Arquivo 'resumo_caracteristicas.json' não encontrado. Buscas agregadas não funcionarão.")
         
     return model, artifacts, summary_data
 
