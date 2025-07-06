@@ -84,7 +84,7 @@ def normalize_name(name):
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 TOP_K_SEARCH = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "Gemini 2.0 Flash-Lite"  # Modelo Gemini unificado
+GEMINI_MODEL = "gemini-2.0-flash-lite"  # Modelo Gemini unificado
 DADOS_PATH = "dados" # Centraliza o caminho para a pasta de dados
 
 # Configuração de logging
