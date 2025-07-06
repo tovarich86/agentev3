@@ -84,6 +84,7 @@ def normalize_name(name):
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
 TOP_K_SEARCH = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = "gemini-2.0-flash-latest"  # Modelo Gemini unificado
 DADOS_PATH = "dados" # Centraliza o caminho para a pasta de dados
 
 # Configuração de logging
@@ -93,7 +94,7 @@ logger = logging.getLogger(__name__)
 # --- DICIONÁRIOS DE CONHECIMENTO ---
 
 # Dicionário principal para tradução de termos e busca de tópicos
-TERMOS_TECNICOS_LTIP =  {
+TERMOS_TECNICOS_LTIP = {
     # --- TIPOS DE PLANOS ---
     "Ações Restritas": ["Restricted Shares", "Plano de Ações Restritas", "Outorga de Ações", "ações restritas", "RSU", "Restricted Stock Units"],
     "Opções de Compra de Ações": ["Stock Options", "ESOP", "Plano de Opção de Compra", "Outorga de Opções", "opções", "Plano de Opção", "Plano de Opções", "SOP"],
@@ -167,18 +168,6 @@ def load_all_artifacts():
                 continue
     
     # Carrega o NOVO arquivo de resumo detalhado
-    summary_data = None
-    summary_file_path = os.path.join(DADOS_PATH, 'resumo_caracteristicas.json')
-    try:
-        with open(summary_file_path, 'r', encoding='utf-8') as f:
-            summary_data = json.load(f)
-    except FileNotFoundError:
-        logger.error("Arquivo 'resumo_caracteristicas.json' não encontrado. Buscas agregadas não funcionarão.")
-        
-    return model, artifacts, summary_data
-
-    
-    # 3. Carregar Resumo de Características
     summary_data = None
     summary_file_path = os.path.join(DADOS_PATH, 'resumo_caracteristicas.json')
     try:
@@ -327,13 +316,12 @@ def handle_rag_query(query, artifacts, model, company_catalog_rich):
 
     return final_answer, sources
 
-# --- FUNÇÕES DE BACKEND (RAG) - sem alterações ---
+# --- FUNÇÕES DE BACKEND (RAG) - com modelo atualizado ---
 
-# Mantidas as funções originais para o fluxo RAG
 def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indices):
     # Esta função agora é chamada apenas pelo `handle_rag_query`
     api_key = GEMINI_API_KEY
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-latest:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
     query_lower = query.lower().strip()
     
     # Identificação de Empresas
@@ -495,7 +483,7 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
 
 def get_final_unified_answer(query, context):
     """Gera a resposta final usando o contexto recuperado e a API do Gemini."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     
     has_complete_8_4 = "=== SEÇÃO COMPLETA DO ITEM 8.4" in context
     has_tagged_chunks = "=== CHUNKS COM TAGS ESPECÍFICAS" in context
@@ -580,7 +568,8 @@ def main():
                 st.dataframe(sorted(list(summary_data.keys())), use_container_width=True)
         
         st.success("✅ Sistema pronto para análise")
-        st.info(f"Modelo de embedding: `{MODEL_NAME}`")
+        st.info(f"Embedding Model: `{MODEL_NAME}`")
+        st.info(f"Generative Model: `{GEMINI_MODEL}`") # Mostra o modelo Gemini em uso
 
     # --- Corpo Principal ---
     st.header("💬 Faça sua pergunta")
@@ -623,10 +612,8 @@ def main():
             else:
                 st.info("Detectada uma pergunta agregada. Buscando no resumo de características...")
                 with st.spinner("Analisando resumo..."):
-                    # A função `handle_aggregate_query` agora pode renderizar colunas diretamente
-                    # e retornar o texto principal.
-                    final_answer_text_part = handle_aggregate_query(user_query, summary_data, ALIAS_MAP)
-                    st.markdown(final_answer_text_part) # Renderiza o texto e as colunas (se houver)
+                    # A função `handle_aggregate_query` já renderiza a saída em st.
+                    handle_aggregate_query(user_query, summary_data, ALIAS_MAP)
 
         # Rota 2: Pergunta profunda (RAG)
         else:
