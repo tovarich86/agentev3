@@ -333,7 +333,7 @@ def handle_rag_query(query, artifacts, model, company_catalog_rich):
 def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indices):
     # Esta função agora é chamada apenas pelo `handle_rag_query`
     api_key = GEMINI_API_KEY
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-latest:generateContent?key={api_key}"
     query_lower = query.lower().strip()
     
     # Identificação de Empresas
