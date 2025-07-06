@@ -387,8 +387,8 @@ def execute_dynamic_plan(plan, query_intent, artifacts, model):
     chunks_processed = 0
 
     class Config: # Usando uma classe interna para manter as constantes da função
-        MAX_CONTEXT_TOKENS = 12000
-        MAX_CHUNKS_PER_TOPIC = 5
+        MAX_CONTEXT_TOKENS = 256000
+        MAX_CHUNKS_PER_TOPIC = 10
         SCORE_THRESHOLD_GENERAL = 0.4
         SCORE_THRESHOLD_ITEM_84 = 0.5
         DEDUPLICATION_HASH_LENGTH = 100
