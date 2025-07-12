@@ -1,20 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 AGENTE DE CONSULTA COM LÓGICA ORIGINAL RESTAURADA (V5)
-Aplicação web para análise de planos de incentivo de longo prazo.
+Aplicação web para análise de planos de incentivo de longo prazo, otimizada
+para ser executada na Streamlit Community Cloud.
 
 Esta versão restaura a robustez e a inteligência de orquestração do agente
 original, aplicando-as à nova e eficiente estrutura de dados V7.
-
-Funcionalidades Restauradas e Otimizadas:
-- **Orquestrador de Análise via LLM:** Utiliza o Gemini para interpretar a
-  pergunta do utilizador e criar um plano de análise dinâmico.
-- **Motor de Comparação Completo:** Lida com perguntas comparativas, analisando
-  cada empresa individualmente antes de gerar um relatório final.
-- **Roteador de Intenção:** Distingue entre perguntas agregadas (que usam a
-  tabela consolidada) e análises profundas (que usam o RAG).
-- **Busca Híbrida Otimizada:** Utiliza os metadados ricos para uma busca
-  precisa e contextualizada.
 """
 
 import streamlit as st
@@ -30,14 +21,9 @@ import unicodedata
 import requests
 
 # --- CONFIGURAÇÕES GERAIS ---
-try:
-    from google.colab import drive
-    drive.mount('/content/drive', force_remount=True)
-    BASE_PATH = '/content/drive/MyDrive/Projeto_CVM_RAG'
-    print(f"Google Drive montado. A utilizar o caminho: {BASE_PATH}")
-except ImportError:
-    BASE_PATH = '.'
-    print(f"A executar localmente. A utilizar o caminho: {BASE_PATH}")
+# O BASE_PATH agora aponta para uma pasta 'dados' relativa.
+# Esta estrutura deve existir no seu repositório do GitHub.
+BASE_PATH = 'dados'
 
 # Caminhos para os novos artefactos V7
 FAISS_INDEX_PATH = os.path.join(BASE_PATH, 'faiss_index_contextual_v7.bin')
@@ -49,7 +35,7 @@ TOP_K_SEARCH = 20
 
 # Configurações da API do Gemini
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-1.5-flash-latest"
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -125,8 +111,9 @@ def load_all_artifacts():
 
         logger.info("✅ Todos os artefactos foram carregados com sucesso.")
         return artifacts
-    except FileNotFoundError as e:
-        st.error(f"ERRO CRÍTICO: Ficheiro de artefacto não encontrado: {e.filename}. Verifique se executou o script de indexação V7 e se os caminhos estão corretos.")
+    except Exception as e:
+        st.error(f"ERRO CRÍTICO AO CARREGAR ARTEFACTOS: {e}")
+        st.error("Verifique se os ficheiros de índice e de dados (gerados pelo script de indexação V7) existem na pasta 'dados' do seu repositório GitHub e não estão corrompidos.")
         return artifacts
 
 
@@ -203,7 +190,6 @@ def execute_rag_analysis(plan, query, artifacts):
     for company in plan['empresas']:
         logger.info(f"A executar a busca para a empresa: {company}")
         
-        # A busca semântica é feita na query original para capturar a intenção completa
         query_vector = model.encode([query], normalize_embeddings=True).astype('float32')
         distances, ids = index.search(query_vector, TOP_K_SEARCH)
         
@@ -214,9 +200,7 @@ def execute_rag_analysis(plan, query, artifacts):
             for chunk_id in ids[0]:
                 if chunk_id != -1:
                     chunk_info = chunks_dict.get(chunk_id)
-                    # Filtro rigoroso pela empresa e relevância do tópico
                     if chunk_info and company.lower() in chunk_info['metadata']['empresa'].lower():
-                        # Verificação se algum tópico do plano está nos tópicos do chunk
                         if any(topic.lower() in (ct.lower() for ct in chunk_info['metadata']['chunk_topics']) for topic in plan['topicos']):
                             metadata = chunk_info['metadata']
                             company_context += f"--- Contexto (Fonte: {metadata['arquivo_origem']}) ---\n"
@@ -265,12 +249,17 @@ def main():
 
     with st.sidebar:
         st.header("📊 Informações do Sistema")
-        st.metric("Documentos na Tabela", len(artifacts["consolidated_df"]['caminho_completo'].unique()))
-        st.metric("Total de Chunks Indexados", len(artifacts["chunks_dict"]))
-        if artifacts["company_catalog"]: st.success("Catálogo de empresas carregado.")
-        else: st.warning("Catálogo de empresas não encontrado.")
-        with st.expander("Empresas na Base de Dados"):
-            st.dataframe(sorted(artifacts["consolidated_df"]['empresa'].unique()), use_container_width=True)
+        if artifacts["consolidated_df"] is not None:
+            st.metric("Documentos na Tabela", len(artifacts["consolidated_df"]['caminho_completo'].unique()))
+        if artifacts["chunks_dict"] is not None:
+            st.metric("Total de Chunks Indexados", len(artifacts["chunks_dict"]))
+        if artifacts["company_catalog"]:
+            st.success("Catálogo de empresas carregado.")
+        else:
+            st.warning("Catálogo de empresas não encontrado.")
+        if artifacts["consolidated_df"] is not None:
+            with st.expander("Empresas na Base de Dados"):
+                st.dataframe(sorted(artifacts["consolidated_df"]['empresa'].unique()), use_container_width=True)
         st.success("✅ Sistema pronto para análise")
 
     st.header("💬 Faça a sua pergunta")
