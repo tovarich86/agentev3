@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-AGENTE DE CONSULTA COM LÓGICA ORIGINAL RESTAURADA (V5)
-Aplicação web para análise de planos de incentivo de longo prazo, otimizada
-para ser executada na Streamlit Community Cloud.
+AGENTE DE CONSULTA COM LÓGICA ORIGINAL RESTAURADA (V6)
+Aplicação web para análise de planos de incentivo de longo prazo.
 
-Esta versão restaura a robustez e a inteligência de orquestração do agente
-original, aplicando-as à nova e eficiente estrutura de dados V7.
+Esta versão restaura completamente a robustez e a inteligência de
+orquestração do agente original, aplicando-as à nova e eficiente
+estrutura de dados V7.
 """
 
 import streamlit as st
@@ -21,8 +21,6 @@ import unicodedata
 import requests
 
 # --- CONFIGURAÇÕES GERAIS ---
-# O BASE_PATH agora aponta para uma pasta 'dados' relativa.
-# Esta estrutura deve existir no seu repositório do GitHub.
 BASE_PATH = 'dados'
 
 # Caminhos para os novos artefactos V7
@@ -31,7 +29,7 @@ CHUNKS_MAP_PATH = os.path.join(BASE_PATH, 'chunks_com_metadata_contextual_v7.jso
 CONSOLIDATED_TABLE_PATH = os.path.join(BASE_PATH, 'tabela_consolidada_v7.csv')
 
 MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
-TOP_K_SEARCH = 20
+TOP_K_SEARCH = 25
 
 # Configurações da API do Gemini
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
@@ -41,7 +39,7 @@ GEMINI_MODEL = "gemini-1.5-flash-latest"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- DICIONÁRIOS DE CONHECIMENTO (do agente original) ---
+# --- DICIONÁRIOS DE CONHECIMENTO ---
 TERMOS_TECNICOS_LTIP = {
     "Ações Restritas": ["Restricted Shares", "Plano de Ações Restritas", "Outorga de Ações", "ações restritas", "RSU", "Restricted Stock Units"],
     "Opções de Compra de Ações": ["Stock Options", "ESOP", "Plano de Opção de Compra", "Outorga de Opções", "opções", "Plano de Opção", "Plano de Opções", "SOP"],
@@ -75,193 +73,119 @@ TERMOS_TECNICOS_LTIP = {
 }
 AVAILABLE_TOPICS = list(TERMOS_TECNICOS_LTIP.keys())
 
-# --- CARREGAMENTO DE DADOS OTIMIZADO ---
+# --- CARREGAMENTO DE DADOS ---
 
 @st.cache_resource
 def load_all_artifacts():
-    """
-    Carrega todos os artefactos da nova estrutura de dados V7.
-    """
-    artifacts = {
-        "model": None, "index": None, "chunks_dict": None, 
-        "consolidated_df": None, "company_catalog": None
-    }
+    artifacts = {"model": None, "index": None, "chunks_dict": None, "consolidated_df": None, "company_catalog": None}
     try:
-        logger.info("A carregar o modelo de embedding...")
+        logger.info("A carregar artefactos...")
         artifacts["model"] = SentenceTransformer(MODEL_NAME)
-        
-        logger.info("A carregar o índice FAISS unificado...")
         artifacts["index"] = faiss.read_index(FAISS_INDEX_PATH)
-        
-        logger.info("A carregar o mapa de chunks com metadados...")
         with open(CHUNKS_MAP_PATH, 'r', encoding='utf-8') as f:
             chunks_data = json.load(f)
         artifacts["chunks_dict"] = {chunk['id']: chunk for chunk in chunks_data}
-        
-        logger.info("A carregar a tabela consolidada...")
         artifacts["consolidated_df"] = pd.read_csv(CONSOLIDATED_TABLE_PATH)
-
         try:
             from catalog_data import company_catalog_rich
             artifacts["company_catalog"] = company_catalog_rich
-            logger.info("✅ Catálogo de empresas carregado com sucesso.")
         except ImportError:
-            logger.warning("`catalog_data.py` não encontrado. A identificação de empresas por apelidos será limitada.")
-            artifacts["company_catalog"] = []
-
-        logger.info("✅ Todos os artefactos foram carregados com sucesso.")
+            logger.warning("`catalog_data.py` não encontrado.")
+        logger.info("✅ Artefactos carregados com sucesso.")
         return artifacts
     except Exception as e:
         st.error(f"ERRO CRÍTICO AO CARREGAR ARTEFACTOS: {e}")
-        st.error("Verifique se os ficheiros de índice e de dados (gerados pelo script de indexação V7) existem na pasta 'dados' do seu repositório GitHub e não estão corrompidos.")
         return artifacts
 
+# --- LÓGICA DE ORQUESTRAÇÃO E ANÁLISE ---
 
-# --- LÓGICA DE BUSCA, ANÁLISE E GERAÇÃO DE RESPOSTA ---
-
-def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
-    """
-    Usa o Gemini para interpretar a pergunta e criar um plano de análise robusto,
-    identificando tanto empresas quanto tópicos.
-    """
-    if not GEMINI_API_KEY:
-        st.error("Chave de API do Gemini não configurada.")
-        return None
-
-    # 1. Usar LLM para identificar as empresas mencionadas na query
-    company_prompt = f"""
-    Dada a lista de empresas conhecidas: {json.dumps(all_known_companies)}.
-    Analise a seguinte pergunta do utilizador: "{query}".
-    Identifique TODAS as empresas da lista conhecida que são mencionadas na pergunta.
-    Se a pergunta mencionar um apelido (ex: Magalu), associe-o ao nome completo (ex: Magazine Luiza).
-    Retorne APENAS uma lista JSON com os nomes canónicos das empresas encontradas.
-    Formato da resposta: ["Empresa A", "Empresa B"]
-    """
+def get_llm_json_response(prompt):
+    if not GEMINI_API_KEY: return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": company_prompt}]}]}
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
     headers = {'Content-Type': 'application/json'}
-    
-    mentioned_companies = []
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
         response.raise_for_status()
         text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
-        json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
-        if json_match:
-            mentioned_companies = json.loads(json_match.group(0))
+        return json.loads(text_response)
     except Exception as e:
-        logger.error(f"Falha ao chamar LLM para identificar empresas: {e}")
-        if company_catalog:
-            companies_found_by_alias = {}
-            for company_data in company_catalog:
-                for alias in company_data.get("aliases", []):
-                    if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query.lower()):
-                        companies_found_by_alias[company_data["canonical_name"]] = len(alias.split())
-            if companies_found_by_alias:
-                mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
+        logger.error(f"Falha ao obter resposta JSON do LLM: {e}")
+        return None
+
+def create_analysis_plan(query, company_catalog, all_known_companies):
+    company_prompt = f'Dada a lista de empresas conhecidas: {json.dumps(all_known_companies)}. Analise a pergunta do utilizador: "{query}". Identifique TODAS as empresas da lista que são mencionadas. Retorne APENAS uma lista JSON com os nomes canónicos. Exemplo: ["Empresa A", "Empresa B"]'
+    mentioned_companies = get_llm_json_response(company_prompt)
 
     if not mentioned_companies:
         return None
 
-    # 2. Usar LLM para identificar os tópicos de interesse
-    topic_prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
-    Retorne APENAS uma lista JSON com os tópicos mais relevantes da seguinte lista: {json.dumps(AVAILABLE_TOPICS)}.
-    Se a pergunta for genérica sobre uma empresa, selecione tópicos para uma análise geral como ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"].
-    Formato da resposta: ["Tópico 1", "Tópico 2"]"""
-    
-    payload = {"contents": [{"parts": [{"text": topic_prompt}]}]}
-    
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
-        response.raise_for_status()
-        text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
-        json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
-        if json_match:
-            topics = json.loads(json_match.group(0))
-        else:
-            topics = ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"]
-    except Exception as e:
-        logger.error(f"Falha ao chamar LLM para tópicos: {e}")
-        topics = ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"]
+    topic_prompt = f'Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}". Retorne APENAS uma lista JSON com os tópicos mais relevantes da seguinte lista: {json.dumps(AVAILABLE_TOPICS)}. Se for genérica, use ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"].'
+    topics = get_llm_json_response(topic_prompt) or ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"]
 
-    plan = {
-        "empresas": mentioned_companies,
-        "topicos": topics,
-        "tipo_analise": "comparativa" if len(mentioned_companies) > 1 else "unica"
-    }
-    return plan
-
+    return {"empresas": mentioned_companies, "topicos": topics, "tipo_analise": "comparativa" if len(mentioned_companies) > 1 else "unica"}
 
 def execute_rag_analysis(plan, artifacts):
-    """
-    Executa o plano de análise RAG, criando buscas específicas para cada empresa.
-    """
-    model = artifacts["model"]
-    index = artifacts["index"]
-    chunks_dict = artifacts["chunks_dict"]
-    
-    all_context = ""
-    all_sources = set()
+    model, index, chunks_dict = artifacts["model"], artifacts["index"], artifacts["chunks_dict"]
+    all_context, all_sources = "", set()
 
     for company in plan['empresas']:
-        logger.info(f"A executar a busca para a empresa: {company}")
-        
-        # OTIMIZAÇÃO: Cria uma busca específica para esta empresa e seus tópicos
         specific_query = f"Análise sobre {', '.join(plan['topicos'])} para a empresa {company}"
-        logger.info(f"A criar uma busca específica: '{specific_query}'")
-        
+        logger.info(f"A criar busca específica: '{specific_query}'")
         query_vector = model.encode([specific_query], normalize_embeddings=True).astype('float32')
         distances, ids = index.search(query_vector, TOP_K_SEARCH)
         
-        company_context = ""
-        company_sources = set()
-        
+        company_context, company_sources = "", set()
         if ids.size > 0:
             for chunk_id in ids[0]:
-                if chunk_id != -1:
-                    chunk_info = chunks_dict.get(chunk_id)
-                    # Filtro de segurança para garantir que o chunk é da empresa correta
-                    if chunk_info and company.lower() in chunk_info['metadata']['empresa'].lower():
-                        metadata = chunk_info['metadata']
-                        company_context += f"--- Contexto (Fonte: {metadata['arquivo_origem']}) ---\n"
-                        company_context += f"Secção: {metadata['section_title']}\n"
-                        company_context += f"Tópicos no Trecho: {', '.join(metadata['chunk_topics'])}\n"
-                        company_context += f"Conteúdo: {chunk_info['content']}\n\n"
-                        company_sources.add(chunk_info['source'])
-
+                if chunk_id != -1 and (chunk_info := chunks_dict.get(chunk_id)) and company.lower() in chunk_info['metadata']['empresa'].lower():
+                    metadata = chunk_info['metadata']
+                    company_context += f"--- Contexto (Fonte: {metadata['arquivo_origem']}) ---\nSecção: {metadata['section_title']}\nConteúdo: {chunk_info['content']}\n\n"
+                    company_sources.add(chunk_info['source'])
+        
         if company_context:
             all_context += f"--- ANÁLISE PARA {company.upper()} ---\n\n{company_context}"
             all_sources.update(company_sources)
 
     return all_context, all_sources
 
-
-def get_llm_response(prompt):
-    """
-    Gera a resposta final usando o contexto recuperado e a API do Gemini.
-    """
-    if not GEMINI_API_KEY:
-        st.error("Chave de API do Gemini não configurada.")
-        return "ERRO: Chave de API não configurada."
-
+def get_final_answer(prompt):
+    if not GEMINI_API_KEY: return "ERRO: Chave de API não configurada."
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}}
     headers = {'Content-Type': 'application/json'}
-    
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
         response.raise_for_status()
         return response.json()['candidates'][0]['content']['parts'][0]['text'].strip()
     except Exception as e:
         logger.error(f"ERRO ao gerar resposta final com LLM: {e}")
-        st.error(f"Falha na comunicação com a API do Gemini: {e}")
         return f"ERRO ao gerar resposta final."
 
+def handle_aggregate_query(query, df):
+    st.info("Detectada uma pergunta agregada. A analisar a tabela consolidada...")
+    query_lower = query.lower()
+    try:
+        match = re.search(r'(?:com|têm|possuem|oferecem)\s+(.+)', query_lower)
+        if not match:
+            st.warning("Não consegui entender qual característica procura. Tente 'Quais empresas têm Ações Restritas?'.")
+            return
+        target_feature = match.group(1).replace('?', '').strip()
+        results_df = df[df['nomes_planos'].str.contains(target_feature, case=False, na=False)]
+        if results_df.empty:
+            st.warning(f"Nenhuma empresa encontrada com planos que mencionam '{target_feature}'.")
+        else:
+            empresas = sorted(results_df['empresa'].unique())
+            st.success(f"✅ **{len(empresas)} empresa(s)** encontrada(s) com planos que mencionam '{target_feature}':")
+            st.dataframe(pd.DataFrame(empresas, columns=["Empresa"]), use_container_width=True, hide_index=True)
+    except Exception as e:
+        logger.error(f"Erro na busca agregada: {e}")
+        st.error("Ocorreu um erro ao analisar a sua pergunta.")
 
-# --- INTERFACE STREAMLIT (Aplicação Principal) ---
+# --- INTERFACE STREAMLIT ---
 def main():
-    st.set_page_config(page_title="Agente de Análise LTIP (V5)", page_icon="🔍", layout="wide")
-    st.title("🤖 Agente de Análise Híbrido e Comparativo (V5)")
+    st.set_page_config(page_title="Agente de Análise LTIP (V6)", page_icon="🔍", layout="wide")
+    st.title("🤖 Agente de Análise de Planos de Incentivo (V6)")
     st.markdown("---")
 
     artifacts = load_all_artifacts()
@@ -270,72 +194,68 @@ def main():
     with st.sidebar:
         st.header("📊 Informações do Sistema")
         if artifacts["consolidated_df"] is not None:
-            st.metric("Documentos na Tabela", len(artifacts["consolidated_df"]['caminho_completo'].unique()))
+            st.metric("Documentos na Base", len(artifacts["consolidated_df"]['caminho_completo'].unique()))
         if artifacts["chunks_dict"] is not None:
-            st.metric("Total de Chunks Indexados", len(artifacts["chunks_dict"]))
-        if artifacts["company_catalog"]:
-            st.success("Catálogo de empresas carregado.")
-        else:
-            st.warning("Catálogo de empresas não encontrado.")
-        if artifacts["consolidated_df"] is not None:
-            with st.expander("Empresas na Base de Dados"):
-                st.dataframe(sorted(artifacts["consolidated_df"]['empresa'].unique()), use_container_width=True)
+            st.metric("Chunks Indexados", len(artifacts["chunks_dict"]))
         st.success("✅ Sistema pronto para análise")
 
     st.header("💬 Faça a sua pergunta")
-    st.info("**Exemplos:** `Como é o plano de vesting da Vale?` ou `Compare o tratamento de dividendos da Petrobras com a Gerdau.`")
-    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Digite aqui...")
+    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Como é o plano de vesting da Vale? ou Compare o tratamento de dividendos da Petrobras com a Gerdau.")
 
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
             return
 
-        with st.status("1️⃣ A criar plano de análise...", expanded=True) as status:
-            known_companies = artifacts["consolidated_df"]['empresa'].unique().tolist()
-            plan = create_analysis_plan_with_llm(user_query, artifacts["company_catalog"], known_companies)
-            
-            if not plan:
-                st.error("❌ Nenhuma empresa conhecida foi identificada na sua pergunta.")
-                status.update(label="Falha ao criar plano.", state="error")
-                return
-            st.write(f"**Tipo de Análise:** {plan['tipo_analise'].title()}")
-            st.write(f"**Empresa(s):** {', '.join(plan['empresas'])}")
-            st.write(f"**Tópicos Identificados:** {', '.join(plan['topicos'])}")
-            status.update(label="Plano de análise criado!", state="complete")
-
-        with st.spinner("2️⃣ A executar a busca e a recolher o contexto..."):
-            # A função de execução agora não precisa mais da query original
-            context, sources = execute_rag_analysis(plan, artifacts)
+        # --- ROTEADOR DE INTENÇÃO ---
+        is_aggregate = any(keyword in user_query.lower() for keyword in ["quais", "quantas", "liste"])
         
-        st.markdown("---")
-        st.subheader("📋 Resultado da Análise")
+        if is_aggregate:
+            handle_aggregate_query(user_query, artifacts["consolidated_df"])
+        else:
+            with st.status("1️⃣ A criar plano de análise...", expanded=True) as status:
+                known_companies = artifacts["consolidated_df"]['empresa'].unique().tolist()
+                plan = create_analysis_plan(user_query, artifacts["company_catalog"], known_companies)
+                if not plan:
+                    st.error("❌ Nenhuma empresa conhecida foi identificada na sua pergunta.")
+                    status.update(label="Falha ao criar plano.", state="error")
+                    return
+                st.write(f"**Tipo de Análise:** {plan['tipo_analise'].title()}")
+                st.write(f"**Empresa(s):** {', '.join(plan['empresas'])}")
+                st.write(f"**Tópicos Identificados:** {', '.join(plan['topicos'])}")
+                status.update(label="Plano de análise criado!", state="complete")
 
-        if not context:
-            st.warning("Não foram encontrados contextos relevantes para responder à pergunta.")
-            return
+            with st.spinner("2️⃣ A executar a busca e a recolher o contexto..."):
+                context, sources = execute_rag_analysis(plan, artifacts)
             
-        with st.spinner("3️⃣ A gerar a resposta final com o Gemini..."):
-            prompt = f"""Você é um consultor especialista em planos de incentivo de longo prazo (ILP).
-            Sua tarefa é responder à pergunta do utilizador com base no contexto fornecido.
-            Se a pergunta for uma comparação, crie um relatório comparativo bem estruturado.
-            Se a pergunta for sobre uma única empresa, forneça uma análise detalhada.
-            Seja profissional e baseie-se estritamente nos dados. Se a informação não estiver no contexto, afirme isso claramente.
+            st.markdown("---")
+            st.subheader("📋 Resultado da Análise")
 
-            PERGUNTA ORIGINAL DO UTILIZADOR: "{user_query}"
+            if not context:
+                st.warning("Não foram encontrados contextos relevantes para responder à pergunta.")
+                return
+                
+            with st.spinner("3️⃣ A gerar a resposta final com o Gemini..."):
+                prompt = f"""Você é um consultor especialista em planos de incentivo de longo prazo (ILP).
+                Sua tarefa é responder à pergunta do utilizador com base no contexto fornecido.
+                Se a pergunta for uma comparação, crie um relatório comparativo bem estruturado.
+                Se a pergunta for sobre uma única empresa, forneça uma análise detalhada.
+                Seja profissional e baseie-se estritamente nos dados. Se a informação não estiver no contexto, afirme isso claramente.
 
-            CONTEXTO COLETADO DOS DOCUMENTOS:
-            {context}
+                PERGUNTA ORIGINAL DO UTILIZADOR: "{user_query}"
 
-            RELATÓRIO ANALÍTICO FINAL:
-            """
-            final_answer = get_llm_response(prompt)
-            st.markdown(final_answer)
+                CONTEXTO COLETADO DOS DOCUMENTOS:
+                {context}
 
-        if sources:
-            with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=False):
-                for source in sorted(list(sources)):
-                    st.write(f"- {os.path.basename(source)}")
+                RELATÓRIO ANALÍTICO FINAL:
+                """
+                final_answer = get_final_answer(prompt)
+                st.markdown(final_answer)
+
+            if sources:
+                with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=False):
+                    for source in sorted(list(sources)):
+                        st.write(f"- {os.path.basename(source)}")
 
 if __name__ == "__main__":
     main()
