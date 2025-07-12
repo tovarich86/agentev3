@@ -119,41 +119,59 @@ def load_all_artifacts():
 
 # --- LÓGICA DE BUSCA, ANÁLISE E GERAÇÃO DE RESPOSTA ---
 
-def create_analysis_plan_with_llm(query, company_catalog):
+def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
     """
-    Usa o Gemini para interpretar a pergunta e criar um plano de análise robusto.
+    Usa o Gemini para interpretar a pergunta e criar um plano de análise robusto,
+    identificando tanto empresas quanto tópicos.
     """
     if not GEMINI_API_KEY:
         st.error("Chave de API do Gemini não configurada.")
         return None
 
-    # 1. Identificar empresas com o catálogo (lógica local, mais rápida)
+    # 1. Usar LLM para identificar as empresas mencionadas na query
+    #    Fornecemos a lista de empresas que temos nos dados como contexto para o LLM.
+    company_prompt = f"""
+    Dada a lista de empresas conhecidas: {json.dumps(all_known_companies)}.
+    Analise a seguinte pergunta do utilizador: "{query}".
+    Identifique TODAS as empresas da lista conhecida que são mencionadas na pergunta.
+    Se a pergunta mencionar um apelido (ex: Magalu), associe-o ao nome completo (ex: Magazine Luiza).
+    Retorne APENAS uma lista JSON com os nomes canónicos das empresas encontradas.
+    Formato da resposta: ["Empresa A", "Empresa B"]
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": company_prompt}]}]}
+    headers = {'Content-Type': 'application/json'}
+    
     mentioned_companies = []
-    if company_catalog:
-        companies_found_by_alias = {}
-        for company_data in company_catalog:
-            for alias in company_data.get("aliases", []):
-                if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query.lower()):
-                    score = len(alias.split())
-                    canonical_name = company_data["canonical_name"]
-                    if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
-                        companies_found_by_alias[canonical_name] = score
-        if companies_found_by_alias:
-            sorted_companies = sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)
-            mentioned_companies = [company for company, score in sorted_companies]
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
+        response.raise_for_status()
+        text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
+        json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
+        if json_match:
+            mentioned_companies = json.loads(json_match.group(0))
+    except Exception as e:
+        logger.error(f"Falha ao chamar LLM para identificar empresas: {e}")
+        # Se o LLM falhar, recorremos ao catálogo como fallback
+        if company_catalog:
+            companies_found_by_alias = {}
+            for company_data in company_catalog:
+                for alias in company_data.get("aliases", []):
+                    if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query.lower()):
+                        companies_found_by_alias[company_data["canonical_name"]] = len(alias.split())
+            if companies_found_by_alias:
+                mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
 
     if not mentioned_companies:
         return None # Nenhuma empresa encontrada
 
     # 2. Usar LLM para identificar os tópicos de interesse
-    prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
+    topic_prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
     Retorne APENAS uma lista JSON com os tópicos mais relevantes da seguinte lista: {json.dumps(AVAILABLE_TOPICS)}.
     Se a pergunta for genérica sobre uma empresa, selecione tópicos para uma análise geral como ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"].
     Formato da resposta: ["Tópico 1", "Tópico 2"]"""
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    headers = {'Content-Type': 'application/json'}
+    payload = {"contents": [{"parts": [{"text": topic_prompt}]}]}
     
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
@@ -272,7 +290,10 @@ def main():
             return
 
         with st.status("1️⃣ A criar plano de análise...", expanded=True) as status:
-            plan = create_analysis_plan_with_llm(user_query, artifacts["company_catalog"])
+            # Passa a lista de empresas conhecidas para a função de criação do plano
+            known_companies = artifacts["consolidated_df"]['empresa'].unique().tolist()
+            plan = create_analysis_plan_with_llm(user_query, artifacts["company_catalog"], known_companies)
+            
             if not plan:
                 st.error("❌ Nenhuma empresa conhecida foi identificada na sua pergunta.")
                 status.update(label="Falha ao criar plano.", state="error")
