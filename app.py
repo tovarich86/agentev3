@@ -129,7 +129,6 @@ def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
         return None
 
     # 1. Usar LLM para identificar as empresas mencionadas na query
-    #    Fornecemos a lista de empresas que temos nos dados como contexto para o LLM.
     company_prompt = f"""
     Dada a lista de empresas conhecidas: {json.dumps(all_known_companies)}.
     Analise a seguinte pergunta do utilizador: "{query}".
@@ -152,7 +151,6 @@ def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
             mentioned_companies = json.loads(json_match.group(0))
     except Exception as e:
         logger.error(f"Falha ao chamar LLM para identificar empresas: {e}")
-        # Se o LLM falhar, recorremos ao catálogo como fallback
         if company_catalog:
             companies_found_by_alias = {}
             for company_data in company_catalog:
@@ -163,7 +161,7 @@ def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
                 mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
 
     if not mentioned_companies:
-        return None # Nenhuma empresa encontrada
+        return None
 
     # 2. Usar LLM para identificar os tópicos de interesse
     topic_prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
@@ -181,10 +179,10 @@ def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
         if json_match:
             topics = json.loads(json_match.group(0))
         else:
-            topics = ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"] # Fallback
+            topics = ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"]
     except Exception as e:
         logger.error(f"Falha ao chamar LLM para tópicos: {e}")
-        topics = ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"] # Fallback
+        topics = ["Estrutura do Plano/Programa", "Vesting", "Elegíveis"]
 
     plan = {
         "empresas": mentioned_companies,
@@ -194,9 +192,9 @@ def create_analysis_plan_with_llm(query, company_catalog, all_known_companies):
     return plan
 
 
-def execute_rag_analysis(plan, query, artifacts):
+def execute_rag_analysis(plan, artifacts):
     """
-    Executa o plano de análise RAG, buscando e construindo o contexto.
+    Executa o plano de análise RAG, criando buscas específicas para cada empresa.
     """
     model = artifacts["model"]
     index = artifacts["index"]
@@ -208,7 +206,11 @@ def execute_rag_analysis(plan, query, artifacts):
     for company in plan['empresas']:
         logger.info(f"A executar a busca para a empresa: {company}")
         
-        query_vector = model.encode([query], normalize_embeddings=True).astype('float32')
+        # OTIMIZAÇÃO: Cria uma busca específica para esta empresa e seus tópicos
+        specific_query = f"Análise sobre {', '.join(plan['topicos'])} para a empresa {company}"
+        logger.info(f"A criar uma busca específica: '{specific_query}'")
+        
+        query_vector = model.encode([specific_query], normalize_embeddings=True).astype('float32')
         distances, ids = index.search(query_vector, TOP_K_SEARCH)
         
         company_context = ""
@@ -218,14 +220,14 @@ def execute_rag_analysis(plan, query, artifacts):
             for chunk_id in ids[0]:
                 if chunk_id != -1:
                     chunk_info = chunks_dict.get(chunk_id)
+                    # Filtro de segurança para garantir que o chunk é da empresa correta
                     if chunk_info and company.lower() in chunk_info['metadata']['empresa'].lower():
-                        if any(topic.lower() in (ct.lower() for ct in chunk_info['metadata']['chunk_topics']) for topic in plan['topicos']):
-                            metadata = chunk_info['metadata']
-                            company_context += f"--- Contexto (Fonte: {metadata['arquivo_origem']}) ---\n"
-                            company_context += f"Secção: {metadata['section_title']}\n"
-                            company_context += f"Tópicos no Trecho: {', '.join(metadata['chunk_topics'])}\n"
-                            company_context += f"Conteúdo: {chunk_info['content']}\n\n"
-                            company_sources.add(chunk_info['source'])
+                        metadata = chunk_info['metadata']
+                        company_context += f"--- Contexto (Fonte: {metadata['arquivo_origem']}) ---\n"
+                        company_context += f"Secção: {metadata['section_title']}\n"
+                        company_context += f"Tópicos no Trecho: {', '.join(metadata['chunk_topics'])}\n"
+                        company_context += f"Conteúdo: {chunk_info['content']}\n\n"
+                        company_sources.add(chunk_info['source'])
 
         if company_context:
             all_context += f"--- ANÁLISE PARA {company.upper()} ---\n\n{company_context}"
@@ -290,7 +292,6 @@ def main():
             return
 
         with st.status("1️⃣ A criar plano de análise...", expanded=True) as status:
-            # Passa a lista de empresas conhecidas para a função de criação do plano
             known_companies = artifacts["consolidated_df"]['empresa'].unique().tolist()
             plan = create_analysis_plan_with_llm(user_query, artifacts["company_catalog"], known_companies)
             
@@ -304,7 +305,8 @@ def main():
             status.update(label="Plano de análise criado!", state="complete")
 
         with st.spinner("2️⃣ A executar a busca e a recolher o contexto..."):
-            context, sources = execute_rag_analysis(plan, user_query, artifacts)
+            # A função de execução agora não precisa mais da query original
+            context, sources = execute_rag_analysis(plan, artifacts)
         
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
