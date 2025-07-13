@@ -4,11 +4,9 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Pacotes PyTorch
-torch==2.3.0
-torchvision==0.18.0
+torch
+torchvision
 
-# Outras dependências
-streamlit
 pandas
 numpy
 faiss-cpu
