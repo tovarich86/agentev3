@@ -179,7 +179,10 @@ def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, co
 # --- FUNÇÕES DO PIPELINE RAG (VERSÃO FINAL E FUNCIONAL) ---
 
 def create_rag_plan(query: str, company_catalog: list, alias_map: dict):
-    """(ATUALIZADO) Cria um plano de busca simples para o RAG, identificando empresas e tópicos."""
+    """
+    (ATUALIZADO) Cria um plano de busca simples para o RAG, identificando empresas e tópicos.
+    Não usa mais variáveis globais que foram removidas.
+    """
     query_lower = query.lower()
     plan = {"empresas": [], "topicos": []}
     
@@ -195,19 +198,18 @@ def create_rag_plan(query: str, company_catalog: list, alias_map: dict):
         if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
             plan["topicos"].append(canonical_name)
     
-    plan["topicos"] = list(set(plan["topicos"])) # Remove duplicatas
+    plan["topicos"] = list(set(plan["topicos"]))
 
-    # Se nenhuma empresa for encontrada, o plano é inválido
-    if not plan["empresas"]:
-        return None
-    # Se nenhum tópico for encontrado, usa um fallback genérico
-    if not plan["topicos"]:
-        plan["topicos"] = ["informações gerais do plano de incentivo"]
-
+    if not plan["empresas"]: return None
+    if not plan["topicos"]: plan["topicos"] = ["informações gerais do plano de incentivo"]
+    
     return plan
 
 def execute_rag_plan(plan: dict, artifacts: dict, model):
-    """(ATUALIZADO) Executa uma busca semântica robusta baseada no plano."""
+    """
+    (ATUALIZADO) Executa uma busca semântica robusta.
+    Não usa mais funções legadas como search_by_tags ou expand_search_terms.
+    """
     full_context, sources, unique_chunks = "", set(), set()
 
     for empresa in plan["empresas"]:
@@ -218,7 +220,7 @@ def execute_rag_plan(plan: dict, artifacts: dict, model):
         for category, artifact_data in artifacts.items():
             scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
             for i, idx in enumerate(indices[0]):
-                if idx == -1 or scores[0][i] < 0.35: # Limiar de similaridade
+                if idx == -1 or scores[0][i] < 0.35:
                     continue
                 
                 mapping = artifact_data["chunks"]["map"][idx]
@@ -235,8 +237,9 @@ def execute_rag_plan(plan: dict, artifacts: dict, model):
     return full_context, sources
 
 def generate_rag_response(query: str, context: str):
-    """(ATUALIZADO) Gera a resposta final do RAG com o Gemini, usando um prompt claro."""
-    # Esta função faz a chamada à API. O prompt é genérico e robusto.
+    """
+    (ATUALIZADO) Gera a resposta final do RAG com o Gemini, usando um prompt claro e robusto.
+    """
     prompt = f"""Você é um consultor especialista em planos de remuneração. Baseado no contexto extraído dos documentos abaixo, responda à pergunta do usuário de forma clara, profissional e em português. Use Markdown para formatar a resposta. Se a informação não estiver no contexto, afirme isso claramente.
 
     Pergunta do Usuário: "{query}"
@@ -248,29 +251,31 @@ def generate_rag_response(query: str, context: str):
     """
     try:
         # A chamada real à API Gemini iria aqui.
+        # gemini_model = GenerativeModel(GEMINI_MODEL)
         # response = gemini_model.generate_content(prompt)
         # return response.text
-        # Abaixo, uma simulação para fins de teste:
-        st.info("Simulação de resposta do Gemini.")
-        return f"### Análise Detalhada (RAG)\n\nEsta é uma resposta simulada para a pergunta: *'{query}'*.\n\nO modelo Gemini analisaria o contexto fornecido para gerar um relatório detalhado e profissional sobre o seu questionamento."
+        
+        # Abaixo, uma simulação para fins de teste, para não gastar sua API key.
+        # Substitua pela chamada real quando for para produção.
+        logger.info("Simulando chamada à API Gemini para gerar resposta RAG.")
+        return f"### Análise Detalhada (RAG)\n\nEsta é uma resposta **simulada** para a pergunta: *'{query}'*.\n\nEm um ambiente de produção, o modelo Gemini analisaria o contexto recuperado dos documentos para gerar um relatório detalhado e profissional sobre o seu questionamento, abordando os tópicos solicitados para as empresas identificadas."
     except Exception as e:
         logger.error(f"Erro na chamada da API Gemini: {e}")
         return "Desculpe, ocorreu um erro ao contatar o modelo de linguagem para gerar a resposta final."
 
 def handle_rag_query(query: str, artifacts: dict, model, company_catalog: list, alias_map: dict):
-    """(ATUALIZADO) Orquestra o novo pipeline RAG, que é funcional e robusto."""
+    """
+    (ATUALIZADO) Orquestra o novo pipeline RAG, que é funcional e robusto.
+    """
     with st.status("Gerando plano de análise RAG...") as status:
         plan = create_rag_plan(query, company_catalog, alias_map)
-
         if not plan:
             st.error("Não consegui identificar empresas conhecidas na sua pergunta para realizar a análise profunda.")
             return set()
-        
-        status.update(label=f"Plano gerado. Analisando documentos para: {', '.join(plan['empresas'])}...")
+        status.update(label=f"Plano gerado. Analisando para: {', '.join(plan['empresas'])}...")
 
     with st.spinner("Recuperando e analisando informações..."):
         context, sources = execute_rag_plan(plan, artifacts, model)
-        
         if not context:
             st.warning("Não encontrei informações relevantes nos documentos para esta consulta.")
             return set()
