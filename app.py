@@ -1,4 +1,4 @@
-# app.py (versão final com download direto dos arquivos)
+# app.py (versão final com o modelo de embedding CORRETO)
 
 import streamlit as st
 import json
@@ -11,59 +11,60 @@ import re
 import unicodedata
 import logging
 from pathlib import Path
+import zipfile
+import io
 import shutil
 
 # --- Módulos do Projeto ---
-# Garanta que analytical_engine.py e knowledge_base.py estão na mesma pasta.
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
 from analytical_engine import AnalyticalEngine
 
 # --- Configurações Gerais ---
 st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
-MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
+# --- MUDANÇA CRÍTICA: Usando o mesmo modelo da fase de criação de dados ---
+MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2' # CORRIGIDO
 TOP_K_SEARCH = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-flash-latest"
-
-# --- MUDANÇA CRÍTICA: URLs diretas para cada artefato ---
-FILES_TO_DOWNLOAD = {
-    "item_8_4_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_chunks_map_final.json",
-    "item_8_4_faiss_index_final.bin": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_faiss_index_final.bin",
-    "outros_documentos_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/outros_documentos_chunks_map_final.json",
-    "outros_documentos_faiss_index_final.bin": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/outros_documentos_faiss_index_final.bin",
-    "resumo_fatos_e_topicos_final_enriquecido.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/resumo_fatos_e_topicos_final_enriquecido.json"
-}
+GEMINI_MODEL = "gemini-2.0-flash-lite"
+GITHUB_SOURCE_URL = "https://github.com/tovarich86/agentev2/archive/refs/tags/V1.0-data.zip"
 CACHE_DIR = Path("data_cache")
 SUMMARY_FILENAME = "resumo_fatos_e_topicos_final_enriquecido.json"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- CARREGADOR DE DADOS (ATUALIZADO PARA DOWNLOADS DIRETOS) ---
-@st.cache_resource(show_spinner="Configurando o ambiente e baixando dados...")
+# --- CARREGADOR DE DADOS (LÓGICA DE EXTRAÇÃO CORRIGIDA) ---
+@st.cache_resource(show_spinner="Configurando ambiente e baixando dados...")
 def setup_and_load_data():
-    """
-    Verifica cada arquivo necessário e o baixa individualmente se não estiver no cache.
-    """
     CACHE_DIR.mkdir(exist_ok=True)
+    summary_file_path = CACHE_DIR / SUMMARY_FILENAME
     
-    for filename, url in FILES_TO_DOWNLOAD.items():
-        local_path = CACHE_DIR / filename
-        if not local_path.exists():
-            logger.info(f"Baixando arquivo '{filename}'...")
-            try:
-                response = requests.get(url, stream=True, timeout=60)
-                response.raise_for_status()
-                with open(local_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                logger.info(f"'{filename}' baixado com sucesso.")
-            except requests.exceptions.RequestException as e:
-                st.error(f"Erro ao baixar {filename} de {url}: {e}")
-                st.stop()
+    if not summary_file_path.exists():
+        logger.info(f"Arquivo de resumo não encontrado. Baixando e preparando dados de {GITHUB_SOURCE_URL}...")
+        if CACHE_DIR.exists():
+            shutil.rmtree(CACHE_DIR)
+        CACHE_DIR.mkdir(exist_ok=True)
 
-    # Agora, prossiga com o carregamento dos arquivos locais do cache
+        try:
+            response = requests.get(GITHUB_SOURCE_URL, stream=True, timeout=60)
+            response.raise_for_status() 
+            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                z.extractall(CACHE_DIR)
+            
+            extracted_folder = next(CACHE_DIR.iterdir())
+            if extracted_folder.is_dir():
+                logger.info(f"Movendo conteúdo de '{extracted_folder.name}' para a raiz do cache...")
+                for item in extracted_folder.iterdir():
+                    shutil.move(str(item), str(CACHE_DIR / item.name))
+                extracted_folder.rmdir()
+            
+        except requests.exceptions.RequestException as e:
+            st.error(f"Erro ao baixar os dados: {e}")
+            st.stop()
+    else:
+        logger.info("Arquivos de dados encontrados no cache local.")
+
     model = SentenceTransformer(MODEL_NAME)
     artifacts = {}
     for index_file in CACHE_DIR.glob('*_faiss_index_final.bin'):
@@ -78,20 +79,18 @@ def setup_and_load_data():
             st.error(f"Falha ao carregar artefatos para a categoria '{category}': {e}")
             st.stop()
 
-    summary_file_path = CACHE_DIR / SUMMARY_FILENAME
     try:
         with open(summary_file_path, 'r', encoding='utf-8') as f:
             summary_data = json.load(f)
     except FileNotFoundError:
-        st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado.")
+        st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado após a extração.")
         st.stop()
         
     return model, artifacts, summary_data
 
-
-# --- O RESTANTE DO CÓDIGO PERMANECE IDÊNTICO ---
-# (Todas as funções robustas que preservamos)
-
+#
+# --- O RESTANTE DO CÓDIGO (TODAS AS FUNÇÕES ROBUSTAS) PERMANECE EXATAMENTE IGUAL ---
+#
 def _create_flat_alias_map(kb: dict) -> dict:
     alias_to_canonical = {}
     for section, topics in kb.items():
@@ -207,9 +206,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     
     mentioned_companies = []
-    # Lógica de identificação de empresa original (ou fallback)
     if company_catalog_rich:
-        # Sua lógica original completa com 'company_catalog_rich' entra aqui
         companies_found_by_alias = {}
         for company_data in company_catalog_rich:
             for alias in company_data.get("aliases", []):
