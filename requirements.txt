@@ -1,5 +1,9 @@
+
 streamlit
+pandas
 numpy
-faiss-cpu
+faiss-cpu==1.8.0  # É uma boa prática fixar a versão
 sentence-transformers
 requests
+torch
+scikit-learn # Adicionado por segurança, muitas vezes é uma dependência
