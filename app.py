@@ -198,6 +198,23 @@ def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, co
 
 # --- 4. Motor RAG v5.0: Funções do Pipeline Avançado ---
 
+def normalize_company_name(name: str) -> str:
+    """
+    Normaliza nomes de empresas para uma comparação robusta, removendo acentos,
+    pontuação, sufixos comuns e convertendo para minúsculas.
+    """
+    if not isinstance(name, str): return ""
+    # Converte para minúsculas e remove acentos
+    name = ''.join(c for c in unicodedata.normalize('NFD', name.lower()) if unicodedata.category(c) != 'Mn')
+    # Remove pontuações e caracteres especiais
+    name = re.sub(r'[.,-]', '', name)
+    # Remove sufixos comuns de empresas
+    suffixes = [r'\s+s\s*a\s*$', r'\s+ltda\s*$', r'\s+holding\s*$', r'\s+participacoes\s*$', r'\s+cia\s*$', r'\s+ind\s*$', r'\s+com\s*$']
+    for suffix in suffixes:
+        name = re.sub(suffix, '', name)
+    # Remove espaços extras no início e no fim
+    return name.strip()
+
 def call_gemini_api(prompt, max_tokens=8192):
     """Função auxiliar centralizada para chamadas à API Gemini."""
     if not GEMINI_API_KEY:
@@ -222,11 +239,14 @@ def decompose_query_with_llm(user_query: str) -> list[str]:
     pass
 
 def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifacts: dict, bi_encoder, cross_encoder, alias_map):
-    """(CORAÇÃO DA RECUPERAÇÃO) Combina busca semântica e re-ranking."""
+    """(CORAÇÃO DA RECUPERAÇÃO) Combina busca semântica e re-ranking com filtro robusto."""
     candidate_chunks_with_source = []
     seen_texts = set()
 
-    # Busca Semântica
+    # (A lógica de busca por tags e busca semântica permanece a mesma)
+    # ...
+    
+    # --- Início da Lógica de Busca ---
     query_embedding = bi_encoder.encode(query, normalize_embeddings=True)
     for category, data in artifacts.items():
         if 'index' not in data or 'chunks_data' not in data: continue
@@ -234,20 +254,25 @@ def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifa
         for i, doc_id in enumerate(ids[0]):
             if doc_id != -1 and scores[0][i] > 0.3:
                 chunk_map_item = data['chunks_data']['map'][doc_id]
-                # Filtra por empresa, se especificado
-                if company and company.upper() != chunk_map_item.get("company_name", "").upper():
-                    continue
+                chunk_company_name = chunk_map_item.get("company_name", "")
+
+                # ================================================================= #
+                # A MUDANÇA CRÍTICA ESTÁ AQUI: USAMOS A NORMALIZAÇÃO PARA COMPARAR #
+                # ================================================================= #
+                if company and normalize_company_name(company) != normalize_company_name(chunk_company_name):
+                    continue # Pula se não for da empresa certa, após normalização
+                
                 chunk_text = data['chunks_data']['chunks'][doc_id]
                 if chunk_text not in seen_texts:
                     candidate_chunks_with_source.append({
                         'text': chunk_text, 
-                        'source': chunk_map_item['source_url']
+                        'source': chunk_map_item.get('source_url', 'Fonte desconhecida')
                     })
                     seen_texts.add(chunk_text)
-
+    
     if not candidate_chunks_with_source: return "", set()
 
-    # Re-ranking
+    # --- Início da Lógica de Re-ranking ---
     pure_texts = [re.sub(r'^\[.*?\]\s*', '', c['text']) for c in candidate_chunks_with_source]
     sentence_pairs = [[query, text] for text in pure_texts]
     rerank_scores = cross_encoder.predict(sentence_pairs, show_progress_bar=False)
@@ -257,6 +282,7 @@ def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifa
     for score, chunk_data in reranked_results[:TOP_K_RERANKED]:
         final_context += f"Fonte: {os.path.basename(chunk_data['source'])} (Relevância: {score:.2f})\n{chunk_data['text']}\n\n"
         final_sources.add(chunk_data['source'])
+        
     return final_context, final_sources
 
 def generate_answer_extract_synthesize(original_query, context):
