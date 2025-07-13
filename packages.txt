@@ -1,0 +1,7 @@
+# packages.txt
+
+# Dependência para computação de Álgebra Linear, usada pelo FAISS e NumPy
+libopenblas-dev
+
+# Dependência para processamento paralelo (multi-core), essencial para o FAISS
+libomp-dev
