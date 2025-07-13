@@ -36,7 +36,7 @@ MODEL_NAME_CROSS_ENCODER = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
 TOP_K_INITIAL_SEARCH = 20
 TOP_K_RERANKED = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-flash-latest"
+GEMINI_MODEL = "gemini-2.0-flash-lite"
 DADOS_PATH = Path("dados")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
