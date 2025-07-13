@@ -1,9 +1,10 @@
+# requirements.txt - Versões testadas para compatibilidade no Streamlit Cloud
 
-streamlit
-pandas
-numpy
-faiss-cpu==1.8.0  # É uma boa prática fixar a versão
-sentence-transformers
-requests
-torch
-scikit-learn # Adicionado por segurança, muitas vezes é uma dependência
+streamlit==1.35.0
+pandas==2.2.2
+numpy==1.26.4
+faiss-cpu==1.8.0
+sentence-transformers==2.7.0
+requests==2.31.0
+torch==2.3.0
+scikit-learn==1.4.2
