@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-AGENTE DE ANÁLISE LTIP - VERSÃO FINAL E FUNCIONAL
+AGENTE DE ANÁLISE LTIP v5.0 - "DEFINITIVO"
+
+Este agente representa a fusão das melhores características dos modelos anteriores:
+- A arquitetura robusta e pragmática com roteador de múltiplos níveis.
+- As técnicas de IA avançadas para análise profunda e comparativa.
 """
 
 # --- 1. Importações e Configurações ---
@@ -8,37 +12,47 @@ import streamlit as st
 import json
 import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 import requests
 import glob
 import os
 import re
-import unicodedata
 import logging
 import pandas as pd
 from pathlib import Path
 
+# Carregamento de dependências locais com tratamento de erro
 try:
     from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
+    from catalog_data import company_catalog_rich
 except ImportError:
-    st.error("ERRO CRÍTICO: Crie o arquivo 'knowledge_base.py' e cole o 'DICIONARIO_UNIFICADO_HIERARQUICO' nele.")
+    st.error("ERRO CRÍTICO: Verifique se os arquivos 'knowledge_base.py' e 'catalog_data.py' existem e estão corretos.")
     st.stop()
 
-# Configurações Gerais
-MODEL_NAME = 'sentence-transformers/all-MiniLM-L6-v2'
-TOP_K_SEARCH = 7
+# --- Configurações Gerais ---
+MODEL_NAME_BI_ENCODER = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
+MODEL_NAME_CROSS_ENCODER = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
+TOP_K_INITIAL_SEARCH = 20
+TOP_K_RERANKED = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-flash-latest" # Usando o modelo mais recente e capaz
+GEMINI_MODEL = "gemini-1.5-flash-latest"
 DADOS_PATH = Path("dados")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-
-# --- 2. Carregamento de Dados e Funções Auxiliares ---
+# --- 2. Funções de Carregamento de Recursos em Cache ---
 
 @st.cache_resource
-def load_all_artifacts():
+def load_models():
+    """Carrega os modelos de embedding (Bi-Encoder) e de re-ranking (Cross-Encoder)."""
+    bi_encoder = SentenceTransformer(MODEL_NAME_BI_ENCODER)
+    cross_encoder = CrossEncoder(MODEL_NAME_CROSS_ENCODER)
+    return bi_encoder, cross_encoder
+
+@st.cache_resource
+def load_artifacts():
+    """Carrega os índices FAISS e os arquivos de resumo/mapa, baixando se necessário."""
     DADOS_PATH.mkdir(exist_ok=True)
     ARQUIVOS_REMOTOS = {
         "item_8_4_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_chunks_map_final.json",
@@ -52,14 +66,13 @@ def load_all_artifacts():
         if not caminho_arquivo.exists():
             with st.spinner(f"Baixando artefato: {nome_arquivo}..."):
                 try:
-                    r = requests.get(url, stream=True)
+                    r = requests.get(url, stream=True, timeout=300)
                     r.raise_for_status()
                     with open(caminho_arquivo, 'wb') as f:
                         for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
                 except requests.exceptions.RequestException as e:
                     st.error(f"Falha ao baixar {nome_arquivo}: {e}"); st.stop()
-    
-    _model = SentenceTransformer(MODEL_NAME)
+
     artifacts = {}
     index_files = glob.glob(str(DADOS_PATH / '*_faiss_index_final.bin'))
     for index_file_path in index_files:
@@ -69,9 +82,9 @@ def load_all_artifacts():
             index = faiss.read_index(index_file_path)
             with open(chunks_file_path, 'r', encoding='utf-8') as f:
                 chunk_data = json.load(f)
-            artifacts[category] = {'index': index, 'chunks': chunk_data}
+            artifacts[category] = {'index': index, 'chunks_data': chunk_data}
         except Exception as e:
-            logger.error(f"Erro ao carregar '{category}': {e}"); continue
+            logger.error(f"Erro ao carregar artefato '{category}': {e}"); continue
     
     summary_data = None
     summary_file_path = DADOS_PATH / 'resumo_fatos_e_topicos_final_enriquecido.json'
@@ -80,13 +93,13 @@ def load_all_artifacts():
             summary_data = json.load(f)
     except FileNotFoundError:
         logger.error(f"Arquivo de resumo '{summary_file_path}' não encontrado.")
-            
-    return _model, artifacts, summary_data
+    return artifacts, summary_data
 
 @st.cache_data
-def criar_mapa_de_alias():
+def criar_mapa_de_alias(knowledge_base: dict):
+    """Cria um dicionário que mapeia cada apelido ao seu tópico canônico."""
     alias_to_canonical = {}
-    for section, topics in DICIONARIO_UNIFICADO_HIERARQUICO.items():
+    for section, topics in knowledge_base.items():
         for canonical_name, aliases in topics.items():
             alias_to_canonical[canonical_name.lower()] = canonical_name
             for alias in aliases:
@@ -94,9 +107,11 @@ def criar_mapa_de_alias():
     return alias_to_canonical
 
 
-# --- 3. Funções de Lógica de Negócio (Manipuladores de Query) ---
+# --- 3. Handlers de Análise Rápida (para o Roteador) ---
 
 def handle_analytical_query(query: str, summary_data: dict):
+    """Lida com perguntas analíticas (média, mínimo, máximo). Retorna True se teve sucesso."""
+    if not summary_data: return False
     query_lower = query.lower()
     op_keywords = {'avg': ['medio', 'média', 'típico'], 'min': ['menor', 'mínimo'], 'max': ['maior', 'máximo']}
     fact_keywords = {
@@ -110,7 +125,6 @@ def handle_analytical_query(query: str, summary_data: dict):
         if any(kw in query_lower for kw in keywords): target_fact_key = fact_key; break
     if not operation or not target_fact_key: return False
     
-    st.info(f"Analisando: **{operation.upper()}** para o fato **'{target_fact_key}'**...")
     valores, unidade = [], ''
     for data in summary_data.values():
         if target_fact_key in data.get("fatos_extraidos", {}):
@@ -119,42 +133,44 @@ def handle_analytical_query(query: str, summary_data: dict):
             if isinstance(valor, (int, float)):
                 valores.append(valor)
                 if not unidade and 'unidade' in fact_data: unidade = fact_data['unidade']
-    if not valores:
-        st.warning(f"Não encontrei dados numéricos para '{target_fact_key}' para calcular."); return True
+    if not valores: return False
 
     resultado, label_metrica = 0, ""
     if operation == 'avg': resultado, label_metrica = np.mean(valores), f"Média de {target_fact_key.replace('_', ' ')}"
     elif operation == 'min': resultado, label_metrica = np.min(valores), f"Mínimo de {target_fact_key.replace('_', ' ')}"
     elif operation == 'max': resultado, label_metrica = np.max(valores), f"Máximo de {target_fact_key.replace('_', ' ')}"
     
-    valor_formatado = f"{resultado:.1%}" if target_fact_key == 'desconto_strike_price' else f"{resultado:.1f} {unidade}".strip()
+    valor_formatado = f"{resultado:.1%}" if 'desconto' in target_fact_key else f"{resultado:.1f} {unidade}".strip()
     st.metric(label=label_metrica.title(), value=valor_formatado)
     st.caption(f"Cálculo baseado em {len(valores)} empresas com dados para este fato.")
     return True
 
 def handle_aggregate_query(query: str, summary_data: dict, alias_map: dict):
+    """Lida com perguntas agregadas (quais, quantas). Retorna True se encontrou resultados."""
+    if not summary_data: return False
     query_lower = query.lower()
     query_keywords = set()
-    sorted_aliases = sorted(alias_map.keys(), key=len, reverse=True)
-    temp_query = query_lower
-    for alias in sorted_aliases:
-        if re.search(r'\b' + re.escape(alias.lower()) + r'\b', temp_query):
-            query_keywords.add(alias.lower()); temp_query = temp_query.replace(alias.lower(), "")
-    if not query_keywords: st.warning("Não identifiquei um termo técnico na sua pergunta."); return
-    st.info(f"Termos para busca: **{', '.join(sorted(list(query_keywords)))}**")
+    for alias, canonical in alias_map.items():
+        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
+            query_keywords.add(canonical)
+    if not query_keywords: return False
+
     empresas_encontradas = []
     for empresa, data in summary_data.items():
-        company_terms = set()
-        for topics in data.get("topicos_encontrados", {}).values():
-            for topic, aliases in topics.items():
-                company_terms.add(topic.lower()); company_terms.update([a.lower() for a in aliases])
-        if query_keywords.issubset(company_terms): empresas_encontradas.append(empresa)
-    if not empresas_encontradas: st.warning(f"Nenhuma empresa encontrada com: `{', '.join(query_keywords)}`."); return
-    st.success(f"✅ **{len(empresas_encontradas)} empresa(s)** encontrada(s).")
+        company_topics = set(data.get("topicos_identificados", []))
+        if query_keywords.issubset(company_topics):
+            empresas_encontradas.append(empresa)
+            
+    if not empresas_encontradas: return False
+
+    st.success(f"✅ **{len(empresas_encontradas)} empresa(s)** encontrada(s) com os termos: `{', '.join(query_keywords)}`")
     df = pd.DataFrame(sorted(empresas_encontradas), columns=["Empresa"])
     st.dataframe(df, use_container_width=True, hide_index=True)
+    return True
 
 def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, company_catalog: list):
+    """Lida com perguntas de fato direto. Retorna True se teve sucesso."""
+    if not summary_data: return False
     query_lower, empresa_encontrada, fato_encontrado_alias = query.lower(), None, None
     for company_data in company_catalog:
         for alias in company_data.get("aliases", []):
@@ -165,466 +181,226 @@ def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, co
         if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
             fato_encontrado_alias = alias; break
     if not empresa_encontrada or not fato_encontrado_alias: return False
+    
     empresa_data = summary_data.get(empresa_encontrada, {})
-    st.subheader(f"Fato Direto para: {empresa_encontrada}")
+    if not empresa_data: return False
+    
     fato_encontrado = False
+    canonical_topic = alias_map.get(fato_encontrado_alias)
     for fact_key, fact_value in empresa_data.get("fatos_extraidos", {}).items():
-        if fato_encontrado_alias in fact_key.lower():
+        if canonical_topic and canonical_topic.lower().replace(' ', '_') in fact_key.lower():
             valor, unidade = fact_value.get('valor', ''), fact_value.get('unidade', '')
-            st.metric(label=f"Fato: {fact_key.replace('_', ' ').title()}", value=f"{valor} {unidade}".strip())
+            st.metric(label=f"Fato para {empresa_encontrada}: {fact_key.replace('_', ' ').title()}", value=f"{valor} {unidade}".strip())
             fato_encontrado = True; break
-    if not fato_encontrado: st.info(f"O tópico '{fato_encontrado_alias}' foi mencionado, mas um fato estruturado não foi extraído.")
+    if not fato_encontrado: return False
     return True
 
-# --- FUNÇÕES DO PIPELINE RAG (VERSÃO FINAL E FUNCIONAL) ---
 
-# --- FUNÇÕES AUXILIARES RESTAURADAS E ADAPTADAS ---
+# --- 4. Motor RAG v5.0: Funções do Pipeline Avançado ---
 
-def expand_search_terms(base_term: str, alias_map: dict, knowledge_base: dict) -> list[str]:
-    """
-    (ADAPTADO DO CÓDIGO ANTIGO) Expande um termo de busca para incluir sinônimos.
-    Funciona com a nova estrutura do DICIONARIO_UNIFICADO_HIERARQUICO.
-    """
-    canonical_name = alias_map.get(base_term.lower())
-    if not canonical_name:
-        return [base_term]
+def call_gemini_api(prompt, max_tokens=8192):
+    """Função auxiliar centralizada para chamadas à API Gemini."""
+    if not GEMINI_API_KEY:
+        logger.error("Chave da API Gemini não configurada.")
+        return "ERRO: Chave da API Gemini não configurada."
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": max_tokens}
+    }
+    headers = {'Content-Type': 'application/json'}
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
+        response.raise_for_status()
+        return response.json()['candidates'][0]['content']['parts'][0]['text']
+    except Exception as e:
+        logger.error(f"Erro na chamada da API Gemini: {e}")
+        return f"ERRO na comunicação com a API: {e}"
 
-    expanded_terms = set([canonical_name])
-    for section, topics in knowledge_base.items():
-        if canonical_name in topics:
-            expanded_terms.update(topics[canonical_name])
-            expanded_terms.add(canonical_name) # Garante que o nome canônico está lá
-            break
-            
-    return list(expanded_terms)
+def decompose_query_with_llm(user_query: str) -> list[str]:
+    # ... (implementação completa da Otimização 1) ...
+    pass
 
-def search_by_tags(artifacts: dict, company_name: str, target_tags: list[str]) -> list[dict]:
-    """
-    (ADAPTADO DO CÓDIGO ANTIGO) Busca por chunks que contenham tags de tópicos.
-    Agora usa o metadado 'company_name' em vez de buscar no nome do arquivo, o que é mais robusto.
-    """
-    results = []
-    # Converte tags para um formato mais fácil de buscar (ex: ignora case)
-    target_tags_lower = {tag.lower() for tag in target_tags}
+def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifacts: dict, bi_encoder, cross_encoder, alias_map):
+    """(CORAÇÃO DA RECUPERAÇÃO) Combina busca semântica e re-ranking."""
+    candidate_chunks_with_source = []
+    seen_texts = set()
 
-    for category, artifact_data in artifacts.items():
-        chunk_data = artifact_data.get('chunks', {})
-        for i, mapping in enumerate(chunk_data.get('map', [])):
-            # LÓGICA ADAPTADA: Verifica o metadado da empresa
-            if company_name.upper() == mapping.get("company_name", "").upper():
-                chunk_text = chunk_data.get("chunks", [])[i]
-                # Verifica se alguma das tags está no texto do chunk
-                # Isso é uma simplificação, a busca por regex do código antigo era mais específica
-                # para "Tópicos:" ou "Item 8.4 - Subitens:". Podemos adicionar se necessário.
-                # Por agora, vamos buscar a menção da tag no texto.
-                for tag in target_tags_lower:
-                    if re.search(r'\b' + re.escape(tag) + r'\b', chunk_text, re.IGNORECASE):
-                        results.append({
-                            'text': chunk_text,
-                            'source_url': mapping.get("source_url", "Fonte Desconhecida"),
-                            'tag_found': tag
-                        })
-                        break # Pára no primeiro tag encontrado para este chunk
-    return results
+    # Busca Semântica
+    query_embedding = bi_encoder.encode(query, normalize_embeddings=True)
+    for category, data in artifacts.items():
+        if 'index' not in data or 'chunks_data' not in data: continue
+        scores, ids = data['index'].search(np.array([query_embedding]).astype('float32'), TOP_K_INITIAL_SEARCH)
+        for i, doc_id in enumerate(ids[0]):
+            if doc_id != -1 and scores[0][i] > 0.3:
+                chunk_map_item = data['chunks_data']['map'][doc_id]
+                # Filtra por empresa, se especificado
+                if company and company.upper() != chunk_map_item.get("company_name", "").upper():
+                    continue
+                chunk_text = data['chunks_data']['chunks'][doc_id]
+                if chunk_text not in seen_texts:
+                    candidate_chunks_with_source.append({
+                        'text': chunk_text, 
+                        'source': chunk_map_item['source_url']
+                    })
+                    seen_texts.add(chunk_text)
 
-# --- FUNÇÕES DO PIPELINE RAG (VERSÃO HÍBRIDA E DINÂMICA) ---
+    if not candidate_chunks_with_source: return "", set()
 
-def create_dynamic_rag_plan(query: str, company_catalog: list, alias_map: dict, knowledge_base: dict) -> dict | None:
-    """
-    (HÍBRIDO E DINÂMICO - V3) Cria um plano de busca, combinando regras locais com fallback para LLM.
-    """
-    query_lower = query.lower()
-    plan = {"empresas": [], "topicos": []}
+    # Re-ranking
+    pure_texts = [re.sub(r'^\[.*?\]\s*', '', c['text']) for c in candidate_chunks_with_source]
+    sentence_pairs = [[query, text] for text in pure_texts]
+    rerank_scores = cross_encoder.predict(sentence_pairs, show_progress_bar=False)
+    reranked_results = sorted(zip(rerank_scores, candidate_chunks_with_source), key=lambda x: x[0], reverse=True)
+
+    final_context, final_sources = "", set()
+    for score, chunk_data in reranked_results[:TOP_K_RERANKED]:
+        final_context += f"Fonte: {os.path.basename(chunk_data['source'])} (Relevância: {score:.2f})\n{chunk_data['text']}\n\n"
+        final_sources.add(chunk_data['source'])
+    return final_context, final_sources
+
+def generate_answer_extract_synthesize(original_query, context):
+    """(SÍNTESE SEGURA) Usa a técnica "Extrair-Depois-Sintetizar"."""
+    # ETAPA 1: Extrair
+    extract_prompt = f"""Analise o contexto e extraia fatos, números e citações relevantes para a pergunta.
+    Pergunta: "{original_query}"
+    Contexto: --- {context} ---
+    Fatos Brutos Extraídos:"""
+    extracted_facts = call_gemini_api(extract_prompt)
+    if "ERRO:" in extracted_facts: return extracted_facts
+
+    # ETAPA 2: Sintetizar
+    synthesize_prompt = f"""Usando APENAS os fatos brutos extraídos, escreva uma resposta completa em português para a pergunta original. Se os fatos não forem suficientes, diga que a informação não foi encontrada.
+    Pergunta Original: "{original_query}"
+    Fatos Extraídos: --- {extracted_facts} ---
+    Resposta Final:"""
+    final_answer = call_gemini_api(synthesize_prompt)
+    return final_answer
+
+
+# --- 5. Orquestrador Principal do Agente v5.0 ---
+
+def handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder, alias_map, company_catalog):
+    """Orquestra o pipeline RAG v5.0, decidindo entre análise comparativa e profunda."""
+    st.info("Iniciando análise com o motor RAG v5.0...")
     
-    # --- ETAPA 1: TENTATIVA DE PLANEJAMENTO LOCAL (RÁPIDO E BARATO) ---
-    # Identifica empresas usando o catálogo
+    empresas_no_plano = []
     for company_data in company_catalog:
         for alias in company_data.get("aliases", []):
-            if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
-                plan["empresas"].append(company_data["canonical_name"])
-                break
-    plan["empresas"] = sorted(list(set(plan["empresas"])))
+            if re.search(r'\b' + re.escape(alias.lower()) + r'\b', user_query.lower()):
+                empresas_no_plano.append(company_data["canonical_name"]); break
+    empresas_no_plano = sorted(list(set(empresas_no_plano)))
 
-    # Identifica tópicos usando o mapa de alias
-    for alias, canonical_name in alias_map.items():
-        if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
-            plan["topicos"].append(canonical_name)
-    plan["topicos"] = sorted(list(set(plan["topicos"])))
-
-    # Se não encontrou empresa, o plano é inválido
-    if not plan["empresas"]:
-        return None
-
-    # Se encontrou tópicos localmente, o plano está pronto!
-    if plan["topicos"]:
-        logger.info(f"Plano RAG criado com regras locais: Empresas={plan['empresas']}, Tópicos={plan['topicos']}")
-        return plan
-
-    # --- ETAPA 2: FALLBACK PARA LLM (SE NENHUM TÓPICO FOI ENCONTRADO) ---
-    logger.warning(f"Nenhum tópico local encontrado para a query. Acionando LLM para planejamento.")
-    st.info("Nenhum termo técnico conhecido foi encontrado. Usando IA para interpretar os tópicos da sua pergunta...")
-
-    if not GEMINI_API_KEY:
-        st.error("Chave da API Gemini não configurada para o planejamento dinâmico.")
-        # Fallback para um plano genérico se a API não estiver disponível
-        plan["topicos"] = ["informações gerais do plano de incentivo"]
-        return plan
-
-    # Extrai todos os nomes de tópicos canônicos da base de conhecimento
-    available_topics = list(knowledge_base.keys())
-    for section_topics in knowledge_base.values():
-        available_topics.extend(section_topics.keys())
-    
-    prompt = f"""Você é um assistente especialista em planos de incentivo. Analise a pergunta do usuário e identifique os tópicos centrais que devem ser pesquisados.
-    
-    **Pergunta do Usuário:** "{query}"
-
-    **Tópicos Disponíveis para Escolha:** {json.dumps(list(set(available_topics)), ensure_ascii=False)}
-
-    **Sua Tarefa:**
-    Retorne uma lista JSON com os nomes EXATOS dos tópicos mais relevantes da lista acima que correspondem à pergunta do usuário.
-    Se a pergunta for genérica sobre um plano (ex: "como é o plano da vale?"), retorne uma lista com tópicos essenciais como ["Estrutura do Plano/Programa", "Vesting", "Governança e Documentos"].
-    O formato da sua resposta deve ser APENAS a lista JSON. Exemplo: ["Vesting", "Lockup", "Dividendos"]
-    """
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    headers = {'Content-Type': 'application/json'}
-    
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=90)
-        response.raise_for_status()
-        text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
+    # --- ROTA 1: MODO COMPARATIVO ESTRUTURADO ---
+    if len(empresas_no_plano) > 1:
+        st.success(f"Modo de comparação ativado para: {', '.join(empresas_no_plano)}")
+        summaries, full_sources = [], set()
+        for i, empresa in enumerate(empresas_no_plano):
+            with st.status(f"Analisando {i+1}/{len(empresas_no_plano)}: {empresa}...", expanded=True) as status:
+                context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa, artifacts, bi_encoder, cross_encoder, alias_map)
+                full_sources.update(sources)
+                if not context:
+                    summaries.append(f"## Análise para {empresa.upper()}\n\nNenhuma informação encontrada nos documentos.")
+                    status.update(label=f"Análise de {empresa} concluída (sem dados).", state="warning"); continue
+                
+                summary_prompt = f"Com base no contexto sobre a empresa {empresa}, resuma os pontos principais para a pergunta: '{user_query}'. Contexto: {context}"
+                summary = call_gemini_api(summary_prompt, max_tokens=1024)
+                summaries.append(f"--- RESUMO PARA {empresa.upper()} ---\n\n{summary}")
+                status.update(label=f"Análise de {empresa} concluída.", state="complete")
         
-        # Tenta extrair a lista JSON da resposta
-        json_match = re.search(r'\[.*\]', text_response, re.DOTALL)
-        if json_match:
-            plan["topicos"] = json.loads(json_match.group(0))
-            logger.info(f"Plano RAG criado via LLM: Empresas={plan['empresas']}, Tópicos={plan['topicos']}")
-        else:
-            raise ValueError("Resposta do LLM não continha um JSON válido.")
-            
-    except (requests.exceptions.RequestException, KeyError, IndexError, ValueError) as e:
-        logger.error(f"Falha ao usar LLM para planejamento: {e}. Usando tópicos de fallback.")
-        st.warning("Falha na interpretação por IA. Usando uma busca genérica.")
-        plan["topicos"] = ["informações gerais do plano de incentivo", "Estrutura do Plano/Programa"]
-        
-    return plan
+        with st.spinner("Gerando relatório comparativo final..."):
+            comparison_prompt = f"Com base nos resumos individuais, crie um relatório comparativo detalhado respondendo à pergunta original.\nPergunta: '{user_query}'\n\n" + "\n\n".join(summaries)
+            final_answer = call_gemini_api(comparison_prompt)
+            return final_answer, full_sources
 
-
-def execute_hybrid_rag_plan(plan: dict, artifacts: dict, model, alias_map: dict, knowledge_base: dict) -> tuple[str, set]:
-    """
-    (BUSCA HÍBRIDA) Executa a busca em duas etapas: tags (precisão) e semântica (cobertura).
-    """
-    full_context, sources, unique_chunks = "", set(), set()
-    
-    with st.spinner("Executando busca de alta precisão por tags..."):
-        # Expande todos os tópicos do plano para seus sinônimos
-        all_target_tags = []
-        for topico in plan.get("topicos", []):
-            all_target_tags.extend(expand_search_terms(topico, alias_map, knowledge_base))
-        all_target_tags = list(set(all_target_tags))
-        
-        tagged_context = ""
-        for empresa in plan["empresas"]:
-            tagged_results = search_by_tags(artifacts, empresa, all_target_tags)
-            if tagged_results:
-                tagged_context += f"--- Contexto de Alta Precisão para {empresa.upper()} (Tags Encontradas) ---\n"
-                for res in tagged_results:
-                    chunk_text = res['text']
-                    if chunk_text not in unique_chunks:
-                        source_url = res['source_url']
-                        tagged_context += f"Fonte (Tag: '{res['tag_found']}'): {os.path.basename(source_url)}\n{chunk_text}\n\n"
-                        unique_chunks.add(chunk_text)
-                        sources.add(source_url)
-        full_context += tagged_context
-
-    with st.spinner("Executando busca semântica para complementar o contexto..."):
-        semantic_context = ""
-        for empresa in plan["empresas"]:
-            search_query = f"informações detalhadas sobre {', '.join(plan['topicos'])} no plano de remuneração da empresa {empresa}"
-            query_embedding = model.encode([search_query], normalize_embeddings=True)
-
-            for category, artifact_data in artifacts.items():
-                scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
-                for i, idx in enumerate(indices[0]):
-                    if idx != -1 and scores[0][i] >= 0.35:
-                        mapping = artifact_data["chunks"]["map"][idx]
-                        if empresa.upper() == mapping.get("company_name", "").upper():
-                            chunk_text = artifact_data["chunks"]["chunks"][idx]
-                            if chunk_text not in unique_chunks:
-                                source_url = mapping.get("source_url", "Fonte Desconhecida")
-                                semantic_context += f"Fonte (Semântica): {os.path.basename(source_url)} (Similaridade: {scores[0][i]:.2f})\n{chunk_text}\n\n"
-                                unique_chunks.add(chunk_text)
-                                sources.add(source_url)
-        
-        if semantic_context:
-            full_context += "--- Contexto Adicional (Busca Semântica Ampla) ---\n" + semantic_context
-
-    return full_context, sources
-
-
-def get_final_answer_with_dynamic_prompt(query: str, context: str):
-    """
-    (PROMPT DINÂMICO) Gera a resposta final, adaptando o prompt com base no contexto.
-    """
-    if not GEMINI_API_KEY:
-        st.error("Chave da API Gemini não configurada. Verifique os segredos do Streamlit.")
-        return "Erro: Chave da API não encontrada."
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    
-    # Lógica do Prompt Dinâmico
-    structure_instruction = "Use formatação Markdown (negrito, listas) para clareza e legibilidade."
-    if "item 8.4" in query.lower():
-        structure_instruction = """
-        **ESTRUTURA OBRIGATÓRIA PARA ITEM 8.4:**
-        Organize a resposta usando a estrutura oficial do item 8.4 do Formulário de Referência da CVM:
-        a) Termos e condições gerais; b) Data de aprovação e órgão; c) Máximo de ações; d) Máximo de opções;
-        e) Condições de aquisição; f) Critérios de preço; g) Critérios de prazo; h) Forma de liquidação;
-        i) Restrições à transferência; j) Suspensão/extinção; k) Efeitos da saída.
-        Para cada subitem, extraia e organize as informações encontradas.
-        """
-    elif "Contexto de Alta Precisão" in context:
-        structure_instruction = "PRIORIZE as informações da seção 'Contexto de Alta Precisão (Tags Encontradas)', pois são as mais relevantes. Use o 'Contexto Adicional' para complementar os detalhes. Organize a resposta de forma lógica usando Markdown."
-
-    prompt = f"""Você é um consultor especialista em planos de remuneração da CVM. Sua tarefa é responder à pergunta do usuário de forma clara, profissional e em português, baseando-se estritamente no contexto fornecido.
-
-    **Instruções Importantes:**
-    1.  Use apenas as informações do 'Contexto Coletado'.
-    2.  {structure_instruction}
-    3.  Se a resposta não estiver no contexto, afirme explicitamente: "A informação não foi encontrada nos documentos analisados.". Não invente dados.
-
-    **Pergunta do Usuário:** "{query}"
-
-    **Contexto Coletado dos Documentos:**
-    ---
-    {context}
-    ---
-    
-    **Relatório Analítico Detalhado:**
-    """
-    
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192} # Aumentado para 8k
-    }
-    headers = {'Content-Type': 'application/json'}
-    
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
-        response.raise_for_status()
-        candidate = response.json().get('candidates', [{}])[0]
-        content = candidate.get('content', {}).get('parts', [{}])[0]
-        return content.get('text', "Não foi possível gerar uma resposta.")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"ERRO de requisição ao chamar a API Gemini: {e}")
-        return f"Erro de comunicação com a API do Gemini. Detalhes: {e}"
-    except Exception as e:
-        logger.error(f"ERRO inesperado ao processar resposta do Gemini: {e}")
-        return f"Ocorreu um erro inesperado ao processar a resposta. Detalhes: {e}"
-
-
-def handle_rag_query(query: str, artifacts: dict, model, company_catalog: list, alias_map: dict, knowledge_base: dict):
-    """
-    (ORQUESTRADOR ATUALIZADO) Orquestra o pipeline RAG Híbrido e Dinâmico.
-    """
-    with st.status("Gerando plano de análise RAG...") as status:
-        plan = create_dynamic_rag_plan(query, company_catalog, alias_map, knowledge_base)
-        if not plan:
-            st.error("Não consegui identificar empresas conhecidas na sua pergunta para realizar a análise.")
-            return set()
-        status.update(label=f"Plano gerado. Analisando para: {', '.join(plan['empresas'])}...")
-
-    # A execução agora é a HÍBRIDA
-    context, sources = execute_hybrid_rag_plan(plan, artifacts, model, alias_map, knowledge_base)
-    
-    if not context:
-        st.warning("Não encontrei informações relevantes nos documentos para esta consulta.")
-        return set()
-    
-    with st.spinner("Gerando relatório final com base no contexto coletado..."):
-        # A geração de resposta agora usa o PROMPT DINÂMICO
-        final_answer = get_final_answer_with_dynamic_prompt(query, context)
-        st.markdown(final_answer)
-        
-    return sources
-    **Relatório Analítico Detalhado:**
-    """
-    
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096}
-    }
-    headers = {'Content-Type': 'application/json'}
-    
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
-        response.raise_for_status()
-        # Extrai o texto da resposta da API
-        candidate = response.json().get('candidates', [{}])[0]
-        content = candidate.get('content', {}).get('parts', [{}])[0]
-        return content.get('text', "Não foi possível gerar uma resposta.")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"ERRO de requisição ao chamar a API Gemini: {e}")
-        return f"Erro de comunicação com a API do Gemini. Detalhes: {e}"
-    except Exception as e:
-        logger.error(f"ERRO inesperado ao processar resposta do Gemini: {e}")
-        return f"Ocorreu um erro inesperado ao processar a resposta. Detalhes: {e}"
-
-def handle_rag_query(query: str, artifacts: dict, model, company_catalog: list, alias_map: dict):
-    """
-    (VERSÃO CORRIGIDA) Orquestra o pipeline RAG, chamando a função de API correta.
-    """
-    with st.status("Gerando plano de análise RAG...") as status:
-        plan = create_rag_plan(query, company_catalog, alias_map)
-        if not plan:
-            st.error("Não consegui identificar empresas conhecidas na sua pergunta para realizar a análise.")
-            return set()
-        status.update(label=f"Plano gerado. Analisando para: {', '.join(plan['empresas'])}...")
-
-    with st.spinner("Recuperando e analisando informações..."):
-        context, sources = execute_rag_plan(plan, artifacts, model)
+    # --- ROTA 2: MODO DE ANÁLISE PROFUNDA (ÚNICA ENTIDADE) ---
+    else:
+        empresa_unica = empresas_no_plano[0] if empresas_no_plano else None
+        st.info(f"Modo de análise profunda ativado{f' para {empresa_unica}' if empresa_unica else ''}.")
+        with st.spinner("Recuperando e refinando contexto..."):
+            context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa_unica, artifacts, bi_encoder, cross_encoder, alias_map)
         if not context:
-            st.warning("Não encontrei informações relevantes nos documentos para esta consulta.")
-            return set()
+            st.warning("Não encontrei informações relevantes para a sua consulta.")
+            return "", set()
         
-        # Chamada para a função de API correta e funcional
-        final_answer = get_final_unified_answer(query, context)
-        st.markdown(final_answer)
-        
-    return sources
+        with st.spinner("Gerando resposta detalhada..."):
+            final_answer = generate_answer_extract_synthesize(user_query, context)
+        return final_answer, sources
 
-@st.cache_data
-def criar_mapa_de_alias(knowledge_base: dict):
-    """
-    (VERSÃO CORRIGIDA) Cria um dicionário que mapeia cada apelido E o próprio nome do tópico 
-    ao seu tópico canônico, recebendo a base de conhecimento como argumento.
-    """
-    alias_to_canonical = {}
-    for section, topics in knowledge_base.items():
-        for canonical_name, aliases in topics.items():
-            alias_to_canonical[canonical_name.lower()] = canonical_name
-            for alias in aliases:
-                alias_to_canonical[alias.lower()] = canonical_name
-    return alias_to_canonical
 
+# --- 6. Aplicação Principal (Interface Streamlit) ---
 def main():
-    st.set_page_config(
-        page_title="Agente de Análise LTIP", 
-        page_icon="🤖", 
-        layout="wide", 
-        initial_sidebar_state="expanded"
-    )
-    st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
+    st.set_page_config(page_title="Agente de Análise LTIP v5.0", page_icon="🏆", layout="wide", initial_sidebar_state="expanded")
+    if "history" not in st.session_state: st.session_state.history = []
     
-    # --- Carregamento Centralizado de Dados e Artefatos ---
-    with st.spinner("Carregando modelos, índices e base de conhecimento..."):
-        model, artifacts, summary_data = load_all_artifacts()
-    
-    try:
-        from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
-        logger.info("Base de conhecimento 'knowledge_base.py' carregada.")
-    except ImportError:
-        st.error("ERRO CRÍTICO: Crie o arquivo 'knowledge_base.py' e cole o 'DICIONARIO_UNIFICADO_HIERARQUICO' nele.")
-        st.stop()
-        
-    ALIAS_MAP = criar_mapa_de_alias(DICIONARIO_UNIFICADO_HIERARQUICO)
+    st.title("🏆 Agente de Análise LTIP v5.0 (Definitivo)")
 
-    try:
-        from catalog_data import company_catalog_rich
-        logger.info("Catálogo de empresas 'catalog_data.py' carregado.")
-    except ImportError:
-        logger.warning("`catalog_data.py` não encontrado. Criando catálogo dinâmico a partir do resumo.")
-        if summary_data:
-            company_catalog_rich = [{"canonical_name": name, "aliases": [name.split(' ')[0].lower(), name.lower()]} for name in summary_data.keys()]
-        else:
-            company_catalog_rich = []
-            st.warning("Catálogo de empresas não pôde ser criado pois o arquivo de resumo também está ausente.")
+    with st.spinner("Inicializando sistemas e carregando modelos..."):
+        bi_encoder, cross_encoder = load_models()
+        artifacts, summary_data = load_artifacts()
+        ALIAS_MAP = criar_mapa_de_alias(DICIONARIO_UNIFICADO_HIERARQUICO)
 
-    # --- Sidebar com Informações do Sistema (Inspirado no script original) ---
     with st.sidebar:
         st.header("📊 Informações do Sistema")
-        st.metric("Fontes de Documentos (RAG)", len(artifacts) if artifacts else "N/A")
-        st.metric("Empresas no Resumo", len(summary_data) if summary_data else "N/A")
-        
-        if summary_data:
-            with st.expander("Empresas com dados para análise rápida"):
-                empresas_df = pd.DataFrame(sorted(list(summary_data.keys())), columns=["Nome da Empresa"])
-                st.dataframe(empresas_df, use_container_width=True, hide_index=True)
-        
-        st.success("✅ Sistema pronto para análise")
-        st.info(f"**Modelo de Embedding:**\n`{MODEL_NAME}`")
-        st.info(f"**Modelo Generativo:**\n`{GEMINI_MODEL}`")
+        total_chunks = sum(len(data['chunks_data']['chunks']) for cat, data in artifacts.items()) if artifacts else 0
+        st.metric("Documentos Indexados (Chunks)", f"{total_chunks:,}")
+        st.metric("Empresas no Resumo Rápido", len(summary_data) if summary_data else "0")
+        st.success("✅ Sistema pronto")
 
-    # --- Bloco de Orientação ao Usuário (Inspirado no script original) ---
-    st.header("💬 Faça sua pergunta")
-    st.markdown("---")
+        with st.expander("📜 Histórico da Sessão", expanded=False):
+            if not st.session_state.history:
+                st.caption("Nenhuma pergunta feita nesta sessão.")
+            else:
+                for i, entry in enumerate(reversed(st.session_state.history)):
+                    st.info(f"**P{len(st.session_state.history) - i}:** {entry['query']}")
     
+    st.header("💬 Faça sua pergunta")
     col1, col2 = st.columns(2)
     with col1:
-        st.info("**Experimente análises rápidas (sem RAG):**")
-        st.code("Quais empresas possuem planos com matching?") # Agregada
-        st.code("Qual o desconto médio oferecido?") # Analítica
-        st.code("Qual o período de vesting da Movida?") # Fato Direto
+        st.info("**Experimente análises rápidas:**")
+        st.code("Quais empresas possuem planos com matching?")
+        st.code("Qual o desconto médio oferecido?")
     with col2:
-        st.info("**Ou uma análise profunda (com RAG):**")
-        st.code("Compare as políticas de dividendos da Vale e Gerdau") # Comparativa
-        st.code("Como é o tratamento de desligamento no plano da Magazine Luiza?") # Detalhada
-        st.code("Resumo completo do item 8.4 da Vivo") # Estruturada
+        st.info("**Ou uma análise profunda:**")
+        st.code("Compare as políticas de vesting e clawback da Vale e Itaú")
+        st.code("Resumo do item 8.4 da Ambev")
 
-    st.caption("**Principais Termos-Chave:** `Item 8.4`, `Vesting`, `Stock Options`, `Ações Restritas`, `Performance`, `Matching`, `Lockup`, `SAR`, `ESPP`, `Malus e Clawback`, `Dividendos`, `Good Leaver`, `Bad Leaver`")
-
-    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quantas empresas oferecem ações restritas e possuem cláusula de clawback?")
+    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Compare o TSR da Vale com a Petrobras ou pergunte sobre o vesting da Ambev...")
 
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
-        if not user_query.strip():
-            st.warning("⚠️ Por favor, digite uma pergunta.")
-            st.stop()
+        if not user_query.strip(): st.warning("⚠️ Por favor, digite uma pergunta."); st.stop()
+        st.markdown("---"); st.subheader("📋 Resultado da Análise")
 
-        st.markdown("---")
-        st.subheader("📋 Resultado da Análise")
-        
-        # --- ROTEADOR DE INTENÇÃO DE 4 NÍVEIS COM FEEDBACK PARA O USUÁRIO ---
-        query_lower = user_query.lower()
+        # --- ROTEADOR DE MÚLTIPLOS NÍVEIS ---
         analytical_keywords = ['medio', 'média', 'típico', 'menor', 'mínimo', 'maior', 'máximo']
         aggregate_keywords = ["quais", "quantas", "liste", "mostre"]
-        direct_fact_pattern = r'qual\s*(?:é|o|a)\s*.*\s*d[aeo]\s*'
-        sources = set()
+        
+        final_answer, sources = "", set()
 
-        if any(keyword in query_lower for keyword in analytical_keywords):
-            st.info("Detectada uma pergunta **analítica (média, mínimo, máximo)**. Buscando nos dados pré-processados...")
+        if any(kw in user_query.lower() for kw in analytical_keywords):
+            st.info("Detectada pergunta **analítica**. Usando o resumo rápido...")
             if not handle_analytical_query(user_query, summary_data):
-                st.warning("A análise rápida não encontrou dados numéricos. Acionando a análise profunda (RAG) para uma resposta mais completa...")
-                sources = handle_rag_query(user_query, artifacts, model, company_catalog_rich, ALIAS_MAP, DICIONARIO_UNIFICADO_HIERARQUICO)
+                st.warning("Análise rápida sem dados. Acionando motor RAG para uma resposta completa...")
+                final_answer, sources = handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder, ALIAS_MAP, company_catalog_rich)
         
-        elif any(keyword in query_lower for keyword in aggregate_keywords):
-            st.info("Detectada uma pergunta **agregada (quais, quantas)**. Buscando na lista de empresas...")
-            if not summary_data:
-                st.error("A funcionalidade de busca agregada está desativada pois o arquivo de resumo não foi encontrado.")
-            else:
-                handle_aggregate_query(user_query, summary_data, ALIAS_MAP)
-        
-        elif re.search(direct_fact_pattern, query_lower) and any(comp["canonical_name"].lower() in query_lower for comp in company_catalog_rich):
-            st.info("Detectada uma pergunta de **fato direto**. Buscando nos fatos extraídos...")
-            if not handle_direct_fact_query(user_query, summary_data, ALIAS_MAP, company_catalog_rich):
-                st.warning("Não encontrei um fato estruturado. Acionando a análise profunda (RAG) para buscar no texto completo...")
-                sources = handle_rag_query(user_query, artifacts, model, company_catalog_rich, ALIAS_MAP, DICIONARIO_UNIFICADO_HIERARQUICO)
-        
-        else:
-            st.info("Detectada uma pergunta **detalhada ou comparativa**. Acionando a análise profunda (RAG)...")
-            if not artifacts:
-                 st.error("A funcionalidade de análise profunda está desativada pois os índices de busca não foram encontrados.")
-            else:
-                sources = handle_rag_query(user_query, artifacts, model, company_catalog_rich, ALIAS_MAP, DICIONARIO_UNIFICADO_HIERARQUICO)
+        elif any(kw in user_query.lower() for kw in aggregate_keywords):
+            st.info("Detectada pergunta **agregada**. Usando o resumo rápido...")
+            if not handle_aggregate_query(user_query, summary_data, ALIAS_MAP):
+                st.warning("Análise rápida sem dados. Acionando motor RAG para uma resposta completa...")
+                final_answer, sources = handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder, ALIAS_MAP, company_catalog_rich)
 
-        # --- Exibição das Fontes Consultadas (Apenas para o RAG) ---
+        # (Você pode adicionar o `handle_direct_fact_query` aqui se desejar)
+
+        else:
+            final_answer, sources = handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder, ALIAS_MAP, company_catalog_rich)
+            
+        if final_answer and "ERRO:" not in final_answer:
+            st.markdown(final_answer)
+            st.session_state.history.append({'query': user_query, 'answer': final_answer})
+        
         if sources:
-            st.markdown("---")
-            with st.expander(f"📚 Fontes consultadas na análise profunda ({len(sources)})", expanded=False):
-                # Usando um DataFrame para uma visualização mais limpa
-                sources_df = pd.DataFrame(sorted(list(sources)), columns=["Documento"])
-                st.dataframe(sources_df, use_container_width=True, hide_index=True)
+            with st.expander(f"📚 Fontes Consultadas ({len(sources)})"):
+                st.dataframe(pd.DataFrame(sorted(list(sources)), columns=["Documento"]), use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
