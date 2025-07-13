@@ -255,43 +255,35 @@ def decompose_query_with_llm(user_query: str) -> list[str]:
     # ... (implementação completa da Otimização 1) ...
     pass
 
-def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifacts: dict, bi_encoder, cross_encoder, alias_map):
-    """(CORAÇÃO DA RECUPERAÇÃO) Combina busca semântica e re-ranking com filtro robusto."""
+def retrieve_hybrid_and_reranked_context(query: str, company: str | None, intent: str, artifacts: dict, bi_encoder, cross_encoder, alias_map):
+    """(VERSÃO CORRIGIDA) Usa a intenção para focar a busca e compara nomes normalizados."""
     candidate_chunks_with_source = []
     seen_texts = set()
 
+    # Lógica para selecionar os índices a serem pesquisados com base na intenção
     target_categories = []
     if intent == 'item_8_4' and 'item_8_4' in artifacts:
         st.info("Focando a busca no índice 'Item 8.4' para maior precisão.")
         target_categories = ['item_8_4']
     else:
-        # Se a intenção for geral ou o índice específico não existir, busca em todos
         target_categories = list(artifacts.keys())
 
     query_embedding = bi_encoder.encode(query, normalize_embeddings=True)
     
-    # O loop agora itera apenas sobre as categorias-alvo
     for category in target_categories:
         data = artifacts.get(category)
         if not data or 'index' not in data or 'chunks_data' not in data: continue
         
-
-   
-    # --- Início da Lógica de Busca ---
-    query_embedding = bi_encoder.encode(query, normalize_embeddings=True)
-    for category, data in artifacts.items():
-        if 'index' not in data or 'chunks_data' not in data: continue
         scores, ids = data['index'].search(np.array([query_embedding]).astype('float32'), TOP_K_INITIAL_SEARCH)
+        
         for i, doc_id in enumerate(ids[0]):
             if doc_id != -1 and scores[0][i] > 0.3:
                 chunk_map_item = data['chunks_data']['map'][doc_id]
                 chunk_company_name = chunk_map_item.get("company_name", "")
 
-                # ================================================================= #
-                # A MUDANÇA CRÍTICA ESTÁ AQUI: USAMOS A NORMALIZAÇÃO PARA COMPARAR #
-                # ================================================================= #
+                # Filtro de empresa NORMALIZADO E ROBUSTO
                 if company and normalize_company_name(company) != normalize_company_name(chunk_company_name):
-                    continue # Pula se não for da empresa certa, após normalização
+                    continue
                 
                 chunk_text = data['chunks_data']['chunks'][doc_id]
                 if chunk_text not in seen_texts:
@@ -300,10 +292,11 @@ def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifa
                         'source': chunk_map_item.get('source_url', 'Fonte desconhecida')
                     })
                     seen_texts.add(chunk_text)
-    
-    if not candidate_chunks_with_source: return "", set()
 
-    # --- Início da Lógica de Re-ranking ---
+    if not candidate_chunks_with_source:
+        return "", set()
+
+    # Lógica de Re-ranking
     pure_texts = [re.sub(r'^\[.*?\]\s*', '', c['text']) for c in candidate_chunks_with_source]
     sentence_pairs = [[query, text] for text in pure_texts]
     rerank_scores = cross_encoder.predict(sentence_pairs, show_progress_bar=False)
