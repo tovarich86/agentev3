@@ -1,10 +1,17 @@
-# requirements.txt - Versões testadas para compatibilidade no Streamlit Cloud
+# requirements.txt - v2, com índice específico para o PyTorch (CPU)
 
+# Força o PIP a usar o índice de pacotes do PyTorch para CPU, o que é mais estável
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Pacotes PyTorch
+torch==2.3.0
+torchvision==0.18.0
+
+# Outras dependências
 streamlit==1.35.0
 pandas==2.2.2
 numpy==1.26.4
 faiss-cpu==1.8.0
 sentence-transformers==2.7.0
 requests==2.31.0
-torch==2.3.0
 scikit-learn==1.4.2
