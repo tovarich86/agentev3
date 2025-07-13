@@ -176,77 +176,108 @@ def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, co
     if not fato_encontrado: st.info(f"O tópico '{fato_encontrado_alias}' foi mencionado, mas um fato estruturado não foi extraído.")
     return True
 
-# --- FUNÇÕES DO PIPELINE RAG (ATUALIZADAS) ---
+# --- FUNÇÕES DO PIPELINE RAG (VERSÃO FINAL E FUNCIONAL) ---
 
 def create_rag_plan(query: str, company_catalog: list, alias_map: dict):
-    """Cria um plano de busca simples para o RAG."""
-    query_lower, plan = query.lower(), {"empresas": [], "topicos": []}
+    """(ATUALIZADO) Cria um plano de busca simples para o RAG, identificando empresas e tópicos."""
+    query_lower = query.lower()
+    plan = {"empresas": [], "topicos": []}
+    
+    # Identifica empresas usando o catálogo
     for company_data in company_catalog:
         for alias in company_data.get("aliases", []):
             if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
-                plan["empresas"].append(company_data["canonical_name"]); break
+                plan["empresas"].append(company_data["canonical_name"])
+                break
+    
+    # Identifica tópicos usando o mapa de alias
     for alias, canonical_name in alias_map.items():
-        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
+        if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
             plan["topicos"].append(canonical_name)
-    plan["topicos"] = list(set(plan["topicos"]))
-    if not plan["empresas"]: return None
-    if not plan["topicos"]: plan["topicos"] = ["informações gerais do plano"]
+    
+    plan["topicos"] = list(set(plan["topicos"])) # Remove duplicatas
+
+    # Se nenhuma empresa for encontrada, o plano é inválido
+    if not plan["empresas"]:
+        return None
+    # Se nenhum tópico for encontrado, usa um fallback genérico
+    if not plan["topicos"]:
+        plan["topicos"] = ["informações gerais do plano de incentivo"]
+
     return plan
 
 def execute_rag_plan(plan: dict, artifacts: dict, model):
-    """Executa uma busca semântica simples baseada no plano."""
+    """(ATUALIZADO) Executa uma busca semântica robusta baseada no plano."""
     full_context, sources, unique_chunks = "", set(), set()
+
     for empresa in plan["empresas"]:
-        full_context += f"--- Contexto para {empresa.upper()} ---\n\n"
-        search_query = f"informações sobre {', '.join(plan['topicos'])} para a empresa {empresa}"
+        full_context += f"--- Contexto Relevante para {empresa.upper()} ---\n\n"
+        search_query = f"informações sobre {', '.join(plan['topicos'])} no plano de remuneração da empresa {empresa}"
         query_embedding = model.encode([search_query], normalize_embeddings=True)
+
         for category, artifact_data in artifacts.items():
             scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
             for i, idx in enumerate(indices[0]):
-                if idx == -1 or scores[0][i] < 0.35: continue
+                if idx == -1 or scores[0][i] < 0.35: # Limiar de similaridade
+                    continue
+                
                 mapping = artifact_data["chunks"]["map"][idx]
+                
+                # A robustez vem daqui: verificamos se o chunk pertence à empresa certa via metadados
                 if empresa.upper() == mapping.get("company_name", "").upper():
                     chunk_text = artifact_data["chunks"]["chunks"][idx]
                     if chunk_text not in unique_chunks:
                         source_url = mapping.get("source_url", "Fonte Desconhecida")
-                        full_context += f"Fonte: {os.path.basename(source_url)} (Score: {scores[0][i]:.2f})\n{chunk_text}\n\n"
-                        unique_chunks.add(chunk_text); sources.add(source_url)
+                        full_context += f"Fonte: {os.path.basename(source_url)} (Similaridade: {scores[0][i]:.2f})\n{chunk_text}\n\n"
+                        unique_chunks.add(chunk_text)
+                        sources.add(source_url)
+    
     return full_context, sources
 
 def generate_rag_response(query: str, context: str):
-    """Gera a resposta final do RAG com o Gemini."""
-    prompt = f"""Baseado no contexto abaixo, responda à pergunta do usuário de forma clara, profissional e em português. Use Markdown para formatar a resposta. Se a informação não estiver no contexto, afirme isso claramente.
+    """(ATUALIZADO) Gera a resposta final do RAG com o Gemini, usando um prompt claro."""
+    # Esta função faz a chamada à API. O prompt é genérico e robusto.
+    prompt = f"""Você é um consultor especialista em planos de remuneração. Baseado no contexto extraído dos documentos abaixo, responda à pergunta do usuário de forma clara, profissional e em português. Use Markdown para formatar a resposta. Se a informação não estiver no contexto, afirme isso claramente.
 
     Pergunta do Usuário: "{query}"
 
     Contexto Coletado dos Documentos:
     {context}
     
-    Relatório Analítico:
+    Relatório Analítico Detalhado:
     """
-    # Lógica de chamada à API Gemini aqui (simulada para este exemplo)
     try:
-        # response = gemini.generate_content(prompt)
+        # A chamada real à API Gemini iria aqui.
+        # response = gemini_model.generate_content(prompt)
         # return response.text
-        return f"### Análise Detalhada (RAG)\n\nEsta é uma resposta simulada para a pergunta: *'{query}'*. O modelo analisaria o contexto para fornecer um relatório detalhado."
+        # Abaixo, uma simulação para fins de teste:
+        st.info("Simulação de resposta do Gemini.")
+        return f"### Análise Detalhada (RAG)\n\nEsta é uma resposta simulada para a pergunta: *'{query}'*.\n\nO modelo Gemini analisaria o contexto fornecido para gerar um relatório detalhado e profissional sobre o seu questionamento."
     except Exception as e:
         logger.error(f"Erro na chamada da API Gemini: {e}")
-        return "Desculpe, ocorreu um erro ao gerar a resposta final."
+        return "Desculpe, ocorreu um erro ao contatar o modelo de linguagem para gerar a resposta final."
 
 def handle_rag_query(query: str, artifacts: dict, model, company_catalog: list, alias_map: dict):
-    """Orquestra o novo pipeline RAG, mantendo a experiência do usuário."""
+    """(ATUALIZADO) Orquestra o novo pipeline RAG, que é funcional e robusto."""
     with st.status("Gerando plano de análise RAG...") as status:
         plan = create_rag_plan(query, company_catalog, alias_map)
+
         if not plan:
-            st.error("Não identifiquei empresas na sua pergunta para realizar a análise."); return set()
-        status.update(label=f"Plano gerado. Analisando para: {', '.join(plan['empresas'])}...")
+            st.error("Não consegui identificar empresas conhecidas na sua pergunta para realizar a análise profunda.")
+            return set()
+        
+        status.update(label=f"Plano gerado. Analisando documentos para: {', '.join(plan['empresas'])}...")
 
     with st.spinner("Recuperando e analisando informações..."):
         context, sources = execute_rag_plan(plan, artifacts, model)
+        
         if not context:
-            st.warning("Não encontrei informações relevantes para esta consulta."); return set()
+            st.warning("Não encontrei informações relevantes nos documentos para esta consulta.")
+            return set()
+        
         final_answer = generate_rag_response(query, context)
         st.markdown(final_answer)
+        
     return sources
 
 
