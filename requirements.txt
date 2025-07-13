@@ -1,15 +1,5 @@
-# requirements.txt - v2, com índice específico para o PyTorch (CPU)
-
-# Força o PIP a usar o índice de pacotes do PyTorch para CPU, o que é mais estável
---extra-index-url https://download.pytorch.org/whl/cpu
-
-# Pacotes PyTorch
-torch
-torchvision
-
-pandas
+streamlit
 numpy
 faiss-cpu
-
+sentence-transformers
 requests
-scikit-learn
