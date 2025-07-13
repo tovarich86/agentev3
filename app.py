@@ -16,48 +16,20 @@ import os
 import re
 import unicodedata
 import logging
-from functools import lru_cache
+import pandas as pd
+from pathlib import Path
+
+try:
+    from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
+except ImportError:
+    st.error("ERRO CRÍTICO: Crie o arquivo 'knowledge_base.py' e cole o 'DICIONARIO_UNIFICADO_HIERARQUICO' nele.")
+    st.stop()
 
 
 # --- FUNÇÕES AUXILIARES GLOBAIS ---
 # Estas funções são usadas pelo fluxo de análise profunda (RAG)
 
-def expand_search_terms(base_term):
-    """Expande um termo de busca para incluir sinônimos do dicionário principal."""
-    expanded_terms = [base_term.lower()]
-    # Usando TERMOS_TECNICOS_LTIP que já está definido globalmente
-    for category, terms in TERMOS_TECNICOS_LTIP.items():
-        # Verificamos se o 'base_term' ou a 'category' estão relacionados
-        if base_term.lower() in (t.lower() for t in terms) or base_term.lower() == category.lower():
-            expanded_terms.extend([term.lower() for term in terms])
-    return list(set(expanded_terms))
 
-def search_by_tags(artifacts, company_name, target_tags):
-    """
-    Busca por chunks que contenham tags de tópicos pré-processados,
-    considerando tanto 'Tópicos:' quanto 'Item 8.4 - Subitens:'.
-    """
-    results = []
-    # Normaliza o nome da empresa para a busca no caminho do arquivo
-    searchable_company_name = unicodedata.normalize('NFKD', company_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
-
-    for index_name, artifact_data in artifacts.items():
-        chunk_data = artifact_data.get('chunks', {})
-        for i, mapping in enumerate(chunk_data.get('map', [])):
-            document_path = mapping.get('document_path', '')
-            
-            if searchable_company_name in document_path.lower():
-                chunk_text = chunk_data.get("chunks", [])[i]
-                for tag in target_tags:
-                    # LÓGICA CORRIGIDA: A regex agora procura pela tag após qualquer um dos dois prefixos.
-                    pattern = r'(Tópicos:|Item 8.4 - Subitens:).*?' + re.escape(tag)
-                    if re.search(pattern, chunk_text, re.IGNORECASE):
-                        results.append({
-                            'text': chunk_text, 'path': document_path, 'index': i,
-                            'source': index_name, 'tag_found': tag
-                        })
-                        break # Para no primeiro tag encontrado para este chunk
-    return results
 
 def normalize_name(name):
     """Normaliza nomes de empresas removendo acentos, pontuação e sufixos comuns."""
@@ -96,52 +68,64 @@ logger = logging.getLogger(__name__)
 
 # --- CARREGAMENTO DE DADOS E CACHING ---
 
+
 @st.cache_resource
 def load_all_artifacts():
     """
-    Carrega todos os artefatos, incluindo o novo resumo DETALHADO.
+    (MODIFICADO) Garante que os artefatos de dados existam localmente,
+    baixando-os do GitHub Releases se necessário, antes de carregar na memória.
     """
+    DADOS_PATH.mkdir(exist_ok=True)
+
+    ARQUIVOS_REMOTOS = {
+        "item_8_4_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_chunks_map_final.json",
+        "item_8_4_faiss_index_final.bin": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_faiss_index_final.bin",
+        "outros_documentos_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/outros_documentos_chunks_map_final.json",
+        "outros_documentos_faiss_index_final.bin": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/outros_documentos_faiss_index_final.bin",
+        "resumo_fatos_e_topicos_final_enriquecido.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/resumo_fatos_e_topicos_final_enriquecido.json"
+    }
+
+    for nome_arquivo, url in ARQUIVOS_REMOTOS.items():
+        caminho_arquivo = DADOS_PATH / nome_arquivo
+        if not caminho_arquivo.exists():
+            with st.spinner(f"Baixando artefato: {nome_arquivo}..."):
+                try:
+                    r = requests.get(url, stream=True)
+                    r.raise_for_status()
+                    with open(caminho_arquivo, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    logger.info(f"Arquivo {nome_arquivo} baixado.")
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Falha ao baixar {nome_arquivo}: {e}")
+                    st.stop()
+
+    st.success("Artefatos de dados prontos para uso.")
+
     model = SentenceTransformer(MODEL_NAME)
     artifacts = {}
-    index_files = glob.glob(os.path.join(DADOS_PATH, '*_faiss_index.bin'))
-    if not index_files:
-        logger.error("Nenhum arquivo de índice FAISS encontrado na pasta 'dados'. O RAG não funcionará.")
-    else:
-        for index_file in index_files:
-            category = os.path.basename(index_file).replace('_faiss_index.bin', '')
-            chunks_file = os.path.join(DADOS_PATH, f"{category}_chunks_map.json")
-            try:
-                index = faiss.read_index(index_file)
-                with open(chunks_file, 'r', encoding='utf-8') as f:
-                    chunk_data = json.load(f)
-                artifacts[category] = {'index': index, 'chunks': chunk_data}
-            except FileNotFoundError:
-                logger.warning(f"Arquivo de chunks para a categoria '{category}' não encontrado. Pulando.")
-                continue
-    
-    # Carrega o NOVO arquivo de resumo detalhado
+    index_files = glob.glob(os.path.join(DADOS_PATH, '*_faiss_index_final.bin'))
+    for index_file_path in index_files:
+        category = os.path.basename(index_file_path).replace('_faiss_index_final.bin', '')
+        chunks_file_path = DADOS_PATH / f"{category}_chunks_map_final.json"
+        try:
+            index = faiss.read_index(index_file_path)
+            with open(chunks_file_path, 'r', encoding='utf-8') as f:
+                chunk_data = json.load(f)
+            artifacts[category] = {'index': index, 'chunks': chunk_data}
+        except Exception as e:
+            logger.error(f"Erro ao carregar '{category}': {e}")
+            continue
+
     summary_data = None
-    summary_file_path = os.path.join(DADOS_PATH, 'resumo_caracteristicas.json')
+    summary_file_path = DADOS_PATH / 'resumo_fatos_e_topicos_final_enriquecido.json'
     try:
         with open(summary_file_path, 'r', encoding='utf-8') as f:
             summary_data = json.load(f)
     except FileNotFoundError:
-        logger.error("Arquivo 'resumo_caracteristicas.json' não encontrado. Buscas agregadas não funcionarão.")
-        
-    return model, artifacts, summary_data
+        logger.error(f"Arquivo de resumo '{summary_file_path}' não encontrado.")
 
-@st.cache_data
-def criar_mapa_de_alias():
-    """(MODIFICADO) Cria o mapa de alias a partir do dicionário hierárquico unificado."""
-    alias_to_canonical = {}
-    for section, topics in DICIONARIO_UNIFICADO_HIERARQUICO.items():
-        for canonical_name, aliases in topics.items():
-            # Mapeia o nome canônico (ex: AcoesRestritas) para si mesmo
-            alias_to_canonical[canonical_name.lower()] = canonical_name
-            # Mapeia todos os seus sinônimos (ex: rsu, restricted shares)
-            for alias in aliases:
-                alias_to_canonical[alias.lower()] = canonical_name
-    return alias_to_canonical
+    return model, artifacts, summary_data
 
 # --- FUNÇÕES DE LÓGICA DE NEGÓCIO (ROTEADOR E MANIPULADORES) ---
 
@@ -286,7 +270,58 @@ def handle_rag_query(query, artifacts, model, company_catalog_rich):
 
     return final_answer, sources
 
+def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, company_catalog: list):
+    """(NOVO) Responde a perguntas diretas de fatos usando o resumo."""
+    query_lower = query.lower()
+    empresa_encontrada, fato_encontrado_alias = None, None
+
+    # Tenta extrair a empresa e o fato da pergunta
+    for company_data in company_catalog:
+        for alias in company_data.get("aliases", []):
+            if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
+                empresa_encontrada = company_data["canonical_name"].upper()
+                break
+        if empresa_encontrada: break
+
+    for alias in sorted(alias_map.keys(), key=len, reverse=True):
+        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
+            fato_encontrado_alias = alias
+            break
+
+    # Se não encontrou empresa e fato, não é uma query de fato direto
+    if not empresa_encontrada or not fato_encontrado_alias:
+        return False
+
+    # Busca o fato nos dados da empresa
+    empresa_data = summary_data.get(empresa_encontrada, {})
+    st.subheader(f"Fato Direto para: {empresa_encontrada}")
+    fato_encontrado = False
+    for fact_key, fact_value in empresa_data.get("fatos_extraidos", {}).items():
+        if fato_encontrado_alias in fact_key.lower():
+            valor = fact_value.get('valor', '')
+            unidade = fact_value.get('unidade', '')
+            st.metric(label=f"Fato: {fact_key.replace('_', ' ').title()}", value=f"{valor} {unidade}".strip())
+            fato_encontrado = True
+            break
+
+    if not fato_encontrado:
+        st.info(f"O tópico '{fato_encontrado_alias}' foi mencionado, mas um fato estruturado (com valor) não pôde ser extraído.")
+
+    return True # Query tratada com sucesso
+
 # --- FUNÇÕES DE BACKEND (RAG) - com modelo atualizado ---
+@st.cache_data
+def criar_mapa_de_alias():
+    """(MODIFICADO) Cria o mapa de alias a partir do dicionário hierárquico unificado."""
+    alias_to_canonical = {}
+    if 'DICIONARIO_UNIFICADO_HIERARQUICO' not in globals():
+         return {} # Evita erro se o dicionário não for importado
+    for section, topics in DICIONARIO_UNIFICADO_HIERARQUICO.items():
+        for canonical_name, aliases in topics.items():
+            alias_to_canonical[canonical_name.lower()] = canonical_name
+            for alias in aliases:
+                alias_to_canonical[alias.lower()] = canonical_name
+    return alias_to_canonical
 
 def create_dynamic_analysis_plan_v2(query, company_catalog_rich, available_indices):
     # Esta função agora é chamada apenas pelo `handle_rag_query`
@@ -514,9 +549,10 @@ def main():
     model, artifacts, summary_data = load_all_artifacts()
     ALIAS_MAP = criar_mapa_de_alias()
 
-    # Tenta carregar o catálogo de empresas, mas não quebra se não encontrar
-    try:
-        from catalog_data import company_catalog_rich
+    company_catalog = [{"canonical_name": name, "aliases": [name.split(' ')[0], name]} for name in summary_data.keys()]
+
+
+
     except ImportError:
         company_catalog_rich = []
         logger.warning("`catalog_data.py` não encontrado. A identificação de empresas por apelidos será limitada.")
@@ -576,26 +612,32 @@ def main():
         aggregate_keywords = ["quais", "quantas", "liste", "qual a lista de"]
 
         # Rota 1: Pergunta agregada
+        query_lower = user_query.lower()
+        aggregate_keywords = ["quais", "quantas", "liste"]
+        # Padrão simples para detectar perguntas como "Qual o/a ... da/de ..."
+        direct_fact_pattern = r'qual\s*(?:é|o|a)\s*.*\s*d[aeo]\s*'
+
+        # Nível 1: Pergunta Agregada
         if any(keyword in query_lower for keyword in aggregate_keywords):
-            if not summary_data:
-                st.error("A funcionalidade de busca agregada está desativada pois o arquivo `resumo_caracteristicas.json` não foi encontrado.")
-            else:
-                st.info("Detectada uma pergunta agregada. Buscando no resumo de características...")
-                with st.spinner("Analisando resumo..."):
-                    # A função `handle_aggregate_query` já renderiza a saída em st.
-                    handle_aggregate_query(user_query, summary_data, ALIAS_MAP)
+            handle_aggregate_query(user_query, summary_data, ALIAS_MAP)
 
-        # Rota 2: Pergunta profunda (RAG)
+        # Nível 2: Pergunta de Fato Direto
+        elif re.search(direct_fact_pattern, query_lower):
+            st.info("Buscando resposta direta no resumo...")
+            # A função retorna True se tratou a query, False se não
+            if not handle_direct_fact_query(user_query, summary_data, ALIAS_MAP, company_catalog):
+                 # Se não conseguiu tratar, cai para o RAG
+                 st.info("Não foi possível responder diretamente. Acionando análise profunda...")
+                 final_answer, sources = handle_rag_query(user_query, artifacts, model, company_catalog) # Passe o company_catalog aqui também
+                 st.markdown(final_answer)
+
+        # Nível 3: Pergunta Complexa (RAG)
         else:
-            if not artifacts:
-                st.error("A funcionalidade de análise profunda está desativada pois os índices de busca não foram encontrados.")
-            elif not company_catalog_rich:
-                 st.error("A funcionalidade de análise profunda está desativada pois o `catalog_data.py` não foi encontrado.")
-            else:
-                st.info("Detectada uma pergunta detalhada. Acionando análise profunda (RAG)...")
-                final_answer, sources = handle_rag_query(user_query, artifacts, model, company_catalog_rich)
-                st.markdown(final_answer) # Renderiza a resposta do RAG
-
+            final_answer, sources = handle_rag_query(user_query, artifacts, model, company_catalog) # Passe o company_catalog aqui também
+            st.markdown(final_answer)
+            if 'sources' in locals() and sources:
+                 with st.expander(f"📚 Documentos consultados ({len(sources)})"):
+                      st.write(sorted(list(sources)))
         # Fontes consultadas (apenas para o RAG)
         if sources:
             st.markdown("---")
