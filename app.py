@@ -20,6 +20,7 @@ import re
 import logging
 import pandas as pd
 from pathlib import Path
+import unicodedata  
 
 # Carregamento de dependências locais com tratamento de erro
 try:
