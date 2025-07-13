@@ -199,6 +199,22 @@ def handle_direct_fact_query(query: str, summary_data: dict, alias_map: dict, co
 
 # --- 4. Motor RAG v5.0: Funções do Pipeline Avançado ---
 
+def detect_query_intent(query: str) -> str:
+    """
+    Analisa a pergunta do usuário para detectar uma intenção específica.
+    Retorna a categoria do artefato a ser priorizado.
+    """
+    query_lower = query.lower()
+    # Se a pergunta menciona explicitamente o item 8.4 ou o formulário de referência
+    if '8.4' in query_lower or 'formulário de referência' in query_lower:
+        return 'item_8_4'
+    
+    # Adicione outras intenções aqui no futuro, se necessário
+    # Ex: if 'proposta da administração' in query_lower: return 'proposta_remuneracao'
+    
+    # Se nenhuma intenção específica for encontrada, retorna 'geral'
+    return 'general'
+
 def normalize_company_name(name: str) -> str:
     """
     Normaliza nomes de empresas para uma comparação robusta, removendo acentos,
@@ -244,9 +260,23 @@ def retrieve_hybrid_and_reranked_context(query: str, company: str | None, artifa
     candidate_chunks_with_source = []
     seen_texts = set()
 
-    # (A lógica de busca por tags e busca semântica permanece a mesma)
-    # ...
+    target_categories = []
+    if intent == 'item_8_4' and 'item_8_4' in artifacts:
+        st.info("Focando a busca no índice 'Item 8.4' para maior precisão.")
+        target_categories = ['item_8_4']
+    else:
+        # Se a intenção for geral ou o índice específico não existir, busca em todos
+        target_categories = list(artifacts.keys())
+
+    query_embedding = bi_encoder.encode(query, normalize_embeddings=True)
     
+    # O loop agora itera apenas sobre as categorias-alvo
+    for category in target_categories:
+        data = artifacts.get(category)
+        if not data or 'index' not in data or 'chunks_data' not in data: continue
+        
+
+   
     # --- Início da Lógica de Busca ---
     query_embedding = bi_encoder.encode(query, normalize_embeddings=True)
     for category, data in artifacts.items():
@@ -310,7 +340,11 @@ def generate_answer_extract_synthesize(original_query, context):
 def handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder, alias_map, company_catalog):
     """Orquestra o pipeline RAG v5.0, decidindo entre análise comparativa e profunda."""
     st.info("Iniciando análise com o motor RAG v5.0...")
-    
+
+    # PASSO ADICIONADO: Detectar a intenção da query
+    intent = detect_query_intent(user_query)
+    st.info(f"Intenção detectada: **{intent.replace('_', ' ').title()}**") # Feedback para o usuário
+
     empresas_no_plano = []
     for company_data in company_catalog:
         for alias in company_data.get("aliases", []):
@@ -324,7 +358,7 @@ def handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder
         summaries, full_sources = [], set()
         for i, empresa in enumerate(empresas_no_plano):
             with st.status(f"Analisando {i+1}/{len(empresas_no_plano)}: {empresa}...", expanded=True) as status:
-                context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa, artifacts, bi_encoder, cross_encoder, alias_map)
+                context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa, intent, artifacts, bi_encoder, cross_encoder, alias_map)
                 full_sources.update(sources)
                 if not context:
                     summaries.append(f"## Análise para {empresa.upper()}\n\nNenhuma informação encontrada nos documentos.")
@@ -345,7 +379,7 @@ def handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder
         empresa_unica = empresas_no_plano[0] if empresas_no_plano else None
         st.info(f"Modo de análise profunda ativado{f' para {empresa_unica}' if empresa_unica else ''}.")
         with st.spinner("Recuperando e refinando contexto..."):
-            context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa_unica, artifacts, bi_encoder, cross_encoder, alias_map)
+            context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa_unica, intent, artifacts, bi_encoder, cross_encoder, alias_map)
         if not context:
             st.warning("Não encontrei informações relevantes para a sua consulta.")
             return "", set()
