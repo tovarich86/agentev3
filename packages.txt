@@ -1,3 +1,0 @@
-# packages.txt
-libopenblas-dev
-libomp-dev
