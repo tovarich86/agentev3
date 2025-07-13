@@ -236,41 +236,62 @@ def execute_rag_plan(plan: dict, artifacts: dict, model):
     
     return full_context, sources
 
-def generate_rag_response(query: str, context: str):
+def get_final_unified_answer(query: str, context: str):
     """
-    (ATUALIZADO) Gera a resposta final do RAG com o Gemini, usando um prompt claro e robusto.
+    (VERSÃO CORRETA) Gera a resposta final usando o contexto recuperado e a API REST do Gemini.
+    Esta função é robusta e usa as variáveis globais de configuração.
     """
-    prompt = f"""Você é um consultor especialista em planos de remuneração. Baseado no contexto extraído dos documentos abaixo, responda à pergunta do usuário de forma clara, profissional e em português. Use Markdown para formatar a resposta. Se a informação não estiver no contexto, afirme isso claramente.
+    if not GEMINI_API_KEY:
+        st.error("Chave da API Gemini não configurada. Verifique os segredos do Streamlit.")
+        return "Erro: Chave da API não encontrada."
 
-    Pergunta do Usuário: "{query}"
-
-    Contexto Coletado dos Documentos:
-    {context}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     
-    Relatório Analítico Detalhado:
+    prompt = f"""Você é um consultor especialista em planos de remuneração da CVM. Sua tarefa é responder à pergunta do usuário de forma clara, profissional e em português, baseando-se estritamente no contexto fornecido.
+
+    **Instruções Importantes:**
+    1.  Use apenas as informações do 'Contexto Coletado'.
+    2.  Se a resposta não estiver no contexto, afirme explicitamente: "A informação não foi encontrada nos documentos analisados.". Não invente dados.
+    3.  Use formatação Markdown para melhorar a legibilidade (negrito, listas).
+
+    **Pergunta do Usuário:** "{query}"
+
+    **Contexto Coletado dos Documentos:**
+    ---
+    {context}
+    ---
+    
+    **Relatório Analítico Detalhado:**
     """
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096}
+    }
+    headers = {'Content-Type': 'application/json'}
+    
     try:
-        # A chamada real à API Gemini iria aqui.
-        # gemini_model = GenerativeModel(GEMINI_MODEL)
-        # response = gemini_model.generate_content(prompt)
-        # return response.text
-        
-        # Abaixo, uma simulação para fins de teste, para não gastar sua API key.
-        # Substitua pela chamada real quando for para produção.
-        logger.info("Simulando chamada à API Gemini para gerar resposta RAG.")
-        return f"### Análise Detalhada (RAG)\n\nEsta é uma resposta **simulada** para a pergunta: *'{query}'*.\n\nEm um ambiente de produção, o modelo Gemini analisaria o contexto recuperado dos documentos para gerar um relatório detalhado e profissional sobre o seu questionamento, abordando os tópicos solicitados para as empresas identificadas."
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
+        response.raise_for_status()
+        # Extrai o texto da resposta da API
+        candidate = response.json().get('candidates', [{}])[0]
+        content = candidate.get('content', {}).get('parts', [{}])[0]
+        return content.get('text', "Não foi possível gerar uma resposta.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"ERRO de requisição ao chamar a API Gemini: {e}")
+        return f"Erro de comunicação com a API do Gemini. Detalhes: {e}"
     except Exception as e:
-        logger.error(f"Erro na chamada da API Gemini: {e}")
-        return "Desculpe, ocorreu um erro ao contatar o modelo de linguagem para gerar a resposta final."
+        logger.error(f"ERRO inesperado ao processar resposta do Gemini: {e}")
+        return f"Ocorreu um erro inesperado ao processar a resposta. Detalhes: {e}"
 
 def handle_rag_query(query: str, artifacts: dict, model, company_catalog: list, alias_map: dict):
     """
-    (ATUALIZADO) Orquestra o novo pipeline RAG, que é funcional e robusto.
+    (VERSÃO CORRIGIDA) Orquestra o pipeline RAG, chamando a função de API correta.
     """
     with st.status("Gerando plano de análise RAG...") as status:
         plan = create_rag_plan(query, company_catalog, alias_map)
         if not plan:
-            st.error("Não consegui identificar empresas conhecidas na sua pergunta para realizar a análise profunda.")
+            st.error("Não consegui identificar empresas conhecidas na sua pergunta para realizar a análise.")
             return set()
         status.update(label=f"Plano gerado. Analisando para: {', '.join(plan['empresas'])}...")
 
@@ -280,7 +301,8 @@ def handle_rag_query(query: str, artifacts: dict, model, company_catalog: list, 
             st.warning("Não encontrei informações relevantes nos documentos para esta consulta.")
             return set()
         
-        final_answer = generate_rag_response(query, context)
+        # Chamada para a função de API correta e funcional
+        final_answer = get_final_unified_answer(query, context)
         st.markdown(final_answer)
         
     return sources
