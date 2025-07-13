@@ -96,13 +96,22 @@ def load_artifacts():
         logger.error(f"Arquivo de resumo '{summary_file_path}' não encontrado.")
     return artifacts, summary_data
 
-@st.cache_data
+st.cache_data
 def criar_mapa_de_alias(knowledge_base: dict):
-    """Cria um dicionário que mapeia cada apelido ao seu tópico canônico."""
+    """
+    Cria um mapa de alias robusto a partir do dicionário hierárquico.
+    Mapeia tanto os nomes dos tópicos quanto das SEÇÕES principais.
+    """
     alias_to_canonical = {}
     for section, topics in knowledge_base.items():
+        # Adiciona a própria seção como um tópico pesquisável
+        # Ex: "indicadoresperformance" -> "IndicadoresPerformance"
+        alias_to_canonical[section.lower()] = section
+        
         for canonical_name, aliases in topics.items():
+            # Mapeia o nome canônico do tópico para si mesmo
             alias_to_canonical[canonical_name.lower()] = canonical_name
+            # Mapeia todos os sinônimos para o nome canônico
             for alias in aliases:
                 alias_to_canonical[alias.lower()] = canonical_name
     return alias_to_canonical
@@ -330,56 +339,75 @@ def generate_answer_extract_synthesize(original_query, context):
 
 # --- 5. Orquestrador Principal do Agente v5.0 ---
 
-def handle_definitive_rag_query(user_query, artifacts, bi_encoder, cross_encoder, alias_map, company_catalog):
-    """Orquestra o pipeline RAG v5.0, decidindo entre análise comparativa e profunda."""
-    st.info("Iniciando análise com o motor RAG v5.0...")
+def handle_specialist_rag_query(user_query, artifacts, bi_encoder, cross_encoder, alias_map, company_catalog, knowledge_base):
+    """Orquestra o pipeline RAG, aplicando a lógica especialista quando aplicável."""
+    st.info("Iniciando análise com motor RAG especialista v5.1...")
 
-    # PASSO ADICIONADO: Detectar a intenção da query
-    intent = detect_query_intent(user_query)
-    st.info(f"Intenção detectada: **{intent.replace('_', ' ').title()}**") # Feedback para o usuário
+    # --- ETAPA DE PLANEJAMENTO INTELIGENTE ---
+    plan = {'empresas': [], 'topicos_principais': [], 'topicos_expandidos': [], 'is_specialist_query': False}
 
-    empresas_no_plano = []
+    # Identificar empresas
     for company_data in company_catalog:
         for alias in company_data.get("aliases", []):
             if re.search(r'\b' + re.escape(alias.lower()) + r'\b', user_query.lower()):
-                empresas_no_plano.append(company_data["canonical_name"]); break
-    empresas_no_plano = sorted(list(set(empresas_no_plano)))
+                plan['empresas'].append(company_data["canonical_name"]); break
+    plan['empresas'] = sorted(list(set(plan['empresas'])))
 
-    # --- ROTA 1: MODO COMPARATIVO ESTRUTURADO ---
-    if len(empresas_no_plano) > 1:
-        st.success(f"Modo de comparação ativado para: {', '.join(empresas_no_plano)}")
-        summaries, full_sources = [], set()
-        for i, empresa in enumerate(empresas_no_plano):
-            with st.status(f"Analisando {i+1}/{len(empresas_no_plano)}: {empresa}...", expanded=True) as status:
-                context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa, intent, artifacts, bi_encoder, cross_encoder, alias_map)
-                full_sources.update(sources)
-                if not context:
-                    summaries.append(f"## Análise para {empresa.upper()}\n\nNenhuma informação encontrada nos documentos.")
-                    status.update(label=f"Análise de {empresa} concluída (sem dados).", state="warning"); continue
-                
-                summary_prompt = f"Com base no contexto sobre a empresa {empresa}, resuma os pontos principais para a pergunta: '{user_query}'. Contexto: {context}"
-                summary = call_gemini_api(summary_prompt, max_tokens=1024)
-                summaries.append(f"--- RESUMO PARA {empresa.upper()} ---\n\n{summary}")
-                status.update(label=f"Análise de {empresa} concluída.", state="complete")
+    # Identificar se a query aciona um "modo especialista"
+    for term in sorted(alias_map.keys(), key=len, reverse=True):
+        if re.search(r'\b' + re.escape(term) + r'\b', user_query.lower()):
+            canonical_name = alias_map[term]
+            # Uma query é "especialista" se ela menciona uma SEÇÃO principal do dicionário
+            if canonical_name in knowledge_base:
+                plan['is_specialist_query'] = True
+                plan['topicos_principais'].append(canonical_name)
+                # Expande o plano para incluir todos os sub-tópicos daquela seção
+                plan['topicos_expandidos'].extend(list(knowledge_base[canonical_name].keys()))
+
+    plan['topicos_principais'] = sorted(list(set(plan['topicos_principais'])))
+    plan['topicos_expandidos'] = sorted(list(set(plan['topicos_expandidos'])))
+    
+    final_answer, full_sources = "", set()
+
+    # --- ROTA 1: ANÁLISE ESPECIALISTA (ESTRUTURADA) ---
+    if plan['is_specialist_query']:
+        empresa = plan['empresas'][0] if plan['empresas'] else None
+        if not empresa: 
+            st.warning("Consulta especialista identificada, mas nenhuma empresa foi mencionada."); return "", set()
         
-        with st.spinner("Gerando relatório comparativo final..."):
-            comparison_prompt = f"Com base nos resumos individuais, crie um relatório comparativo detalhado respondendo à pergunta original.\nPergunta: '{user_query}'\n\n" + "\n\n".join(summaries)
-            final_answer = call_gemini_api(comparison_prompt)
-            return final_answer, full_sources
+        st.success(f"Modo especialista ativado para a(s) seção(ões): **{', '.join(plan['topicos_principais'])}**")
+        structured_context = {}
+        
+        for i, sub_topic_key in enumerate(plan['topicos_expandidos']):
+            # Pega o primeiro alias como nome de exibição (ex: "Ações Restritas")
+            display_name = knowledge_base[plan['topicos_principais'][0]].get(sub_topic_key, [sub_topic_key])[0]
+            
+            with st.spinner(f"Buscando sub-tópico {i+1}/{len(plan['topicos_expandidos'])}: '{display_name}'..."):
+                query_focada = f"informações sobre {display_name} no plano de remuneração da empresa {empresa}"
+                context_part, sources_part = retrieve_hybrid_and_reranked_context(query_focada, empresa, 'general', artifacts, bi_encoder, cross_encoder, alias_map)
+                structured_context[display_name] = context_part
+                full_sources.update(sources_part)
+        
+        final_context_str = "\n\n".join([f"--- Contexto para '{topic}' ---\n{text or 'Nenhuma informação específica encontrada.'}" for topic, text in structured_context.items()])
+        final_answer = generate_answer_extract_synthesize(user_query, final_context_str) # A síntese já lida bem com isso
+        return final_answer, full_sources
 
-    # --- ROTA 2: MODO DE ANÁLISE PROFUNDA (ÚNICA ENTIDADE) ---
+    # --- ROTA 2: ANÁLISE PADRÃO (SEM EXPANSÃO OU MODO COMPARATIVO) ---
     else:
-        empresa_unica = empresas_no_plano[0] if empresas_no_plano else None
-        st.info(f"Modo de análise profunda ativado{f' para {empresa_unica}' if empresa_unica else ''}.")
-        with st.spinner("Recuperando e refinando contexto..."):
-            context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa_unica, intent, artifacts, bi_encoder, cross_encoder, alias_map)
-        if not context:
-            st.warning("Não encontrei informações relevantes para a sua consulta.")
-            return "", set()
-        
-        with st.spinner("Gerando resposta detalhada..."):
-            final_answer = generate_answer_extract_synthesize(user_query, context)
+        st.info("Iniciando análise RAG padrão.")
+        # (Aqui entra a lógica do modo comparativo do seu v5.0, se desejar)
+        # Por simplicidade, faremos a busca direta que já existia:
+        empresa_unica = plan['empresas'][0] if plan['empresas'] else None
+        context, sources = retrieve_hybrid_and_reranked_context(user_query, empresa_unica, 'general', artifacts, bi_encoder, cross_encoder, alias_map)
+        if not context: st.warning("Não encontrei informações relevantes."); return "", set()
+        final_answer = generate_answer_extract_synthesize(user_query, context)
         return final_answer, sources
+
+def generate_final_answer(original_query: str, context: str):
+    """Gera a resposta final, com um prompt adaptado se o contexto for estruturado."""
+    # (Esta função pode ser uma versão simplificada da sua 'generate_answer_extract_synthesize')
+    # O importante é que ela receba o contexto e a query e gere a resposta.
+    return call_gemini_api(f"Responda a pergunta '{original_query}' usando o contexto: {context}")
 
 
 # --- 6. Aplicação Principal (Interface Streamlit) ---
