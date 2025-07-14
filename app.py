@@ -323,8 +323,8 @@ def main():
         st.info(f"Generative Model: `{GEMINI_MODEL}`")
 
     st.header("💬 Faça sua pergunta")
-    with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
-    with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
+    
+        with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
         """)
