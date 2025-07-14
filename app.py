@@ -368,14 +368,117 @@ def main():
         st.info("**Experimente uma análise quantitativa:**")
         st.code("Qual o desconto médio no preço de exercício?")
         st.code("Quais empresas tem TSR Relativo?")
-        st.code("Qual o período médio de vesting?")
-    with col2:
-        st.info("**Ou uma análise profunda:**")
-        st.code("Compare o vesting da Vale com a Magazine Luiza")
-        st.code("Como funciona o plano de lockup da Movida?")
-    
-    st.caption(f"**Principais Termos-Chave:** {', '.join(list(_create_flat_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO).values())[:10])}, etc.")
-    
+       main():
+    st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
+    st.markdown("---")
+
+    model, artifacts, summary_data = setup_and_load_data()
+    if not summary_data or not artifacts:
+        st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
+        st.stop()
+
+    engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO)
+    try: from catalog_data import company_catalog_rich
+    except ImportError: company_catalog_rich = []
+
+    with st.sidebar:
+        st.header("📊 Informações do Sistema")
+        st.metric("Categorias de Documentos (RAG)", len(artifacts))
+        st.metric("Empresas no Resumo", len(summary_data))
+        with st.expander("Empresas com dados no resumo"):
+            st.dataframe(sorted(list(summary_data.keys())), use_container_width=True, hide_index=False)
+        st.success("✅ Sistema pronto para análise")
+        st.info(f"Embedding Model: `{MODEL_NAME}`")
+        st.info(f"Generative Model: `{GEMINI_MODEL}`")
+
+    st.header("💬 Faça sua pergunta")
+    with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
+    st.markdown("""
+    Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
+    """)
+
+    st.subheader("1. Análise Quantitativa Rápida 📊")
+    st.info("""
+    Para perguntas que começam com **"quais", "quantas", "qual a média", etc.**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas, com cálculos e estatísticas.
+    """)
+    st.markdown("**Exemplos de perguntas que ele responde bem:**")
+    st.code("""
+- Qual o desconto médio no preço de exercício?
+- Quais empresas possuem TSR Relativo?
+- Liste as empresas que oferecem desconto no strike e o percentual.
+- Quantas empresas mencionam planos de matching?
+    """)
+
+    st.subheader("2. Análise Qualitativa Profunda 🧠")
+    st.info("""
+    Para perguntas abertas que buscam detalhes, explicações ou comparações, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
+# Substitua sua função main() por esta
+def main():
+    st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
+    st.markdown("---")
+
+    # Carrega os dados e modelos
+    model, artifacts, summary_data = setup_and_load_data()
+    if not summary_data or not artifacts:
+        st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
+        st.stop()
+
+    # Inicializa os componentes
+    engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO)
+    try:
+        from catalog_data import company_catalog_rich
+    except ImportError:
+        company_catalog_rich = []
+
+    # --- UI da Sidebar ---
+    with st.sidebar:
+        st.header("📊 Informações do Sistema")
+        st.metric("Categorias de Documentos (RAG)", len(artifacts))
+        st.metric("Empresas no Resumo", len(summary_data))
+        with st.expander("Empresas com dados no resumo"):
+            st.dataframe(sorted(list(summary_data.keys())), use_container_width=True, hide_index=False)
+        st.success("✅ Sistema pronto para análise")
+        st.info(f"Embedding Model: `{MODEL_NAME}`")
+        st.info(f"Generative Model: `{GEMINI_MODEL}`")
+
+    # --- UI Principal ---
+    st.header("💬 Faça sua pergunta")
+
+    # --- Bloco do Expander (Menu Drill-Down) com a INDENTAÇÃO CORRETA ---
+    with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
+        st.markdown("""
+        Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
+        """)
+
+        st.subheader("1. Análise Quantitativa Rápida 📊")
+        st.info("""
+        Para perguntas que começam com **"quais", "quantas", "qual a média", etc.**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas, com cálculos e estatísticas.
+        """)
+        st.markdown("**Exemplos de perguntas que ele responde bem:**")
+        st.code("""- Qual o desconto médio no preço de exercício?
+- Quais empresas possuem TSR Relativo?
+- Liste as empresas que oferecem desconto no strike e o percentual.
+- Quantas empresas mencionam planos de matching?""")
+
+        st.subheader("2. Análise Qualitativa Profunda 🧠")
+        st.info("""
+        Para perguntas abertas que buscam detalhes, explicações ou comparações, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
+        """)
+        st.markdown("**Exemplos de perguntas que ele responde bem:**")
+        st.code("""- Como funciona o plano de vesting da Vale?
+- Detalhe o tratamento de dividendos no plano da Magazine Luiza.
+- Compare os planos de ações restritas da Hypera e da Movida.""")
+
+        st.subheader("❗ Limitações Importantes")
+        st.warning("""
+        Para usar o agente de forma eficaz, é crucial entender suas limitações:
+
+        * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet. Seu conhecimento está limitado aos documentos processados na data em que sua base de dados foi criada.
+        * **Não Emite Opinião:** Ele é um especialista em **encontrar e apresentar** informações. Ele **NÃO** pode fornecer conselhos financeiros, opiniões ou julgamentos de valor.
+        * **Dependência da Extração de Dados:** As análises quantitativas dependem de "fatos" extraídos dos textos. Se um documento descreve um fato de forma muito ambígua, a extração pode falhar, e aquela empresa pode não aparecer em uma análise estatística.
+        """)
+
+    # --- Continuação da UI ---
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale e Movida")
 
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
@@ -399,7 +502,7 @@ def main():
             
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
-                    st.caption("Nota: Links diretos para a CVM podem não abrir corretamente. Use a busca no portal com o protocolo como plano B.")
+                    st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
                     for src in sorted(sources, key=lambda x: x['company']):
                         display_text = f"{src['company']} - {src['doc_type'].replace('_', ' ')}"
                         url = src['url']
