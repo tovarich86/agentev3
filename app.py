@@ -1,4 +1,4 @@
-# app.py (versão final com hyperlinks descritivos para as fontes)
+# app.py (versão final corrigida e funcional)
 
 import streamlit as st
 import json
@@ -15,7 +15,7 @@ import zipfile
 import io
 import shutil
 
-# --- Módulos do Projeto ---
+# --- Módulos do Projeto (coloque na mesma pasta) ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
 from analytical_engine import AnalyticalEngine
 
@@ -25,18 +25,18 @@ st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layou
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 TOP_K_SEARCH = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash-lite"
-GITHUB_SOURCE_URL = "https://github.com/tovarich86/agentev2/archive/refs/tags/V1.0-data.zip"
+GEMINI_MODEL = "gemini-1.5-flash-latest"
+GITHUB_SOURCE_URL = "https://github.com/tovarich86/agentev2/archive/refs/tags/V1.0-data.zip" # URL CORRETA
 CACHE_DIR = Path("data_cache")
 SUMMARY_FILENAME = "resumo_fatos_e_topicos_final_enriquecido.json"
+CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- CARREGADOR DE DADOS ---
-@st.cache_resource(show_spinner="Configurando o ambiente e baixando dados...")
+@st.cache_resource(show_spinner="Configurando ambiente e baixando dados...")
 def setup_and_load_data():
-    # ... (código da função setup_and_load_data permanece o mesmo da versão anterior) ...
     CACHE_DIR.mkdir(exist_ok=True)
     summary_file_path = CACHE_DIR / SUMMARY_FILENAME
     
@@ -81,7 +81,8 @@ def setup_and_load_data():
         st.stop()
     return model, artifacts, summary_data
 
-# --- FUNÇÕES GLOBAIS (PRESERVADAS E ADAPTADAS) ---
+
+# --- FUNÇÕES GLOBAIS E DE RAG (Completas e Corrigidas) ---
 
 def _create_flat_alias_map(kb: dict) -> dict:
     alias_to_canonical = {}
@@ -96,7 +97,6 @@ def _create_flat_alias_map(kb: dict) -> dict:
 AVAILABLE_TOPICS = list(_create_flat_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO).values())
 
 def expand_search_terms(base_term: str, kb: dict) -> list[str]:
-    # ... (código da função permanece o mesmo) ...
     base_term_lower = base_term.lower()
     expanded_terms = {base_term_lower}
     for section, topics in kb.items():
@@ -106,9 +106,7 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
                 expanded_terms.update(all_terms_in_group)
     return list(expanded_terms)
 
-
 def search_by_tags(artifacts: dict, company_name: str, target_tags: list) -> list:
-    # ... (código da função permanece o mesmo) ...
     results = []
     searchable_company_name = unicodedata.normalize('NFKD', company_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
     target_tags_lower = {tag.lower() for tag in target_tags}
@@ -126,10 +124,7 @@ def search_by_tags(artifacts: dict, company_name: str, target_tags: list) -> lis
                         results.append({'text': chunk_text, 'path': mapping.get('source_url', 'N/A'), 'index': i,'source': index_name, 'tag_found': ','.join(intersection), 'company': mapping.get("company_name")})
     return results
 
-# --- LÓGICA ROBUSTA (COM ATUALIZAÇÕES) ---
-
 def get_final_unified_answer(query: str, context: str) -> str:
-    # ... (código da função permanece o mesmo) ...
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     has_complete_8_4 = "formulário de referência" in query.lower() and "8.4" in query.lower()
     has_tagged_chunks = "--- CONTEÚDO RELEVANTE" in context
@@ -158,130 +153,48 @@ def get_final_unified_answer(query: str, context: str) -> str:
         logger.error(f"ERRO ao gerar resposta final com LLM: {e}")
         return f"Ocorreu um erro ao contatar o modelo de linguagem. Detalhes: {str(e)}"
 
-# --- MUDANÇA 1: execute_dynamic_plan agora retorna uma lista de dicionários ---
-
-
 def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[str, list[dict]]:
-    """
-    Executa o plano de busca com uma estratégia híbrida e um "Recuperador de Último Recurso".
-
-    Args:
-        plan (dict): O plano de análise contendo empresas e tópicos.
-        artifacts (dict): Dicionário com os índices FAISS e chunks.
-        model: O modelo de embedding SentenceTransformer carregado.
-        kb (dict): A base de conhecimento (DICIONARIO_UNIFICADO_HIERARQUICO).
-
-    Returns:
-        tuple[str, list[dict]]: Uma tupla contendo o contexto completo e uma lista
-                                 de dicionários com as fontes estruturadas.
-    """
     full_context, unique_chunks_content = "", set()
     retrieved_sources_structured, seen_sources = [], set()
-
     class Config:
         MAX_CONTEXT_TOKENS, MAX_CHUNKS_PER_TOPIC, SCORE_THRESHOLD_GENERAL = 256000, 10, 0.4
-        TOP_K_SEARCH = 7
     
-    def add_unique_chunk_to_context(chunk_text: str, source_info_dict: dict):
-        """Função interna para adicionar chunks únicos e estruturados ao contexto."""
+    def add_unique_chunk_to_context(chunk_text, source_info_dict):
         nonlocal full_context, unique_chunks_content, retrieved_sources_structured, seen_sources
-        
-        # Evita duplicatas de conteúdo
         chunk_hash = hash(re.sub(r'\s+', '', chunk_text.lower())[:200])
-        if chunk_hash in unique_chunks_content:
-            return
-        
-        # (A lógica de contagem de tokens seria inserida aqui se necessário)
-
+        if chunk_hash in unique_chunks_content: return
         unique_chunks_content.add(chunk_hash)
-        
-        # Limpa os metadados do texto antes de adicionar ao contexto do LLM
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
-        
         source_header = f"(Empresa: {source_info_dict['company']}, Documento: {source_info_dict['doc_type']})"
-        full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
-        
-        # Adiciona a fonte estruturada à lista, evitando duplicatas de (empresa, url)
         source_tuple = (source_info_dict['company'], source_info_dict['url'])
+        full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
             retrieved_sources_structured.append(source_info_dict)
 
-    # --- ETAPA 1: BUSCA DE ALTA PRECISÃO (Tags + Semântica) ---
     for empresa in plan.get("empresas", []):
-        logger.info(f"Executando busca de alta precisão para: {empresa}")
-        
-        # Expande todos os tópicos e seus aliases para as buscas
         target_tags = set()
         for topico in plan.get("topicos", []):
             target_tags.update(expand_search_terms(topico, kb))
-        
-        # 1a: Busca por Tags
         tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
         for chunk_info in tagged_chunks:
-            source_info = {
-                'company': chunk_info['company'],
-                'doc_type': chunk_info['source'],
-                'url': chunk_info['path']
-            }
+            source_info = {'company': chunk_info['company'],'doc_type': chunk_info['source'],'url': chunk_info['path']}
             add_unique_chunk_to_context(chunk_info['text'], source_info)
-        
-        # 1b: Busca Semântica
         for topico in plan.get("topicos", []):
-            # Limita a 3 termos por tópico para não sobrecarregar
             for term in expand_search_terms(topico, kb)[:3]:
                 search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
-                query_embedding = model.encode([search_query], normalize_embeddings=True)
-                
+                query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                 for doc_type, artifact_data in artifacts.items():
-                    scores, indices = artifact_data['index'].search(query_embedding, Config.TOP_K_SEARCH)
+                    scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
                     for i, idx in enumerate(indices[0]):
                         if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                             chunk_map_item = artifact_data['chunks']['map'][idx]
                             if empresa.lower() in chunk_map_item['company_name'].lower():
-                                source_info = {
-                                    'company': chunk_map_item['company_name'],
-                                    'doc_type': doc_type,
-                                    'url': chunk_map_item['source_url']
-                                }
+                                source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
                                 add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
-
-    # --- ETAPA 2: RECUPERADOR DE ÚLTIMO RECURSO ---
-    if not full_context:
-        logger.warning("Busca de alta precisão falhou. Ativando o Recuperador de Último Recurso.")
-        st.info("💡 A busca inicial não retornou resultados de alta confiança. Realizando uma varredura mais ampla...")
-        
-        for empresa in plan.get("empresas", []):
-            expanded_terms = set()
-            for topico in plan.get("topicos", []):
-                expanded_terms.update(expand_search_terms(topico, kb))
-            
-            # Itera sobre todos os chunks da empresa em todos os artefatos
-            for doc_type, artifact_data in artifacts.items():
-                chunk_map = artifact_data.get('chunks', {}).get('map', [])
-                all_chunks_text = artifact_data.get('chunks', {}).get('chunks', [])
-                
-                for i, mapping in enumerate(chunk_map):
-                    if empresa.lower() in mapping.get("company_name", "").lower():
-                        chunk_text = all_chunks_text[i]
-                        
-                        # Busca por qualquer um dos termos/aliases dentro do texto do chunk
-                        for term in expanded_terms:
-                            if re.search(r'\b' + re.escape(term) + r'\b', chunk_text, re.IGNORECASE):
-                                source_info = {
-                                    'company': mapping['company_name'],
-                                    'doc_type': doc_type,
-                                    'url': mapping['source_url']
-                                }
-                                add_unique_chunk_to_context(chunk_text, source_info)
-                                break # Otimização: vai para o próximo chunk assim que encontrar um termo
-
     return full_context, retrieved_sources_structured
 
-# --- Fim da Função execute_dynamic_plan ---
-
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
-    # ... (código da função permanece o mesmo) ...
     query_lower = query.lower().strip()
     mentioned_companies = []
     if company_catalog_rich:
@@ -304,20 +217,19 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     topics = list({canonical for alias, canonical in alias_map.items() if re.search(r'\b' + re.escape(alias) + r'\b', query_lower)})
     if not topics:
         logger.info("Nenhum tópico local encontrado, consultando LLM para planejamento...")
-        prompt = f"""...""" # Prompt do LLM
+        prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
+        Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
+        Formato: ["Tópico 1", "Tópico 2"]"""
         try:
             llm_response = get_final_unified_answer(prompt, "")
             topics = json.loads(re.search(r'\[.*\]', llm_response, re.DOTALL).group())
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Falha ao obter tópicos do LLM: {e}. Usando tópicos padrão.")
             topics = ["Estrutura do Plano", "Vesting", "Outorga"]
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
 
-
-# --- MUDANÇA 2: handle_rag_query agora manipula a lista de dicionários de fontes ---
 def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_data):
-    # (A função create_dynamic_analysis_plan permanece a mesma)
-    
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
         if plan_response['status'] != "success" or not plan_response['plan']['empresas']:
@@ -327,48 +239,41 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
         st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
-# --- LÓGICA DE VERIFICAÇÃO E BUSCA FORÇADA ---
-    force_retrieve_flag = False
-    empresa_alvo = plan['empresas'][0] # Foco na análise de empresa única
-    topicos_plano = {t.lower() for t in plan['topicos']}
-    
-    # Verifica no resumo se a empresa realmente tem o tópico
-    if empresa_alvo in summary_data:
-        # Reconstroi os tópicos do resumo para verificação
-        summary_topics = set()
-        for section, topics_dict in summary_data[empresa_alvo].get("topicos_encontrados", {}).items():
-            for topic_name, aliases in topics_dict.items():
-                summary_topics.add(topic_name.lower().replace('_', ' '))
-                for alias in aliases:
-                    summary_topics.add(alias.lower())
-        
-        # Se algum tópico do plano estiver no resumo, ativamos a busca forçada
-        if not topicos_plano.isdisjoint(summary_topics):
-            force_retrieve_flag = True
-            st.info("💡 Detectado que a empresa possui menções ao tópico. Ativando busca profunda.")
-
     final_answer, all_sources_structured = "", []
     seen_sources_tuples = set()
     if len(plan['empresas']) > 1:
-        # (Lógica de comparação permanece a mesma, mas agora passa o 'force_retrieve_flag')
-        # Omitida por brevidade, mas a ideia é passar o flag para a chamada de execute_dynamic_plan
-        pass # A lógica completa deve ser mantida aqui
+        st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas.")
+        summaries = []
+        for i, empresa in enumerate(plan['empresas']):
+            with st.status(f"Analisando {i+1}/{len(plan['empresas'])}: {empresa}...", expanded=True):
+                single_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
+                context, sources_list = execute_dynamic_plan(single_plan, artifacts, model, kb)
+                for src_dict in sources_list:
+                    src_tuple = (src_dict['company'], src_dict['url'])
+                    if src_tuple not in seen_sources_tuples:
+                        seen_sources_tuples.add(src_tuple)
+                        all_sources_structured.append(src_dict)
+                if not context:
+                    summaries.append(f"## Análise para {empresa.upper()}\n\nNenhuma informação encontrada.")
+                else:
+                    summary_prompt = f"Com base no contexto a seguir sobre a empresa {empresa}, resuma os pontos principais sobre os tópicos: {', '.join(plan['topicos'])}.\n\nContexto:\n{context}"
+                    summaries.append(f"## Análise para {empresa.upper()}\n\n{get_final_unified_answer(summary_prompt, context)}")
+        with st.status("Gerando relatório comparativo final...", expanded=True) as status:
+            comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado e bem estruturado sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
+            final_answer = get_final_unified_answer(comparison_prompt, "\n\n".join(summaries))
+            status.update(label="✅ Relatório comparativo gerado!", state="complete")
     else:
         with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
-            # Passa o novo flag para a função de execução
-            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb, force_retrieve=force_retrieve_flag)
+            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb)
             if not context:
-                st.error("❌ Mesmo com a busca aprofundada, não encontrei detalhes suficientes nos documentos para a sua consulta.")
-                return "Informação não encontrada.", []
+                st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
+                return "Nenhuma informação relevante encontrada.", []
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
             status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
-        
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
             final_answer = get_final_unified_answer(query, context)
             status.update(label="✅ Análise concluída!", state="complete")
-
     return final_answer, all_sources_structured
-
 
 # --- FUNÇÃO PRINCIPAL DA APLICAÇÃO ---
 def main():
@@ -377,7 +282,7 @@ def main():
 
     model, artifacts, summary_data = setup_and_load_data()
     if not summary_data or not artifacts:
-        st.error("❌ Falha crítica no carregamento dos dados.")
+        st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
         st.stop()
 
     engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO)
@@ -395,8 +300,18 @@ def main():
         st.info(f"Generative Model: `{GEMINI_MODEL}`")
 
     st.header("💬 Faça sua pergunta")
-    # ... (UI com exemplos de perguntas) ...
-
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("**Experimente uma análise quantitativa:**")
+        st.code("Qual o desconto médio no preço de exercício?")
+        st.code("Quais empresas tem TSR Relativo?")
+        st.code("Qual o período médio de vesting?")
+    with col2:
+        st.info("**Ou uma análise profunda:**")
+        st.code("Compare o vesting da Vale com a Magazine Luiza")
+        st.code("Como funciona o plano de lockup da Movida?")
+    st.caption(f"**Principais Termos-Chave:** {', '.join(list(_create_flat_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO).values())[:10])}, etc.")
+    
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale e Movida")
 
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
@@ -413,17 +328,28 @@ def main():
             with st.spinner("Analisando dados estruturados..."):
                 report, dataframe = engine.answer_query(user_query)
                 if report: st.markdown(report)
-                if dataframe is not None: st.dataframe(dataframe, use_container_width=True, hide_index=True)
+                if dataframe is not None and not dataframe.empty: st.dataframe(dataframe, use_container_width=True, hide_index=True)
         else:
             final_answer, sources = handle_rag_query(user_query, artifacts, model, DICIONARIO_UNIFICADO_HIERARQUICO, company_catalog_rich, summary_data)
             st.markdown(final_answer)
             
-            # --- MUDANÇA 3: Lógica de exibição com hyperlinks ---
             if sources:
-                with st.expander(f"📚 Documentos consultados ({len(sources)})"):
+                with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
+                    st.caption("Nota: Links diretos para a CVM podem não abrir corretamente. Use a busca no portal com o protocolo como plano B.")
                     for src in sorted(sources, key=lambda x: x['company']):
                         display_text = f"{src['company']} - {src['doc_type'].replace('_', ' ')}"
-                        st.markdown(f"- [{display_text}]({src['url']})")
+                        url = src['url']
+                        
+                        if "frmExibirArquivoIPEExterno" in url:
+                            protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
+                            protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
+                            st.markdown(f"**{display_text}** (Protocolo: **{protocolo}**)")
+                            st.markdown(f"↳ [Link Direto (Pode falhar)]({url}) | [Buscar na CVM]({CVM_SEARCH_URL})", unsafe_allow_html=True)
+                        elif "frmExibirArquivoFRE" in url:
+                            st.markdown(f"**{display_text}**")
+                            st.markdown(f"↳ [Link Direto para Formulário de Referência]({url})", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"**{display_text}**: [Link]({url})")
 
 if __name__ == "__main__":
     main()
