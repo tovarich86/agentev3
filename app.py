@@ -159,46 +159,64 @@ def get_final_unified_answer(query: str, context: str) -> str:
         return f"Ocorreu um erro ao contatar o modelo de linguagem. Detalhes: {str(e)}"
 
 # --- MUDANÇA 1: execute_dynamic_plan agora retorna uma lista de dicionários ---
-def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, force_retrieve: bool = False) -> tuple[str, list[dict]]:
+
+
+def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[str, list[dict]]:
+    """
+    Executa o plano de busca com uma estratégia híbrida e um "Recuperador de Último Recurso".
+
+    Args:
+        plan (dict): O plano de análise contendo empresas e tópicos.
+        artifacts (dict): Dicionário com os índices FAISS e chunks.
+        model: O modelo de embedding SentenceTransformer carregado.
+        kb (dict): A base de conhecimento (DICIONARIO_UNIFICADO_HIERARQUICO).
+
+    Returns:
+        tuple[str, list[dict]]: Uma tupla contendo o contexto completo e uma lista
+                                 de dicionários com as fontes estruturadas.
+    """
     full_context, unique_chunks_content = "", set()
     retrieved_sources_structured, seen_sources = [], set()
 
     class Config:
-        MAX_CONTEXT_TOKENS = 256000
-        MAX_CHUNKS_PER_TOPIC = 10
-        # O limiar agora pode ser ajustado
-        SCORE_THRESHOLD_GENERAL = 0.25 if force_retrieve else 0.4
-
-    if force_retrieve:
-        logger.info(f"Modo de busca forçada ativado. Limiar de score reduzido para: {Config.SCORE_THRESHOLD_GENERAL}")
-
+        MAX_CONTEXT_TOKENS, MAX_CHUNKS_PER_TOPIC, SCORE_THRESHOLD_GENERAL = 256000, 10, 0.4
+        TOP_K_SEARCH = 7
     
-    def add_unique_chunk_to_context(chunk_text, source_info_dict):
+    def add_unique_chunk_to_context(chunk_text: str, source_info_dict: dict):
+        """Função interna para adicionar chunks únicos e estruturados ao contexto."""
         nonlocal full_context, unique_chunks_content, retrieved_sources_structured, seen_sources
-        chunk_hash = hash(re.sub(r'\s+', '', chunk_text.lower())[:200])
-        if chunk_hash in unique_chunks_content: return
         
+        # Evita duplicatas de conteúdo
+        chunk_hash = hash(re.sub(r'\s+', '', chunk_text.lower())[:200])
+        if chunk_hash in unique_chunks_content:
+            return
+        
+        # (A lógica de contagem de tokens seria inserida aqui se necessário)
+
         unique_chunks_content.add(chunk_hash)
+        
+        # Limpa os metadados do texto antes de adicionar ao contexto do LLM
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
         
-        # Formata o cabeçalho do contexto e a tupla para verificação de unicidade
         source_header = f"(Empresa: {source_info_dict['company']}, Documento: {source_info_dict['doc_type']})"
-        source_tuple = (source_info_dict['company'], source_info_dict['url'])
-        
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
         
+        # Adiciona a fonte estruturada à lista, evitando duplicatas de (empresa, url)
+        source_tuple = (source_info_dict['company'], source_info_dict['url'])
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
             retrieved_sources_structured.append(source_info_dict)
 
+    # --- ETAPA 1: BUSCA DE ALTA PRECISÃO (Tags + Semântica) ---
     for empresa in plan.get("empresas", []):
-        logger.info(f"Executando plano para: {empresa}")
+        logger.info(f"Executando busca de alta precisão para: {empresa}")
         
-        # Busca por tags
+        # Expande todos os tópicos e seus aliases para as buscas
         target_tags = set()
         for topico in plan.get("topicos", []):
             target_tags.update(expand_search_terms(topico, kb))
         
+        # 1a: Busca por Tags
         tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
         for chunk_info in tagged_chunks:
             source_info = {
@@ -207,14 +225,16 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, force_ret
                 'url': chunk_info['path']
             }
             add_unique_chunk_to_context(chunk_info['text'], source_info)
-
-        # Busca semântica complementar
+        
+        # 1b: Busca Semântica
         for topico in plan.get("topicos", []):
+            # Limita a 3 termos por tópico para não sobrecarregar
             for term in expand_search_terms(topico, kb)[:3]:
                 search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
                 query_embedding = model.encode([search_query], normalize_embeddings=True)
+                
                 for doc_type, artifact_data in artifacts.items():
-                    scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
+                    scores, indices = artifact_data['index'].search(query_embedding, Config.TOP_K_SEARCH)
                     for i, idx in enumerate(indices[0]):
                         if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                             chunk_map_item = artifact_data['chunks']['map'][idx]
@@ -225,8 +245,40 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, force_ret
                                     'url': chunk_map_item['source_url']
                                 }
                                 add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
-                                
+
+    # --- ETAPA 2: RECUPERADOR DE ÚLTIMO RECURSO ---
+    if not full_context:
+        logger.warning("Busca de alta precisão falhou. Ativando o Recuperador de Último Recurso.")
+        st.info("💡 A busca inicial não retornou resultados de alta confiança. Realizando uma varredura mais ampla...")
+        
+        for empresa in plan.get("empresas", []):
+            expanded_terms = set()
+            for topico in plan.get("topicos", []):
+                expanded_terms.update(expand_search_terms(topico, kb))
+            
+            # Itera sobre todos os chunks da empresa em todos os artefatos
+            for doc_type, artifact_data in artifacts.items():
+                chunk_map = artifact_data.get('chunks', {}).get('map', [])
+                all_chunks_text = artifact_data.get('chunks', {}).get('chunks', [])
+                
+                for i, mapping in enumerate(chunk_map):
+                    if empresa.lower() in mapping.get("company_name", "").lower():
+                        chunk_text = all_chunks_text[i]
+                        
+                        # Busca por qualquer um dos termos/aliases dentro do texto do chunk
+                        for term in expanded_terms:
+                            if re.search(r'\b' + re.escape(term) + r'\b', chunk_text, re.IGNORECASE):
+                                source_info = {
+                                    'company': mapping['company_name'],
+                                    'doc_type': doc_type,
+                                    'url': mapping['source_url']
+                                }
+                                add_unique_chunk_to_context(chunk_text, source_info)
+                                break # Otimização: vai para o próximo chunk assim que encontrar um termo
+
     return full_context, retrieved_sources_structured
+
+# --- Fim da Função execute_dynamic_plan ---
 
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     # ... (código da função permanece o mesmo) ...
