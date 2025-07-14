@@ -25,7 +25,7 @@ st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layou
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 TOP_K_SEARCH = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-flash-latest"
+GEMINI_MODEL = "gemini-2.0-flash-lite"
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 FILES_TO_DOWNLOAD = {
@@ -281,7 +281,7 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
                     summaries.append(f"## Análise para {empresa.upper()}\n\n{get_final_unified_answer(summary_prompt, context)}")
         
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
-            comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado e bem estruturado sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
+            comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado  e bem estruturado com ajuda de tabela sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
             final_answer = get_final_unified_answer(comparison_prompt, "\n\n".join(summaries))
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
     else:
