@@ -1,4 +1,4 @@
-# app.py (versão final corrigida e funcional)
+# app.py (versão final, completa e sem omissões)
 
 import streamlit as st
 import json
@@ -15,7 +15,7 @@ import zipfile
 import io
 import shutil
 
-# --- Módulos do Projeto (coloque na mesma pasta) ---
+# --- Módulos do Projeto (devem estar na mesma pasta) ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
 from analytical_engine import AnalyticalEngine
 
@@ -26,42 +26,40 @@ MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 TOP_K_SEARCH = 7
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-1.5-flash-latest"
-GITHUB_SOURCE_URL = "https://github.com/tovarich86/agentev2/archive/refs/tags/V1.0-data.zip" # URL CORRETA
+CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
+
+FILES_TO_DOWNLOAD = {
+    "item_8_4_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_chunks_map_final.json",
+    "item_8_4_faiss_index_final.bin": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/item_8_4_faiss_index_final.bin",
+    "outros_documentos_chunks_map_final.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/outros_documentos_chunks_map_final.json",
+    "outros_documentos_faiss_index_final.bin": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/outros_documentos_faiss_index_final.bin",
+    "resumo_fatos_e_topicos_final_enriquecido.json": "https://github.com/tovarich86/agentev2/releases/download/V1.0-data/resumo_fatos_e_topicos_final_enriquecido.json"
+}
 CACHE_DIR = Path("data_cache")
 SUMMARY_FILENAME = "resumo_fatos_e_topicos_final_enriquecido.json"
-CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- CARREGADOR DE DADOS ---
-@st.cache_resource(show_spinner="Configurando ambiente e baixando dados...")
+@st.cache_resource(show_spinner="Configurando o ambiente e baixando dados...")
 def setup_and_load_data():
     CACHE_DIR.mkdir(exist_ok=True)
-    summary_file_path = CACHE_DIR / SUMMARY_FILENAME
     
-    if not summary_file_path.exists():
-        logger.info(f"Arquivo de resumo não encontrado no cache. Baixando e preparando dados de {GITHUB_SOURCE_URL}...")
-        if CACHE_DIR.exists():
-            shutil.rmtree(CACHE_DIR)
-        CACHE_DIR.mkdir(exist_ok=True)
-        try:
-            response = requests.get(GITHUB_SOURCE_URL, stream=True, timeout=60)
-            response.raise_for_status() 
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                z.extractall(CACHE_DIR)
-            
-            extracted_folder = next(CACHE_DIR.iterdir())
-            if extracted_folder.is_dir():
-                logger.info(f"Movendo conteúdo de '{extracted_folder.name}' para a raiz do cache...")
-                for item in extracted_folder.iterdir():
-                    shutil.move(str(item), str(CACHE_DIR / item.name))
-                extracted_folder.rmdir()
-        except requests.exceptions.RequestException as e:
-            st.error(f"Erro ao baixar os dados: {e}")
-            st.stop()
-    else:
-        logger.info("Arquivos de dados encontrados no cache local.")
+    for filename, url in FILES_TO_DOWNLOAD.items():
+        local_path = CACHE_DIR / filename
+        if not local_path.exists():
+            logger.info(f"Baixando arquivo '{filename}'...")
+            try:
+                response = requests.get(url, stream=True, timeout=60)
+                response.raise_for_status()
+                with open(local_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                logger.info(f"'{filename}' baixado com sucesso.")
+            except requests.exceptions.RequestException as e:
+                st.error(f"Erro ao baixar {filename} de {url}: {e}")
+                st.stop()
 
     model = SentenceTransformer(MODEL_NAME)
     artifacts = {}
@@ -69,20 +67,26 @@ def setup_and_load_data():
         category = index_file.stem.replace('_faiss_index_final', '')
         chunks_file = CACHE_DIR / f"{category}_chunks_map_final.json"
         try:
-            artifacts[category] = {'index': faiss.read_index(str(index_file)), 'chunks': json.load(open(chunks_file, 'r', encoding='utf-8'))}
+            artifacts[category] = {
+                'index': faiss.read_index(str(index_file)),
+                'chunks': json.load(open(chunks_file, 'r', encoding='utf-8'))
+            }
         except Exception as e:
             st.error(f"Falha ao carregar artefatos para a categoria '{category}': {e}")
             st.stop()
+
+    summary_file_path = CACHE_DIR / SUMMARY_FILENAME
     try:
         with open(summary_file_path, 'r', encoding='utf-8') as f:
             summary_data = json.load(f)
     except FileNotFoundError:
-        st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado após a extração.")
+        st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado.")
         st.stop()
+        
     return model, artifacts, summary_data
 
 
-# --- FUNÇÕES GLOBAIS E DE RAG (Completas e Corrigidas) ---
+# --- FUNÇÕES GLOBAIS E DE RAG ---
 
 def _create_flat_alias_map(kb: dict) -> dict:
     alias_to_canonical = {}
@@ -94,7 +98,7 @@ def _create_flat_alias_map(kb: dict) -> dict:
                 alias_to_canonical[alias.lower()] = canonical_name
     return alias_to_canonical
 
-AVAILABLE_TOPICS = list(_create_flat_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO).values())
+AVAILABLE_TOPICS = list(set(_create_flat_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO).values()))
 
 def expand_search_terms(base_term: str, kb: dict) -> list[str]:
     base_term_lower = base_term.lower()
@@ -157,12 +161,16 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
     full_context, unique_chunks_content = "", set()
     retrieved_sources_structured, seen_sources = [], set()
     class Config:
-        MAX_CONTEXT_TOKENS, MAX_CHUNKS_PER_TOPIC, SCORE_THRESHOLD_GENERAL = 256000, 10, 0.4
+        MAX_CONTEXT_TOKENS, SCORE_THRESHOLD_GENERAL = 256000, 0.4
     
     def add_unique_chunk_to_context(chunk_text, source_info_dict):
         nonlocal full_context, unique_chunks_content, retrieved_sources_structured, seen_sources
         chunk_hash = hash(re.sub(r'\s+', '', chunk_text.lower())[:200])
         if chunk_hash in unique_chunks_content: return
+        
+        estimated_tokens = len(full_context + chunk_text) // 4
+        if estimated_tokens > Config.MAX_CONTEXT_TOKENS: return
+
         unique_chunks_content.add(chunk_hash)
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
         source_header = f"(Empresa: {source_info_dict['company']}, Documento: {source_info_dict['doc_type']})"
@@ -173,13 +181,16 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
             retrieved_sources_structured.append(source_info_dict)
 
     for empresa in plan.get("empresas", []):
+        logger.info(f"Executando plano para: {empresa}")
         target_tags = set()
         for topico in plan.get("topicos", []):
             target_tags.update(expand_search_terms(topico, kb))
+        
         tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
         for chunk_info in tagged_chunks:
             source_info = {'company': chunk_info['company'],'doc_type': chunk_info['source'],'url': chunk_info['path']}
             add_unique_chunk_to_context(chunk_info['text'], source_info)
+
         for topico in plan.get("topicos", []):
             for term in expand_search_terms(topico, kb)[:3]:
                 search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
@@ -192,11 +203,13 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
                             if empresa.lower() in chunk_map_item['company_name'].lower():
                                 source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
                                 add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
+    
     return full_context, retrieved_sources_structured
 
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     mentioned_companies = []
+    
     if company_catalog_rich:
         companies_found_by_alias = {}
         for company_data in company_catalog_rich:
@@ -208,24 +221,30 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
                         companies_found_by_alias[canonical_name] = score
         if companies_found_by_alias:
             mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
+
     if not mentioned_companies:
         for empresa_nome in summary_data.keys():
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
-    if not mentioned_companies: return {"status": "error", "plan": {}}
+
+    if not mentioned_companies:
+        return {"status": "error", "plan": {}}
+
     alias_map = _create_flat_alias_map(kb)
     topics = list({canonical for alias, canonical in alias_map.items() if re.search(r'\b' + re.escape(alias) + r'\b', query_lower)})
+    
     if not topics:
         logger.info("Nenhum tópico local encontrado, consultando LLM para planejamento...")
         prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
         Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
         Formato: ["Tópico 1", "Tópico 2"]"""
         try:
-            llm_response = get_final_unified_answer(prompt, "")
+            llm_response = get_final_unified_answer("Gere uma lista de tópicos para a pergunta.", prompt) # Contexto é o prompt aqui
             topics = json.loads(re.search(r'\[.*\]', llm_response, re.DOTALL).group())
         except Exception as e:
             logger.warning(f"Falha ao obter tópicos do LLM: {e}. Usando tópicos padrão.")
             topics = ["Estrutura do Plano", "Vesting", "Outorga"]
+            
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
 
@@ -239,8 +258,10 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
         st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
+
     final_answer, all_sources_structured = "", []
     seen_sources_tuples = set()
+
     if len(plan['empresas']) > 1:
         st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas.")
         summaries = []
@@ -258,6 +279,7 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
                 else:
                     summary_prompt = f"Com base no contexto a seguir sobre a empresa {empresa}, resuma os pontos principais sobre os tópicos: {', '.join(plan['topicos'])}.\n\nContexto:\n{context}"
                     summaries.append(f"## Análise para {empresa.upper()}\n\n{get_final_unified_answer(summary_prompt, context)}")
+        
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado e bem estruturado sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
             final_answer = get_final_unified_answer(comparison_prompt, "\n\n".join(summaries))
@@ -270,12 +292,13 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
                 return "Nenhuma informação relevante encontrada.", []
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
             status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
+        
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
             final_answer = get_final_unified_answer(query, context)
             status.update(label="✅ Análise concluída!", state="complete")
+
     return final_answer, all_sources_structured
 
-# --- FUNÇÃO PRINCIPAL DA APLICAÇÃO ---
 def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
@@ -310,6 +333,7 @@ def main():
         st.info("**Ou uma análise profunda:**")
         st.code("Compare o vesting da Vale com a Magazine Luiza")
         st.code("Como funciona o plano de lockup da Movida?")
+    
     st.caption(f"**Principais Termos-Chave:** {', '.join(list(_create_flat_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO).values())[:10])}, etc.")
     
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale e Movida")
