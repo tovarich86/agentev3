@@ -324,45 +324,38 @@ def main():
 
     st.header("💬 Faça sua pergunta")
     with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
-    st.markdown("""
-    Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
-    """)
+    with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
+        st.markdown("""
+        Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
+        """)
 
-    st.subheader("1. Análise Quantitativa Rápida 📊")
-    st.info("""
-    Para perguntas que começam com **"quais", "quantas", "qual a média", etc.**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas, com cálculos e estatísticas.
-    """)
-    st.markdown("**Exemplos de perguntas que ele responde bem:**")
-    st.code("""
-- Qual o desconto médio no preço de exercício?
-- Quais empresas possuem TSR Relativo?
-- Liste as empresas que oferecem desconto no strike e o percentual.
-- Quantas empresas mencionam planos de matching?
-    """)
+        st.subheader("1. Análise Quantitativa Rápida 📊")
+        st.info("""
+        Para perguntas que começam com **"quais", "quantas", "qual a média", etc.**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas, com cálculos e estatísticas.
+        """)
+        st.markdown("**Exemplos de perguntas que ele responde bem:**")
+        st.code("""- Qual o desconto médio no preço de exercício?
+    - Quais empresas possuem TSR Relativo?
+    - Liste as empresas que oferecem desconto no strike e o percentual.
+    - Quantas empresas mencionam planos de matching?""")
 
-    st.subheader("2. Análise Qualitativa Profunda 🧠")
-    st.info("""
-    Para perguntas abertas que buscam detalhes, explicações ou comparações, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
-    """)
-    st.markdown("**Exemplos de perguntas que ele responde bem:**")
-    st.code("""
-- Como funciona o plano de vesting da Vale?
-- Detalhe o tratamento de dividendos no plano da Magazine Luiza.
-- Compare os planos de ações restritas da Hypera e da Movida.
-    """)
+        st.subheader("2. Análise Qualitativa Profunda 🧠")
+        st.info("""
+        Para perguntas abertas que buscam detalhes, explicações ou comparações, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
+        """)
+        st.markdown("**Exemplos de perguntas que ele responde bem:**")
+        st.code("""- Como funciona o plano de vesting da Vale?
+    - Detalhe o tratamento de dividendos no plano da Magazine Luiza.
+    - Compare os planos de ações restritas da Hypera e da Movida.""")
 
-    st.subheader("❗ Limitações Importantes")
-    st.warning("""
-    Para usar o agente de forma eficaz, é crucial entender suas limitações:
+        st.subheader("❗ Limitações Importantes")
+        st.warning("""
+        Para usar o agente de forma eficaz, é crucial entender suas limitações:
 
-    * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet. Seu conhecimento está limitado aos documentos processados na data em que sua base de dados foi criada. Ele não sabe de fatos ou documentos novos que ainda não foram processados.
-        * *Exemplo de pergunta que ele NÃO responde:* `"Qual foi a mudança no plano da Petrobras anunciada na semana passada?"*
-
-    * **Não Emite Opinião:** Ele é um especialista em **encontrar, analisar e apresentar** informações. Ele **NÃO** pode fornecer conselhos financeiros, opiniões ou julgamentos de valor.
-        * *Exemplo de pergunta que ele NÃO responde:* `"O plano de vesting da Ambev é bom para os executivos?"* ou `"Qual a melhor empresa para se trabalhar com base no ILP?"*
-
-    * **Dependência da Extração de Dados:** As análises quantitativas dependem de "fatos" (números, prazos) extraídos dos textos. Se um documento descreve um fato de forma muito ambígua ou fora do padrão, a extração pode falhar, e aquela empresa pode não aparecer em uma análise estatística específica.
-    """)
+        * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet. Seu conhecimento está limitado aos documentos processados na data em que sua base de dados foi criada.
+        * **Não Emite Opinião:** Ele é um especialista em **encontrar e apresentar** informações. Ele **NÃO** pode fornecer conselhos financeiros, opiniões ou julgamentos de valor.
+        * **Dependência da Extração de Dados:** As análises quantitativas dependem de "fatos" extraídos dos textos. Se um documento descreve um fato de forma muito ambígua, a extração pode falhar, e aquela empresa pode não aparecer em uma análise estatística.
+        """)
     col1, col2 = st.columns(2)
     with col1:
         st.info("**Experimente uma análise quantitativa:**")
