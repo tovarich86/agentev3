@@ -17,53 +17,10 @@ class AnalyticalEngine:
     para responder perguntas quantitativas e de listagem.
     Versão com análise estatística aprofundada e roteador declarativo.
     """
-    def __init__(self, summary_data: dict, knowledge_base: dict):
-        if not summary_data:
-            raise ValueError("Dados de resumo (summary_data) não podem ser nulos.")
-        self.data = summary_data
-        self.kb = knowledge_base
-        
-        # --- ROTEADOR DECLARATIVO ---
-        # Mapeamento de funções de análise para suas regras de ativação.
-        # As regras são verificadas em ordem. A primeira que corresponder é executada.
-        self.intent_rules = [
-            (lambda q: 'desconto' in q and ('preco de exercicio' in q or 'strike' in q), self._analyze_strike_discount),
-            (lambda q: 'tsr' in q, self._analyze_tsr),
-            (lambda q: 'vesting' in q and ('periodo' in q or 'prazo' in q or 'medio' in q), self._analyze_vesting_period),
-            (lambda q: 'lockup' in q or 'lock-up' in q, self._analyze_lockup_period),
-            (lambda q: 'diluicao' in q, self._analyze_dilution),
-            (lambda q: 'malus' in q or 'clawback' in q, self._analyze_malus_clawback),
-            (lambda q: 'dividendos' in q and 'carencia' in q, self._analyze_dividends_during_vesting),
-            (lambda q: 'membros do plano' in q or 'elegiveis' in q or 'quem sao os membros' in q, self._analyze_plan_members),
-            (lambda q: 'quantos planos tem o conselho de administracao elegivel' in q or 'conselho de administracao elegivel' in q, self._count_plans_for_board),
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de performance' in q, self._analyze_common_goals),
-            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
-            # Fallback para busca genérica por tópico se nenhuma regra específica for acionada
-            (lambda q: True, self._find_companies_by_general_topic),
-        ]
-        
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para comparação (minúsculas, sem acentos)."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
         return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
-
-    def answer_query(self, query: str) -> tuple:
-        """
-        Ponto de entrada principal. Usa o roteador declarativo para encontrar
-        e executar a ferramenta de análise correta com base na pergunta.
-        """
-        normalized_query = self._normalize_text(query)
-        logger.info(f"Pergunta normalizada para análise de intenção: '{normalized_query}'")
-
-        for intent_checker_func, analysis_func in self.intent_rules:
-            if intent_checker_func(normalized_query):
-                logger.info(f"Intenção detectada. Executando: {analysis_func.__name__}")
-                return analysis_func(normalized_query)
-        
-        logger.warning("Nenhuma intenção específica detectada. Caindo no fallback genérico.")
-        return "Não consegui identificar uma intenção clara na sua pergunta para realizar uma análise quantitativa.", None
-
-    # --- Funções de Análise Detalhadas ---
 
     def _analyze_strike_discount(self, normalized_query: str) -> tuple:
         """
@@ -417,56 +374,21 @@ class AnalyticalEngine:
                 if canonical_topic_name.lower() not in excluded_general_terms_lower:
                     # Encontrar a categoria principal (chave do KB) a qual este tópico pertence
                     # Iterar sobre a seção 'IndicadoresPerformance' do próprio Knowledge Base (self.kb)
-                    for kb_topic_key, kb_aliases in self.kb.get("IndicadoresPerformance", {}).items():
-                        if kb_topic_key == topic_raw_from_summary:
-                            # Encontrou a chave do KB, agora adiciona à contagem sob a categoria formatada
-                            # A categoria formatada aqui é a chave do KB (ex: "Financeiro", "Mercado")
-                            # Convertida para exibição (ex: "Financeiro", "Mercado")
-                            category_for_subtopic = kb_topic_key.replace('_', ' ') # Assumindo que a chave principal é o nome da categoria.
-                            
-                            # Se o tópico é uma subcategoria como 'Financeiro' ou 'Mercado', mas também tem aliases,
-                            # significa que ele pode ser um subtópico, mas o KB o trata como categoria.
-                            # Precisamos verificar se ele é um "sub-tópico" de fato ou uma categoria geral.
-                            # A forma mais robusta é verificar se o tópico_raw é uma CHAVE de sub-dicionário no KB.
-                            
-                            # Para as chaves que são sub-dicionários no KB (ex: 'Financeiro', 'Mercado')
-                            if kb_topic_key in ["Financeiro", "Mercado", "TSR_Absoluto", "TSR_Relativo", "ESG", "GrupoDeComparacao", "MetasGerais"]:
-                                # Estas são as CATEGORIAS que queremos exibir com seus sub-itens.
-                                # O 'canonical_topic_name' para estas é a própria categoria.
-                                # Precisamos iterar sobre os aliases para encontrar os subtópicos.
-                                for alias in kb_aliases: # Itera sobre os aliases, que são os termos específicos
-                                    if self._normalize_text(alias) in self._normalize_text(performance_topics_for_company[topic_raw_from_summary]):
-                                        # Se o alias está no texto do tópico encontrado para a empresa, conta.
-                                        # Isso é mais complexo, pois o resumo JSON já lista o topic_raw.
-                                        # O ideal é que o 'topic_raw_from_summary' já seja o item mais granular.
-                                        pass # A lógica abaixo já trata isso se topic_raw é o mais granular.
-                            
-                            # A forma mais simples para o seu JSON atual:
-                            # Se topic_raw_from_summary é 'ROIC', sua categoria é 'Financeiro'.
-                            # O KB está estruturado como "IndicadoresPerformance" -> "Financeiro" -> {"ROIC": [...]}
-                            # Então, precisamos mapear 'ROIC' de volta para 'Financeiro'.
-                            # Isso requer uma passada no KB para encontrar a hierarquia real.
-                            
-                            found_category = None
-                            for section_kb_outer, topics_in_outer_section in self.kb.items():
-                                if section_kb_outer == "IndicadoresPerformance": # Foca na seção correta do KB
-                                    for sub_category_kb, specific_topics_in_subcategory in topics_in_outer_section.items():
-                                        # specific_topics_in_subcategory é um dicionário de tópico:aliases
-                                        if topic_raw_from_summary in specific_topics_in_subcategory:
-                                            found_category = sub_category_kb.replace('_', ' ')
-                                            break
-                                if found_category:
+                    found_category = None
+                    for section_kb_outer, topics_in_outer_section in self.kb.items():
+                        if section_kb_outer == "IndicadoresPerformance": # Foca na seção correta do KB
+                            for sub_category_kb, specific_topics_in_subcategory_dict in topics_in_outer_section.items():
+                                # specific_topics_in_subcategory_dict é um dicionário tópico_raw:aliases
+                                if topic_raw_from_summary in specific_topics_in_subcategory_dict:
+                                    found_category = sub_category_kb.replace('_', ' ')
                                     break
-                            
-                            if found_category:
-                                subtopic_counts[found_category][canonical_topic_name] += 1
-                                
-                            break # Sai do loop interno do KB após encontrar a categoria do tópico
-                else: # Se o tópico_raw_from_summary é uma categoria geral (ex: "Financeiro", "Mercado")
-                    # Contamos a ocorrência da CATEGORIA em si, mas não como um "subtópico" de si mesma
-                    # Isso é mais para saber quantas empresas mencionam *qualquer* indicador financeiro, por exemplo
-                    # Isso já está implicitamente na lista de empresas que possuem a categoria.
-                    pass # Não precisamos adicionar ao subtopic_counts aqui
+                        if found_category:
+                            break
+                    
+                    if found_category:
+                        subtopic_counts[found_category][canonical_topic_name] += 1
+                # else: # Se for uma categoria geral, não a contamos como subtópico aqui
+                #     pass 
 
         report_text = "### Metas de Performance Mais Comuns\n"
         report_text += "Esta análise detalha as metas e indicadores de performance encontrados nos documentos.\n\n"
@@ -474,9 +396,11 @@ class AnalyticalEngine:
         df_summary_data = [] # Para construir o DataFrame final
 
         # Apresentar os subtópicos detalhadamente, agrupados por categoria
+        # Ordena as categorias por nome para apresentação consistente
         for category_name_formatted, topics_dict in sorted(subtopic_counts.items()):
             if topics_dict: # Garante que a categoria tem subtópicos contados
                 report_text += f"\n#### Tópicos de Performance em **{category_name_formatted}**:\n"
+                # Ordena os subtópicos por contagem (mais comuns primeiro)
                 for subtopic, count in sorted(topics_dict.items(), key=lambda item: item[1], reverse=True):
                     report_text += f"- **{subtopic}:** {count} empresas\n"
                     df_summary_data.append({"Tipo de Meta/Indicador": subtopic, "Número de Empresas": count, "Nível": category_name_formatted})
@@ -485,7 +409,108 @@ class AnalyticalEngine:
              return "Nenhum indicador de performance ou meta específica foi encontrado nos planos analisados.", None
 
         df_final = pd.DataFrame(df_summary_data)
-        # Ordenar o DataFrame final, talvez primeiro por Nível (categoria) e depois por Número de Empresas
+        # Ordenar o DataFrame final, primeiro por Nível (categoria) e depois por Número de Empresas
         df_final = df_final.sort_values(by=["Nível", "Número de Empresas"], ascending=[True, False]).reset_index(drop=True)
 
         return report_text, df_final
+
+    def _analyze_common_plan_types(self, normalized_query: str) -> tuple:
+        """
+        Lista os tipos de planos de incentivo mais comuns entre as empresas.
+        """
+        plan_type_counts = defaultdict(int)
+        for company, details in self.data.items():
+            plan_topics = details.get("topicos_encontrados", {}).get("TiposDePlano", {})
+            for topic_raw in plan_topics.keys():
+                # Normaliza o nome do tópico para contagem
+                canonical_plan_name = topic_raw.replace('_', ' ')
+                plan_type_counts[canonical_plan_name] += 1
+        
+        if not plan_type_counts:
+            return "Nenhum tipo de plano de incentivo foi encontrado nos documentos analisados.", None
+        
+        report_text = "### Tipos de Planos de Incentivo Mais Comuns\n"
+        report_text += "Esta análise considera os tipos de planos encontrados nos documentos.\n\n"
+        
+        df_data = []
+        sorted_plan_types = sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)
+        for plan_type, count in sorted_plan_types:
+            report_text += f"- **{plan_type}:** {count} empresas\n"
+            df_data.append({"Tipo de Plano": plan_type, "Número de Empresas": count})
+        
+        df = pd.DataFrame(df_data)
+        return report_text, df
+
+    def _find_companies_by_general_topic(self, normalized_query: str) -> tuple:
+        """
+        Função de fallback que busca empresas associadas a qualquer tópico do dicionário
+        se nenhuma intenção específica for detectada.
+        """
+        flat_map = self.kb_flat_map()
+        found_topic_details = None
+        # Prioriza matches mais longos e específicos
+        for alias in sorted(flat_map.keys(), key=len, reverse=True):
+            if re.search(r'\b' + re.escape(self._normalize_text(alias)) + r'\b', normalized_query):
+                found_topic_details = flat_map[alias]
+                break
+            
+        if not found_topic_details:
+            return "Não consegui identificar um tópico técnico conhecido na sua pergunta para realizar a busca agregada.", None
+
+        section, topic_name_formatted, topic_name_raw = found_topic_details
+        companies = [
+            company_name for company_name, details in self.data.items()
+            if section in details.get("topicos_encontrados", {}) and topic_name_raw in details["topicos_encontrados"][section]
+        ]
+
+        if not companies:
+            return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}'.", None
+
+        report_text = f"Encontradas **{len(companies)}** empresas com o tópico: **{topic_name_formatted}**"
+        df = pd.DataFrame(sorted(companies), columns=[f"Empresas com {topic_name_formatted}"])
+        return report_text, df
+        
+    def kb_flat_map(self) -> dict:
+        """
+        Cria um mapeamento plano de aliases para nomes canônicos de tópicos para busca rápida.
+        Armazena em cache para performance.
+        """
+        if hasattr(self, '_kb_flat_map_cache'): return self._kb_flat_map_cache
+        flat_map = {}
+        for section, topics in self.kb.items():
+            for topic_name_raw, aliases in topics.items():
+                topic_name_formatted = topic_name_raw.replace('_', ' ')
+                details = (section, topic_name_formatted, topic_name_raw)
+                # Adiciona o nome canônico e todos os aliases ao mapeamento
+                flat_map[topic_name_formatted.lower()] = details
+                for alias in aliases: 
+                    # Normaliza o alias antes de adicionar ao mapa para garantir correspondência consistente
+                    flat_map[self._normalize_text(alias)] = details 
+        self._kb_flat_map_cache = flat_map
+        return flat_map
+
+    # O construtor __init__ deve ser definido depois de todos os métodos que ele referencia
+    def __init__(self, summary_data: dict, knowledge_base: dict):
+        if not summary_data:
+            raise ValueError("Dados de resumo (summary_data) não podem ser nulos.")
+        self.data = summary_data
+        self.kb = knowledge_base
+        
+        # --- ROTEADOR DECLARATIVO ---
+        # Mapeamento de funções de análise para suas regras de ativação.
+        # As regras são verificadas em ordem. A primeira que corresponder é executada.
+        self.intent_rules = [
+            (lambda q: 'desconto' in q and ('preco de exercicio' in q or 'strike' in q), self._analyze_strike_discount),
+            (lambda q: 'tsr' in q, self._analyze_tsr),
+            (lambda q: 'vesting' in q and ('periodo' in q or 'prazo' in q or 'medio' in q), self._analyze_vesting_period),
+            (lambda q: 'lockup' in q or 'lock-up' in q, self._analyze_lockup_period),
+            (lambda q: 'diluicao' in q, self._analyze_dilution),
+            (lambda q: 'malus' in q or 'clawback' in q, self._analyze_malus_clawback),
+            (lambda q: 'dividendos' in q and 'carencia' in q, self._analyze_dividends_during_vesting),
+            (lambda q: 'membros do plano' in q or 'elegiveis' in q or 'quem sao os membros' in q, self._analyze_plan_members),
+            (lambda q: 'quantos planos tem o conselho de administracao elegivel' in q or 'conselho de administracao elegivel' in q, self._count_plans_for_board),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de performance' in q, self._analyze_common_goals),
+            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
+            # Fallback para busca genérica por tópico se nenhuma regra específica for acionada
+            (lambda q: True, self._find_companies_by_general_topic),
+        ]
