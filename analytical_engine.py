@@ -349,76 +349,93 @@ class AnalyticalEngine:
         df = pd.DataFrame(sorted(companies_with_board_plans_mention), columns=["Empresas com Menção ao Conselho de Administração em Planos"])
         return report_text, df
 
+    # analytical_engine.py - _analyze_common_goals function (complete revised code)
+
     def _analyze_common_goals(self, normalized_query: str) -> tuple:
         """
-        Lista as metas de performance mais comuns entre as empresas,
-        detalhando também os subgrupos específicos.
+        Lista os indicadores de performance mais comuns entre as empresas,
+        focando nos sub-itens específicos e re-categorizando 'Mercado' como 'Índices de Mercado'.
         """
         # Para contar as ocorrências de cada sub-tópico dentro de suas respectivas categorias
-        subtopic_counts = defaultdict(lambda: defaultdict(int)) 
+        specific_indicator_counts = defaultdict(lambda: defaultdict(int)) 
 
-        # Define termos gerais a serem excluídos da contagem de "subtópicos" específicos,
-        # pois são mais como categorias ou tipos de metas genéricas.
-        # Estes termos são as chaves da sua seção 'IndicadoresPerformance' no KB.
-        excluded_general_terms_lower = {
-            # Tópicos que são categorias e não sub-itens específicos a serem contados individualmente
-            "metas gerais", "financeiro", "mercado", "tsr_absoluto", "tsr_relativo", "grupo de comparacao", "esg"
+        # Define termos que são categorias no KB, mas que queremos substituir/expandir
+        # quando aparecem como 'tópicos' no summary JSON.
+        # Por exemplo, se 'Financeiro' aparece como tópico, queremos ignorá-lo e focar em ROIC, EBITDA.
+        # Mas 'Financeiro' e 'Mercado' ainda serão as categorias-pai.
+        high_level_categories_kb_keys = {
+            "Financeiro": "Financeiro", 
+            "Mercado": "Índices de Mercado", # Renomeia 'Mercado' para 'Índices de Mercado'
+            "TSR_Absoluto": "TSR Absoluto",
+            "TSR_Relativo": "TSR Relativo",
+            "ESG": "ESG",
+            "GrupoDeComparacao": "Grupo de Comparação",
+            "MetasGerais": "Metas Gerais" # Pode ser exibido, mas sem sub-itens detalhados
         }
         
         for company, details in self.data.items():
             found_topics_by_section = details.get("topicos_encontrados", {})
-
-            # Processa tópicos da seção "IndicadoresPerformance" do JSON de resumo
             performance_topics_for_company = found_topics_by_section.get("IndicadoresPerformance", {})
             
-            for topic_raw_from_summary in performance_topics_for_company.keys():
-                canonical_topic_name = topic_raw_from_summary.replace('_', ' ')
-                
-                # Se o tópico que encontramos no resumo é ele mesmo uma das categorias gerais,
-                # não o contamos como um "subtópico" de si mesmo aqui.
-                if canonical_topic_name.lower() in excluded_general_terms_lower:
-                    continue # Pula para o próximo tópico se for uma categoria geral
+            # First, handle the explicitly high-level topics like TSR_Absoluto/Relativo directly
+            # since they are top-level within IndicadoresPerformance in your KB.
+            # We want to count these directly if they are mentioned.
+            for high_level_key, display_name in high_level_categories_kb_keys.items():
+                if high_level_key in performance_topics_for_company:
+                    # If the high-level key itself is present, count it directly.
+                    # This ensures "TSR Absoluto" gets counted, not its potential sub-aliases if they exist.
+                    specific_indicator_counts["Categorias Principais"][display_name] += 1
 
-                # Encontrar a categoria principal (ex: "Financeiro", "Mercado") à qual este tópico granular pertence
-                # Iterar sobre a seção 'IndicadoresPerformance' do próprio Knowledge Base (self.kb)
-                found_category = None
-                indicators_kb_section = self.kb.get("IndicadoresPerformance", {})
-                for sub_category_kb_key, specific_topics_dict in indicators_kb_section.items():
-                    # Check if topic_raw_from_summary is a key in the specific_topics_dict or if topic_raw_from_summary IS the sub_category_kb_key itself (unlikely for specific but possible)
-                    if topic_raw_from_summary in specific_topics_dict or topic_raw_from_summary == sub_category_kb_key:
-                        found_category = sub_category_kb_key.replace('_', ' ') # Format the category name for display
-                        break
-                
-                if found_category:
-                    # Se encontrarmos a categoria principal para o tópico granular, o contamos
-                    subtopic_counts[found_category][canonical_topic_name] += 1
-                else:
-                    # Fallback: Se não encontramos uma categoria específica para este tópico granular
-                    # e ele não estava na lista de termos excluídos, ele é um tópico "solto".
-                    # Contamos em uma categoria "Outros Indicadores" para não perder a informação.
-                    subtopic_counts["Outros Indicadores"][canonical_topic_name] += 1 
+            # Now, iterate through the KB's IndicadoresPerformance section
+            # to find the granular sub-items (like ROIC, IPCA) and count them.
+            indicators_kb_section = self.kb.get("IndicadoresPerformance", {})
+            
+            for kb_sub_category_key, kb_specific_topics_dict in indicators_kb_section.items():
+                # kb_sub_category_key = "Financeiro", "Mercado", "MetasGerais", etc.
+                # kb_specific_topics_dict = {"ROIC": [...], "EBITDA": [...]} for Financeiro
 
-        report_text = "### Metas de Performance Mais Comuns\n"
-        report_text += "Esta análise detalha as metas e indicadores de performance encontrados nos documentos.\n\n"
+                # Determine the display name for this category (e.g., "Financeiro" or "Índices de Mercado")
+                category_display_name = high_level_categories_kb_keys.get(kb_sub_category_key, kb_sub_category_key.replace('_', ' '))
+
+                for granular_topic_raw, aliases in kb_specific_topics_dict.items():
+                    # granular_topic_raw = "ROIC", "EBITDA", "CDI", "IPCA", etc.
+
+                    # Check if this granular_topic_raw was found in the company's performance_topics_for_company
+                    # We check if it's a KEY in the company's topics.
+                    if granular_topic_raw in performance_topics_for_company:
+                        # Exclude the high_level_categories_kb_keys themselves if they also appear as granular (shouldn't happen with proper KB, but safe)
+                        if granular_topic_raw not in high_level_categories_kb_keys:
+                            specific_indicator_counts[category_display_name][granular_topic_raw.replace('_', ' ')] += 1
+
+        report_text = "### Indicadores de Performance Mais Comuns\n"
+        report_text += "Esta análise detalha os indicadores de performance encontrados nos documentos, agrupados por área.\n\n"
         
-        df_summary_data = [] # Para construir o DataFrame final
+        df_summary_data = [] 
 
-        # Apresentar os subtópicos detalhadamente, agrupados por categoria
-        # Ordena as categorias por nome para apresentação consistente
-        for category_name_formatted, topics_dict in sorted(subtopic_counts.items()):
-            if topics_dict: # Garante que a categoria tem subtópicos contados
-                report_text += f"\n#### Tópicos de Performance em **{category_name_formatted}**:\n"
-                # Ordena os subtópicos por contagem (mais comuns primeiro)
-                for subtopic, count in sorted(topics_dict.items(), key=lambda item: item[1], reverse=True):
-                    report_text += f"- **{subtopic}:** {count} empresas\n"
-                    df_summary_data.append({"Tipo de Meta/Indicador": subtopic, "Número de Empresas": count, "Nível": category_name_formatted})
+        # Apresentar as contagens, agrupadas por suas categorias de exibição.
+        # Ordenar as categorias para exibição consistente.
+        ordered_categories = [
+            "TSR Absoluto", "TSR Relativo", "Financeiro", "Índices de Mercado", 
+            "ESG", "Grupo de Comparação", "Metas Gerais", "Outros Indicadores" # Ensure fallback category is last
+        ]
+
+        for category_display_name in ordered_categories:
+            if category_display_name in specific_indicator_counts:
+                topics_dict = specific_indicator_counts[category_display_name]
+                if topics_dict: # Only print if there are specific items to list
+                    report_text += f"\n#### {category_display_name}:\n"
+                    # Sort specific indicators by count (most common first)
+                    for subtopic, count in sorted(topics_dict.items(), key=lambda item: item[1], reverse=True):
+                        report_text += f"- **{subtopic}:** {count} empresas\n"
+                        df_summary_data.append({"Indicador": subtopic, "Número de Empresas": count, "Categoria": category_display_name})
 
         if not df_summary_data:
-             return "Nenhum indicador de performance ou meta específica foi encontrado nos planos analisados.", None
+             return "Nenhum indicador de performance específico foi encontrado nos planos analisados.", None
 
         df_final = pd.DataFrame(df_summary_data)
-        # Ordenar o DataFrame final, primeiro por Nível (categoria) e depois por Número de Empresas
-        df_final = df_final.sort_values(by=["Nível", "Número de Empresas"], ascending=[True, False]).reset_index(drop=True)
+        # Order the final DataFrame by the specified category order, then by count
+        df_final['CategoryOrder'] = df_final['Categoria'].map({cat: i for i, cat in enumerate(ordered_categories)})
+        df_final = df_final.sort_values(by=['CategoryOrder', "Número de Empresas"], ascending=[True, False]).drop(columns=['CategoryOrder']).reset_index(drop=True)
 
         return report_text, df_final
 
