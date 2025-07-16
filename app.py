@@ -364,9 +364,11 @@ def main():
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
         query_lower = user_query.lower()
-        aggregate_keywords = ["quais", "quantas", "liste", "qual a lista", "qual o desconto", "qual a média", "qual é o"]
+        aggregate_keywords = ["quais", "quantas", "liste", "qual a lista", "qual o desconto", "qual a media", "qual e o", "qual o periodo medio", "quantas empresas tem"] # <- Linha atualizada
+         # Roteador de Intenção
+        if any(keyword in query_lower for keyword in aggregate_keywords): # <- Alterado de .split() para direto na string
         # Roteador de Intenção
-        if any(keyword in query_lower.split() for keyword in aggregate_keywords):
+        
             with st.spinner("Analisando dados estruturados..."):
                 report, dataframe = engine.answer_query(user_query)
                 if report:
