@@ -17,12 +17,53 @@ class AnalyticalEngine:
     para responder perguntas quantitativas e de listagem.
     Versão com análise estatística aprofundada e roteador declarativo.
     """
-    # --- Métodos Auxiliares e de Análise (definidos ANTES de __init__) ---
-
+    def __init__(self, summary_data: dict, knowledge_base: dict):
+        if not summary_data:
+            raise ValueError("Dados de resumo (summary_data) não podem ser nulos.")
+        self.data = summary_data
+        self.kb = knowledge_base
+        
+        # --- ROTEADOR DECLARATIVO ---
+        # Mapeamento de funções de análise para suas regras de ativação.
+        # As regras são verificadas em ordem. A primeira que corresponder é executada.
+        self.intent_rules = [
+            (lambda q: 'desconto' in q and ('preco de exercicio' in q or 'strike' in q), self._analyze_strike_discount),
+            (lambda q: 'tsr' in q, self._analyze_tsr),
+            (lambda q: 'vesting' in q and ('periodo' in q or 'prazo' in q or 'medio' in q), self._analyze_vesting_period),
+            (lambda q: 'lockup' in q or 'lock-up' in q, self._analyze_lockup_period),
+            (lambda q: 'diluicao' in q, self._analyze_dilution),
+            (lambda q: 'malus' in q or 'clawback' in q, self._analyze_malus_clawback),
+            (lambda q: 'dividendos' in q and 'carencia' in q, self._analyze_dividends_during_vesting),
+            (lambda q: 'membros do plano' in q or 'elegiveis' in q or 'quem sao os membros' in q, self._analyze_plan_members),
+            (lambda q: 'quantos planos tem o conselho de administracao elegivel' in q or 'conselho de administracao elegivel' in q, self._count_plans_for_board),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de performance' in q, self._analyze_common_goals),
+            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
+            # Fallback para busca genérica por tópico se nenhuma regra específica for acionada
+            (lambda q: True, self._find_companies_by_general_topic),
+        ]
+        
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para comparação (minúsculas, sem acentos)."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
-        return "".join([c for c in nfkode_form if not unicodedata.combining(c)])
+        return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+    def answer_query(self, query: str) -> tuple:
+        """
+        Ponto de entrada principal. Usa o roteador declarativo para encontrar
+        e executar a ferramenta de análise correta com base na pergunta.
+        """
+        normalized_query = self._normalize_text(query)
+        logger.info(f"Pergunta normalizada para análise de intenção: '{normalized_query}'")
+
+        for intent_checker_func, analysis_func in self.intent_rules:
+            if intent_checker_func(normalized_query):
+                logger.info(f"Intenção detectada. Executando: {analysis_func.__name__}")
+                return analysis_func(normalized_query)
+        
+        logger.warning("Nenhuma intenção específica detectada. Caindo no fallback genérico.")
+        return "Não consegui identificar uma intenção clara na sua pergunta para realizar uma análise quantitativa.", None
+
+    # --- Funções de Análise Detalhadas ---
 
     def _analyze_strike_discount(self, normalized_query: str) -> tuple:
         """
@@ -41,10 +82,12 @@ class AnalyticalEngine:
             
         discounts = np.array([item[1] for item in companies_and_discounts])
         
-        # Moda removida daqui
-        # Removida: mode_result = stats.mode(discounts, keepdims=False)
-        # Removida: modes = mode_result.mode
-        # Removida: mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+        # Calcular moda
+        # stats.mode pode retornar um array vazio se não houver moda, ou um array de um elemento
+        mode_result = stats.mode(discounts, keepdims=False)
+        modes = mode_result.mode
+        # Acessa .ndim e .size para robustez
+        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Desconto no Preço de Exercício\n"
         report_text += f"- **Total de Empresas com Desconto:** {len(discounts)}\n"
@@ -55,7 +98,7 @@ class AnalyticalEngine:
         report_text += f"- **Mediana (50º Percentil):** {np.median(discounts):.2f}%\n"
         report_text += f"- **75º Percentil:** {np.percentile(discounts, 75):.2f}%\n"
         report_text += f"- **Máximo:** {np.max(discounts):.2f}%\n"
-        # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
+        report_text += f"- **Moda(s):** {mode_str}\n"
         
         df = pd.DataFrame(companies_and_discounts, columns=["Empresa", "Desconto Aplicado (%)"])
         df_sorted = df.sort_values(by="Desconto Aplicado (%)", ascending=False).reset_index(drop=True)
@@ -129,10 +172,10 @@ class AnalyticalEngine:
         
         vesting_values = np.array([item[1] for item in periods])
         
-        # Moda removida daqui
-        # Removida: mode_result = stats.mode(vesting_values, keepdims=False)
-        # Removida: modes = mode_result.mode
-        # Removida: mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+        # Calcular moda
+        mode_result = stats.mode(vesting_values, keepdims=False)
+        modes = mode_result.mode
+        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Período de Vesting\n"
         report_text += f"- **Total de Empresas com Vesting Mapeado:** {len(vesting_values)}\n"
@@ -143,7 +186,7 @@ class AnalyticalEngine:
         report_text += f"- **Mediana (50º Percentil):** {np.median(vesting_values):.2f} anos\n"
         report_text += f"- **75º Percentil:** {np.percentile(vesting_values, 75):.2f} anos\n"
         report_text += f"- **Máximo:** {np.max(vesting_values):.2f} anos\n"
-        # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
+        report_text += f"- **Moda(s):** {mode_str}\n"
         
         df = pd.DataFrame(periods, columns=["Empresa", "Período de Vesting (Anos)"])
         df_sorted = df.sort_values(by="Período de Vesting (Anos)", ascending=False).reset_index(drop=True)
@@ -167,10 +210,10 @@ class AnalyticalEngine:
         
         lockup_values = np.array([item[1] for item in periods])
         
-        # Moda removida daqui
-        # Removida: mode_result = stats.mode(lockup_values, keepdims=False)
-        # Removida: modes = mode_result.mode
-        # Removida: mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+        # Calcular moda
+        mode_result = stats.mode(lockup_values, keepdims=False)
+        modes = mode_result.mode
+        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Período de Lock-up\n"
         report_text += f"- **Total de Empresas com Lock-up Mapeado:** {len(lockup_values)}\n"
@@ -181,7 +224,7 @@ class AnalyticalEngine:
         report_text += f"- **Mediana (50º Percentil):** {np.median(lockup_values):.2f} anos\n"
         report_text += f"- **75º Percentil:** {np.percentile(lockup_values, 75):.2f} anos\n"
         report_text += f"- **Máximo:** {np.max(lockup_values):.2f} anos\n"
-        # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
+        report_text += f"- **Moda(s):** {mode_str}\n"
         
         df = pd.DataFrame(periods, columns=["Empresa", "Período de Lock-up (Anos)"])
         df_sorted = df.sort_values(by="Período de Lock-up (Anos)", ascending=False).reset_index(drop=True)
@@ -212,16 +255,15 @@ class AnalyticalEngine:
         if diluicao_percentual:
             percents = np.array([item[1] for item in diluicao_percentual])
             
-            # Moda removida daqui
-            # Removida: mode_result = stats.mode(percents, keepdims=False)
-            # Removida: modes = mode_result.mode
-            # Removida: mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+            mode_result = stats.mode(percents, keepdims=False)
+            modes = mode_result.mode
+            mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
             report_text += "\n#### Diluição Percentual\n"
             report_text += f"- **Total de Empresas com Diluição % Mapeada:** {len(percents)}\n"
             report_text += f"- **Média:** {np.mean(percents):.2f}%\n"
             report_text += f"- **Máximo:** {np.max(percents):.2f}%\n"
-            # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
+            report_text += f"- **Moda(s):** {mode_str}\n"
             df_percent = pd.DataFrame(diluicao_percentual, columns=["Empresa", "Diluição Máxima (%)"])
             dfs_to_return['Diluição Percentual'] = df_percent.sort_values(by="Diluição Máxima (%)", ascending=False).reset_index(drop=True)
         else:
@@ -230,16 +272,15 @@ class AnalyticalEngine:
         if diluicao_quantidade:
             quantities = np.array([item[1] for item in diluicao_quantidade])
 
-            # Moda removida daqui
-            # Removida: mode_result = stats.mode(quantities, keepdims=False)
-            # Removida: modes = mode_result.mode
-            # Removida: mode_str = ", ".join([f"{m:,.0f} ações" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+            mode_result = stats.mode(quantities, keepdims=False)
+            modes = mode_result.mode
+            mode_str = ", ".join([f"{m:,.0f} ações" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
             report_text += "\n#### Diluição em Quantidade de Ações\n"
             report_text += f"- **Total de Empresas com Diluição por Qtd. de Ações Mapeada:** {len(quantities)}\n"
             report_text += f"- **Média:** {np.mean(quantities):,.0f} ações\n"
             report_text += f"- **Máximo:** {np.max(quantities):,.0f} ações\n"
-            # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
+            report_text += f"- **Moda(s):** {mode_str}\n"
             df_quantity = pd.DataFrame(diluicao_quantidade, columns=["Empresa", "Diluição Máxima (Ações)"])
             dfs_to_return['Diluição Quantidade'] = df_quantity.sort_values(by="Diluição Máxima (Ações)", ascending=False).reset_index(drop=True)
         else:
@@ -351,9 +392,7 @@ class AnalyticalEngine:
 
     def _analyze_common_goals(self, normalized_query: str) -> tuple:
         """
-        Lista os indicadores de performance mais comuns entre as empresas.
-        Esta versão simplificada conta todos os tópicos encontrados sob
-        "IndicadoresPerformance" e os lista por frequência.
+        Lista as metas de performance mais comuns entre as empresas.
         """
         goal_counts = defaultdict(int)
         for company, details in self.data.items():
@@ -361,23 +400,27 @@ class AnalyticalEngine:
             for topic_raw in performance_topics.keys():
                 # Normaliza o nome do tópico para contagem (ex: 'TSR_Absoluto' -> 'TSR Absoluto')
                 canonical_goal_name = topic_raw.replace('_', ' ')
-                goal_counts[canonical_goal_name] += 1
+                
+                # Excluir tópicos muito gerais que não são metas específicas
+                # Adicione mais termos gerais se necessário, mas mantenha a lista concisa.
+                excluded_general_terms = ["metas gerais", "performance shares", "performance units", "psu"]
+                if canonical_goal_name.lower() not in excluded_general_terms: 
+                    goal_counts[canonical_goal_name] += 1
         
         if not goal_counts:
-            return "Nenhum indicador de performance foi encontrado nos planos analisados.", None
+            return "Nenhum indicador de performance ou meta específica foi encontrado nos planos analisados.", None
         
-        report_text = "### Indicadores de Performance Mais Comuns\n"
-        report_text += "Esta análise lista todos os indicadores de performance encontrados, ordenados por frequência.\n\n"
+        report_text = "### Metas de Performance Mais Comuns\n"
+        report_text += "Esta análise considera os tópicos de indicadores de performance encontrados nos documentos.\n\n"
         
         df_data = []
         sorted_goals = sorted(goal_counts.items(), key=lambda item: item[1], reverse=True)
         for goal, count in sorted_goals:
             report_text += f"- **{goal}:** {count} empresas\n"
-            df_data.append({"Indicador de Performance": goal, "Número de Empresas": count})
+            df_data.append({"Meta de Performance": goal, "Número de Empresas": count})
         
         df = pd.DataFrame(df_data)
         return report_text, df
-
 
     def _analyze_common_plan_types(self, normalized_query: str) -> tuple:
         """
@@ -453,29 +496,3 @@ class AnalyticalEngine:
                     flat_map[self._normalize_text(alias)] = details 
         self._kb_flat_map_cache = flat_map
         return flat_map
-
-    # O construtor __init__ deve ser definido depois de todos os métodos que ele referencia
-    def __init__(self, summary_data: dict, knowledge_base: dict):
-        if not summary_data:
-            raise ValueError("Dados de resumo (summary_data) não podem ser nulos.")
-        self.data = summary_data
-        self.kb = knowledge_base 
-        
-        # --- ROTEADOR DECLARATIVO ---
-        # Mapeamento de funções de análise para suas regras de ativação.
-        # As regras são verificadas em ordem. A primeira que corresponder é executada.
-        self.intent_rules = [
-            (lambda q: 'desconto' in q and ('preco de exercicio' in q or 'strike' in q), self._analyze_strike_discount),
-            (lambda q: 'tsr' in q, self._analyze_tsr),
-            (lambda q: 'vesting' in q and ('periodo' in q or 'prazo' in q or 'medio' in q), self._analyze_vesting_period),
-            (lambda q: 'lockup' in q or 'lock-up' in q, self._analyze_lockup_period),
-            (lambda q: 'diluicao' in q, self._analyze_dilution),
-            (lambda q: 'malus' in q or 'clawback' in q, self._analyze_malus_clawback),
-            (lambda q: 'dividendos' in q and 'carencia' in q, self._analyze_dividends_during_vesting),
-            (lambda q: 'membros do plano' in q or 'elegiveis' in q or 'quem sao os membros' in q, self._analyze_plan_members),
-            (lambda q: 'quantos planos tem o conselho de administracao elegivel' in q or 'conselho de administracao elegivel' in q, self._count_plans_for_board),
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de performance' in q, self._analyze_common_goals),
-            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
-            # Fallback para busca genérica por tópico se nenhuma regra específica for acionada
-            (lambda q: True, self._find_companies_by_general_topic),
-        ]
