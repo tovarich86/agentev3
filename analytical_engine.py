@@ -41,7 +41,7 @@ class AnalyticalEngine:
             
         discounts = np.array([item[1] for item in companies_and_discounts])
         
-        # Moda removida daqui
+        # Moda removida aqui
         # Removida: mode_result = stats.mode(discounts, keepdims=False)
         # Removida: modes = mode_result.mode
         # Removida: mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
