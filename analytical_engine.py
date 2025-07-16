@@ -1,4 +1,4 @@
- analytical_engine.py
+# analytical_engine.py
 # Este script contém o motor de análise para perguntas quantitativas.
 
 import numpy as np
@@ -83,10 +83,8 @@ class AnalyticalEngine:
         discounts = np.array([item[1] for item in companies_and_discounts])
         
         # Calcular moda
-        # stats.mode pode retornar um array vazio se não houver moda, ou um array de um elemento
         mode_result = stats.mode(discounts, keepdims=False)
         modes = mode_result.mode
-        # Acessa .ndim e .size para robustez
         mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Desconto no Preço de Exercício\n"
@@ -390,166 +388,104 @@ class AnalyticalEngine:
         df = pd.DataFrame(sorted(companies_with_board_plans_mention), columns=["Empresas com Menção ao Conselho de Administração em Planos"])
         return report_text, df
 
-    # analytical_engine.py (trecho da função _analyze_common_goals)
-
     def _analyze_common_goals(self, normalized_query: str) -> tuple:
         """
         Lista as metas de performance mais comuns entre as empresas,
         detalhando também os subgrupos específicos.
         """
-        category_counts = defaultdict(int) # Para contar as categorias principais
-        subtopic_counts = defaultdict(lambda: defaultdict(int)) # Para contar os subgrupos dentro de cada categoria
+        # Para contar as ocorrências de cada sub-tópico dentro de suas respectivas categorias
+        subtopic_counts = defaultdict(lambda: defaultdict(int)) 
 
         # Define termos gerais a serem excluídos da contagem de "subtópicos" específicos,
         # pois são mais como categorias ou tipos de metas genéricas.
+        # Estes termos são as chaves da sua seção 'IndicadoresPerformance' no KB.
         excluded_general_terms_lower = {
-            "metas gerais", "performance shares", "performance units", "psu",
-            "tsr absoluto", "tsr relativo", "grupo de comparacao",
-            "financeiro", "mercado", "esg" # Adicionar aqui as categorias principais se não quiser que apareçam como subtópicos diretos
+            # Tópicos que são categorias e não sub-itens específicos a serem contados individualmente
+            "metas gerais", "financeiro", "mercado", "tsr_absoluto", "tsr_relativo", "grupo de comparacao", "esg"
         }
-
+        
         for company, details in self.data.items():
             found_topics_by_section = details.get("topicos_encontrados", {})
 
-            # Processa tópicos da seção "IndicadoresPerformance"
-            performance_topics = found_topics_by_section.get("IndicadoresPerformance", {})
-            if performance_topics: # Se houver tópicos de performance para a empresa
-                # Conta a ocorrência das categorias principais (se o tópico for uma categoria)
-                for section_kb, topics_kb in self.kb.get("IndicadoresPerformance", {}).items():
-                     if section_kb in performance_topics:
-                        category_counts[section_kb] += 1 # Conta a empresa que tem tópicos nesta seção de KB
-
-                for topic_raw in performance_topics.keys():
-                    # Normaliza o nome do tópico para contagem (ex: 'TSR_Absoluto' -> 'TSR Absoluto')
-                    canonical_topic_name = topic_raw.replace('_', ' ')
-                    
-                    # Conta os subtópicos específicos
-                    if canonical_topic_name.lower() not in excluded_general_terms_lower:
-                        # Encontra a categoria principal à qual este subtópico pertence
-                        # Itera sobre o KB para encontrar a seção que contém este tópico_raw
-                        for kb_section, kb_topics in self.kb.items():
-                            if kb_section == "IndicadoresPerformance": # Foca apenas na seção de performance do KB
-                                for kb_topic_raw, kb_aliases in kb_topics.items():
-                                    if kb_topic_raw == topic_raw: # Se o tópico_raw do dado corresponde ao tópico_raw do KB
-                                        subtopic_counts[kb_section.replace('_', ' ')][canonical_topic_name] += 1
-                                        break # Encontrou a seção para este tópico, pode sair do loop interno
-                            else: # Adiciona uma contagem para o tópico direto, caso não seja uma subcategoria
-                                if topic_raw in kb_topics and kb_topics[topic_raw]: # Se o tópico está direto em uma seção
-                                     subtopic_counts[kb_section.replace('_', ' ')][canonical_topic_name] += 1
-
-            # Você também pode querer considerar outras seções do KB como "metas" se aplicável,
-            # mas "IndicadoresPerformance" é a mais direta.
+            # Processa tópicos da seção "IndicadoresPerformance" do JSON de resumo
+            performance_topics_for_company = found_topics_by_section.get("IndicadoresPerformance", {})
+            
+            for topic_raw_from_summary in performance_topics_for_company.keys():
+                canonical_topic_name = topic_raw_from_summary.replace('_', ' ')
+                
+                # Se o tópico não é uma categoria geral que queremos apenas listar
+                if canonical_topic_name.lower() not in excluded_general_terms_lower:
+                    # Encontrar a categoria principal (chave do KB) a qual este tópico pertence
+                    # Iterar sobre a seção 'IndicadoresPerformance' do próprio Knowledge Base (self.kb)
+                    for kb_topic_key, kb_aliases in self.kb.get("IndicadoresPerformance", {}).items():
+                        if kb_topic_key == topic_raw_from_summary:
+                            # Encontrou a chave do KB, agora adiciona à contagem sob a categoria formatada
+                            # A categoria formatada aqui é a chave do KB (ex: "Financeiro", "Mercado")
+                            # Convertida para exibição (ex: "Financeiro", "Mercado")
+                            category_for_subtopic = kb_topic_key.replace('_', ' ') # Assumindo que a chave principal é o nome da categoria.
+                            
+                            # Se o tópico é uma subcategoria como 'Financeiro' ou 'Mercado', mas também tem aliases,
+                            # significa que ele pode ser um subtópico, mas o KB o trata como categoria.
+                            # Precisamos verificar se ele é um "sub-tópico" de fato ou uma categoria geral.
+                            # A forma mais robusta é verificar se o tópico_raw é uma CHAVE de sub-dicionário no KB.
+                            
+                            # Para as chaves que são sub-dicionários no KB (ex: 'Financeiro', 'Mercado')
+                            if kb_topic_key in ["Financeiro", "Mercado", "TSR_Absoluto", "TSR_Relativo", "ESG", "GrupoDeComparacao", "MetasGerais"]:
+                                # Estas são as CATEGORIAS que queremos exibir com seus sub-itens.
+                                # O 'canonical_topic_name' para estas é a própria categoria.
+                                # Precisamos iterar sobre os aliases para encontrar os subtópicos.
+                                for alias in kb_aliases: # Itera sobre os aliases, que são os termos específicos
+                                    if self._normalize_text(alias) in self._normalize_text(performance_topics_for_company[topic_raw_from_summary]):
+                                        # Se o alias está no texto do tópico encontrado para a empresa, conta.
+                                        # Isso é mais complexo, pois o resumo JSON já lista o topic_raw.
+                                        # O ideal é que o 'topic_raw_from_summary' já seja o item mais granular.
+                                        pass # A lógica abaixo já trata isso se topic_raw é o mais granular.
+                            
+                            # A forma mais simples para o seu JSON atual:
+                            # Se topic_raw_from_summary é 'ROIC', sua categoria é 'Financeiro'.
+                            # O KB está estruturado como "IndicadoresPerformance" -> "Financeiro" -> {"ROIC": [...]}
+                            # Então, precisamos mapear 'ROIC' de volta para 'Financeiro'.
+                            # Isso requer uma passada no KB para encontrar a hierarquia real.
+                            
+                            found_category = None
+                            for section_kb_outer, topics_in_outer_section in self.kb.items():
+                                if section_kb_outer == "IndicadoresPerformance": # Foca na seção correta do KB
+                                    for sub_category_kb, specific_topics_in_subcategory in topics_in_outer_section.items():
+                                        # specific_topics_in_subcategory é um dicionário de tópico:aliases
+                                        if topic_raw_from_summary in specific_topics_in_subcategory:
+                                            found_category = sub_category_kb.replace('_', ' ')
+                                            break
+                                if found_category:
+                                    break
+                            
+                            if found_category:
+                                subtopic_counts[found_category][canonical_topic_name] += 1
+                                
+                            break # Sai do loop interno do KB após encontrar a categoria do tópico
+                else: # Se o tópico_raw_from_summary é uma categoria geral (ex: "Financeiro", "Mercado")
+                    # Contamos a ocorrência da CATEGORIA em si, mas não como um "subtópico" de si mesma
+                    # Isso é mais para saber quantas empresas mencionam *qualquer* indicador financeiro, por exemplo
+                    # Isso já está implicitamente na lista de empresas que possuem a categoria.
+                    pass # Não precisamos adicionar ao subtopic_counts aqui
 
         report_text = "### Metas de Performance Mais Comuns\n"
         report_text += "Esta análise detalha as metas e indicadores de performance encontrados nos documentos.\n\n"
         
-        # DataFrame para sumarizar todas as contagens (categorias e subtópicos)
-        df_summary_data = []
+        df_summary_data = [] # Para construir o DataFrame final
 
-        # 1. Apresentar categorias principais (se desejado)
-        # category_map = {
-        #     "Financeiro": "Financeiro",
-        #     "Mercado": "Mercado",
-        #     "MetasGerais": "Metas Gerais",
-        #     "TSR_Absoluto": "TSR Absoluto",
-        #     "TSR_Relativo": "TSR Relativo",
-        #     "ESG": "ESG",
-        #     "GrupoDeComparacao": "Grupo de Comparação"
-        # }
-        # for category_raw, count in sorted(category_counts.items(), key=lambda item: item[1], reverse=True):
-        #     display_name = category_map.get(category_raw, category_raw.replace('_', ' '))
-        #     report_text += f"- **{display_name}:** {count} empresas\n"
-        #     df_summary_data.append({"Tipo de Meta/Indicador": display_name, "Número de Empresas": count, "Nível": "Categoria"})
-
-
-        # 2. Apresentar os subtópicos detalhadamente, agrupados por categoria se relevante
-        for category_name, topics in subtopic_counts.items():
-            if topics: # Garante que a categoria tem subtópicos contados
-                report_text += f"\n#### Tópicos de Performance em **{category_name}**:\n"
-                for subtopic, count in sorted(topics.items(), key=lambda item: item[1], reverse=True):
+        # Apresentar os subtópicos detalhadamente, agrupados por categoria
+        for category_name_formatted, topics_dict in sorted(subtopic_counts.items()):
+            if topics_dict: # Garante que a categoria tem subtópicos contados
+                report_text += f"\n#### Tópicos de Performance em **{category_name_formatted}**:\n"
+                for subtopic, count in sorted(topics_dict.items(), key=lambda item: item[1], reverse=True):
                     report_text += f"- **{subtopic}:** {count} empresas\n"
-                    df_summary_data.append({"Tipo de Meta/Indicador": subtopic, "Número de Empresas": count, "Nível": category_name})
+                    df_summary_data.append({"Tipo de Meta/Indicador": subtopic, "Número de Empresas": count, "Nível": category_name_formatted})
 
         if not df_summary_data:
              return "Nenhum indicador de performance ou meta específica foi encontrado nos planos analisados.", None
 
         df_final = pd.DataFrame(df_summary_data)
-        # Opcional: ordenar o DataFrame final como você preferir
+        # Ordenar o DataFrame final, talvez primeiro por Nível (categoria) e depois por Número de Empresas
         df_final = df_final.sort_values(by=["Nível", "Número de Empresas"], ascending=[True, False]).reset_index(drop=True)
 
         return report_text, df_final
-
-    def _analyze_common_plan_types(self, normalized_query: str) -> tuple:
-        """
-        Lista os tipos de planos de incentivo mais comuns entre as empresas.
-        """
-        plan_type_counts = defaultdict(int)
-        for company, details in self.data.items():
-            plan_topics = details.get("topicos_encontrados", {}).get("TiposDePlano", {})
-            for topic_raw in plan_topics.keys():
-                # Normaliza o nome do tópico para contagem
-                canonical_plan_name = topic_raw.replace('_', ' ')
-                plan_type_counts[canonical_plan_name] += 1
-        
-        if not plan_type_counts:
-            return "Nenhum tipo de plano de incentivo foi encontrado nos documentos analisados.", None
-        
-        report_text = "### Tipos de Planos de Incentivo Mais Comuns\n"
-        report_text += "Esta análise considera os tipos de planos encontrados nos documentos.\n\n"
-        
-        df_data = []
-        sorted_plan_types = sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)
-        for plan_type, count in sorted_plan_types:
-            report_text += f"- **{plan_type}:** {count} empresas\n"
-            df_data.append({"Tipo de Plano": plan_type, "Número de Empresas": count})
-        
-        df = pd.DataFrame(df_data)
-        return report_text, df
-
-    def _find_companies_by_general_topic(self, normalized_query: str) -> tuple:
-        """
-        Função de fallback que busca empresas associadas a qualquer tópico do dicionário
-        se nenhuma intenção específica for detectada.
-        """
-        flat_map = self.kb_flat_map()
-        found_topic_details = None
-        # Prioriza matches mais longos e específicos
-        for alias in sorted(flat_map.keys(), key=len, reverse=True):
-            if re.search(r'\b' + re.escape(self._normalize_text(alias)) + r'\b', normalized_query):
-                found_topic_details = flat_map[alias]
-                break
-            
-        if not found_topic_details:
-            return "Não consegui identificar um tópico técnico conhecido na sua pergunta para realizar a busca agregada.", None
-
-        section, topic_name_formatted, topic_name_raw = found_topic_details
-        companies = [
-            company_name for company_name, details in self.data.items()
-            if section in details.get("topicos_encontrados", {}) and topic_name_raw in details["topicos_encontrados"][section]
-        ]
-
-        if not companies:
-            return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}'.", None
-
-        report_text = f"Encontradas **{len(companies)}** empresas com o tópico: **{topic_name_formatted}**"
-        df = pd.DataFrame(sorted(companies), columns=[f"Empresas com {topic_name_formatted}"])
-        return report_text, df
-        
-    def kb_flat_map(self) -> dict:
-        """
-        Cria um mapeamento plano de aliases para nomes canônicos de tópicos para busca rápida.
-        Armazena em cache para performance.
-        """
-        if hasattr(self, '_kb_flat_map_cache'): return self._kb_flat_map_cache
-        flat_map = {}
-        for section, topics in self.kb.items():
-            for topic_name_raw, aliases in topics.items():
-                topic_name_formatted = topic_name_raw.replace('_', ' ')
-                details = (section, topic_name_formatted, topic_name_raw)
-                # Adiciona o nome canônico e todos os aliases ao mapeamento
-                flat_map[topic_name_formatted.lower()] = details
-                for alias in aliases: 
-                    # Normaliza o alias antes de adicionar ao mapa para garantir correspondência consistente
-                    flat_map[self._normalize_text(alias)] = details 
-        self._kb_flat_map_cache = flat_map
-        return flat_map
