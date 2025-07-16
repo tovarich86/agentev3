@@ -372,25 +372,30 @@ class AnalyticalEngine:
             for topic_raw_from_summary in performance_topics_for_company.keys():
                 canonical_topic_name = topic_raw_from_summary.replace('_', ' ')
                 
-                # Se o tópico não é uma categoria geral que queremos apenas listar
-                if canonical_topic_name.lower() not in excluded_general_terms_lower:
-                    # Encontrar a categoria principal (chave do KB) a qual este tópico pertence
-                    # Iterar sobre a seção 'IndicadoresPerformance' do próprio Knowledge Base (self.kb)
-                    found_category = None
-                    for section_kb_outer, topics_in_outer_section in self.kb.items():
-                        if section_kb_outer == "IndicadoresPerformance": # Foca na seção correta do KB
-                            for sub_category_kb, specific_topics_in_subcategory_dict in topics_in_outer_section.items():
-                                # specific_topics_in_subcategory_dict é um dicionário tópico_raw:aliases
-                                if topic_raw_from_summary == sub_category_kb or topic_raw_from_summary in specific_topics_in_subcategory_dict:
-                                    found_category = sub_category_kb.replace('_', ' ')
-                                    break
-                        if found_category:
-                            break
-                    
-                    if found_category:
-                        subtopic_counts[found_category][canonical_topic_name] += 1
-                # else: # Se for uma categoria geral, não a contamos como subtópico aqui
-                #     pass 
+                # Se o tópico que encontramos no resumo é ele mesmo uma das categorias gerais,
+                # não o contamos como um "subtópico" de si mesmo aqui.
+                if canonical_topic_name.lower() in excluded_general_terms_lower:
+                    continue # Pula para o próximo tópico se for uma categoria geral
+
+                # Encontrar a categoria principal (ex: "Financeiro", "Mercado") à qual este tópico granular pertence
+                # Iterar sobre a seção 'IndicadoresPerformance' do próprio Knowledge Base (self.kb)
+                found_category = None
+                indicators_kb_section = self.kb.get("IndicadoresPerformance", {})
+                for sub_category_kb_key, specific_topics_dict in indicators_kb_section.items():
+                    # Check if topic_raw_from_summary is a key in the specific_topics_dict or if topic_raw_from_summary IS the sub_category_kb_key itself (unlikely for specific but possible)
+                    if topic_raw_from_summary in specific_topics_dict or topic_raw_from_summary == sub_category_kb_key:
+                        found_category = sub_category_kb_key.replace('_', ' ') # Format the category name for display
+                        break
+                
+                if found_category:
+                    # Se encontrarmos a categoria principal para o tópico granular, o contamos
+                    subtopic_counts[found_category][canonical_topic_name] += 1
+                else:
+                    # Fallback: Se não encontramos uma categoria específica para este tópico granular
+                    # e ele não estava na lista de termos excluídos, ele é um tópico "solto".
+                    # Podemos contá-lo em uma categoria "Outros" ou como sua própria categoria principal.
+                    # A opção de contá-lo em "Outros Indicadores" é mais organizada.
+                    subtopic_counts["Outros Indicadores"][canonical_topic_name] += 1 
 
         report_text = "### Metas de Performance Mais Comuns\n"
         report_text += "Esta análise detalha as metas e indicadores de performance encontrados nos documentos.\n\n"
@@ -496,7 +501,7 @@ class AnalyticalEngine:
         if not summary_data:
             raise ValueError("Dados de resumo (summary_data) não podem ser nulos.")
         self.data = summary_data
-        self.kb = knowledge_base
+        self.kb = knowledge_base # knowledge_base é o DICIONARIO_UNIFICADO_HIERARQUICO
         
         # --- ROTEADOR DECLARATIVO ---
         # Mapeamento de funções de análise para suas regras de ativação.
