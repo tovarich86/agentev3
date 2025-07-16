@@ -22,7 +22,7 @@ class AnalyticalEngine:
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para comparação (minúsculas, sem acentos)."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
-        return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+        return "".join([c for c in nfkode_form if not unicodedata.combining(c)])
 
     def _analyze_strike_discount(self, normalized_query: str) -> tuple:
         """
@@ -478,4 +478,4 @@ class AnalyticalEngine:
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
             # Fallback para busca genérica por tópico se nenhuma regra específica for acionada
             (lambda q: True, self._find_companies_by_general_topic),
-                ]
+        ]
