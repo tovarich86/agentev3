@@ -17,6 +17,8 @@ class AnalyticalEngine:
     para responder perguntas quantitativas e de listagem.
     Versão com análise estatística aprofundada e roteador declarativo.
     """
+    # --- Métodos Auxiliares e de Análise (definidos ANTES de __init__) ---
+
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para comparação (minúsculas, sem acentos)."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
@@ -379,7 +381,7 @@ class AnalyticalEngine:
                         if section_kb_outer == "IndicadoresPerformance": # Foca na seção correta do KB
                             for sub_category_kb, specific_topics_in_subcategory_dict in topics_in_outer_section.items():
                                 # specific_topics_in_subcategory_dict é um dicionário tópico_raw:aliases
-                                if topic_raw_from_summary in specific_topics_in_subcategory_dict:
+                                if topic_raw_from_summary == sub_category_kb or topic_raw_from_summary in specific_topics_in_subcategory_dict:
                                     found_category = sub_category_kb.replace('_', ' ')
                                     break
                         if found_category:
