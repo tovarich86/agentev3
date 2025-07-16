@@ -299,33 +299,53 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
 
     return final_answer, all_sources_structured
 
+# app.py (trecho da função main - para colar no seu app.py)
+
 def main():
+    # Define o título e ícone da página no Streamlit
+    st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
+
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
-    # Carrega os dados e modelos
+
+    # --- Carrega os dados e modelos ---
+    # Esta função é cacheada para evitar recarregar a cada interação
     model, artifacts, summary_data = setup_and_load_data()
+    
+    # Verifica se os dados críticos foram carregados com sucesso
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
         st.stop()
-    # Inicializa os componentes
-    engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO)
+    
+    # Inicializa o AnalyticalEngine, passando os dados do resumo e o dicionário de conhecimento
+    # Assumimos que DICIONARIO_UNIFICADO_HIERARQUICO está disponível globalmente ou importado
+    engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO) 
+    
+    # Tenta importar o catálogo rico de empresas; se não existir, usa uma lista vazia
     try:
-        from catalog_data import company_catalog_rich
+        from catalog_data import company_catalog_rich 
     except ImportError:
-        company_catalog_rich = []
+        company_catalog_rich = [] 
+    
+    # Armazena company_catalog_rich no session_state para acesso por outras funções (como create_dynamic_analysis_plan)
+    st.session_state.company_catalog_rich = company_catalog_rich
+
     # --- UI da Sidebar ---
     with st.sidebar:
         st.header("📊 Informações do Sistema")
         st.metric("Categorias de Documentos (RAG)", len(artifacts))
         st.metric("Empresas no Resumo", len(summary_data))
         with st.expander("Empresas com dados no resumo"):
-            st.dataframe(sorted(list(summary_data.keys())), use_container_width=True, hide_index=False)
+            # Exibe as empresas de forma mais compacta em um DataFrame
+            st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
         st.success("✅ Sistema pronto para análise")
         st.info(f"Embedding Model: `{MODEL_NAME}`")
         st.info(f"Generative Model: `{GEMINI_MODEL}`")
+    
     # --- UI Principal ---
     st.header("💬 Faça sua pergunta")
-    # --- Bloco do Expander (Menu Drill-Down) ---
+    
+    # --- Bloco do Expander (Menu Drill-Down: Sobre o Agente) ---
     with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
@@ -338,7 +358,13 @@ def main():
         st.code("""- Qual o desconto médio no preço de exercício?
 - Quais empresas possuem TSR Relativo?
 - Liste as empresas que oferecem desconto no strike e o percentual.
-- Quantas empresas mencionam planos de matching?""")
+- Quantas empresas mencionam planos de matching?
+- Qual o período de vesting médio e a moda?
+- Qual a diluição máxima média em percentual e quantidade de ações?
+- Quantas empresas têm cláusulas de malus ou clawback?
+- Quem são os membros mais comuns dos planos e quantas empresas os incluem?
+- Quais são os tipos de planos mais comuns e as metas de performance?
+""")
         st.subheader("2. Análise Qualitativa Profunda 🧠")
         st.info("""
         Para perguntas abertas que buscam detalhes, explicações ou comparações, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
@@ -353,44 +379,78 @@ def main():
         * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet. Seu conhecimento está limitado aos documentos processados na data em que sua base de dados foi criada.
         * **Não Emite Opinião:** Ele é um especialista em **encontrar e apresentar** informações. Ele **NÃO** pode fornecer conselhos financeiros, opiniões ou julgamentos de valor.
         * **Dependência da Extração de Dados:** As análises quantitativas dependem de "fatos" extraídos dos textos. Se um documento descreve um fato de forma muito ambígua, a extração pode falhar, e aquela empresa pode não aparecer em uma análise estatística.
+        * **Atenção à Moda:** Para dados contínuos (como percentuais ou anos), a moda pode ser menos representativa ou ter múltiplos valores. Sua interpretação deve considerar a natureza dos dados.
         """)
+    
     # Caixa de texto para a pergunta do usuário
-    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Compare o vesting da Vale e Movida")
+    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Qual o período de vesting médio e a moda dos planos de ações restritas?")
+    
     # Lógica do botão de análise
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
             st.stop()
+        
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
-        query_lower = user_query.lower()
-        aggregate_keywords = ["quais", "quantas", "liste", "qual a lista", "qual o desconto", "qual a media", "qual e o", "qual o periodo medio", "quantas empresas tem"] # <- Linha atualizada
-         # Roteador de Intenção
-        if any(keyword in query_lower for keyword in aggregate_keywords): # <- Alterado de .split() para direto na string
-        # Roteador de Intenção
         
+        query_lower = user_query.lower()
+        # Palavras-chave que indicam uma intenção quantitativa ou de listagem
+        # Usamos 'in query_lower' para uma busca mais abrangente (não exige palavra exata)
+        aggregate_keywords = ["quais", "quantas", "liste", "qual a lista", "qual o desconto", "qual a media", "qual é o", "qual o periodo medio", "quantas empresas tem"]
+        
+        # Roteador de Intenção: Primeiro tenta a análise quantitativa (AnalyticalEngine)
+        if any(keyword in query_lower for keyword in aggregate_keywords): 
             with st.spinner("Analisando dados estruturados..."):
-                report, dataframe = engine.answer_query(user_query)
-                if report:
-                    st.markdown(report)
-                if dataframe is not None and not dataframe.empty:
-                    st.dataframe(dataframe, use_container_width=True, hide_index=True)
+                # Chama o motor de análise. Ele retorna o texto do relatório e o(s) DataFrame(s)
+                report_text, data_result = engine.answer_query(user_query)
+                
+                # Exibe o texto do relatório
+                if report_text:
+                    st.markdown(report_text)
+                
+                # Lógica robusta para lidar com DataFrames únicos ou múltiplos DataFrames (dicionário)
+                if data_result is not None:
+                    if isinstance(data_result, pd.DataFrame):
+                        # Se for um único DataFrame
+                        if not data_result.empty:
+                            st.dataframe(data_result, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Nenhum dado tabular encontrado para esta análise específica.")
+                    elif isinstance(data_result, dict):
+                        # Se for um dicionário de DataFrames
+                        for df_name, df_content in data_result.items():
+                            if df_content is not None and not df_content.empty:
+                                st.markdown(f"#### {df_name}") # Título para cada DataFrame
+                                st.dataframe(df_content, use_container_width=True, hide_index=True)
+                            else:
+                                st.info(f"Nenhum dado tabular encontrado para '{df_name}'.")
+                    else:
+                        # Caso o retorno não seja DataFrame nem dict de DataFrames
+                        st.info("O formato do resultado da análise quantitativa não pôde ser exibido como tabela.")
+                else: 
+                    # Caso data_result seja None (a análise não encontrou dados para tabelar)
+                    st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
         else:
+            # Se não for uma pergunta quantitativa, tenta o RAG (Retrieval Augmented Generation)
             final_answer, sources = handle_rag_query(
                 user_query,
                 artifacts,
                 model,
                 DICIONARIO_UNIFICADO_HIERARQUICO,
-                company_catalog_rich,
+                st.session_state.company_catalog_rich, # Passa o catálogo do session_state
                 summary_data
             )
             st.markdown(final_answer)
+            
+            # Exibe os documentos consultados pelo RAG
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
                     for src in sorted(sources, key=lambda x: x['company']):
                         display_text = f"{src['company']} - {src['doc_type'].replace('_', ' ')}"
                         url = src['url']
+                        # Adapta a exibição do link dependendo do tipo de URL da CVM
                         if "frmExibirArquivoIPEExterno" in url:
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
@@ -402,5 +462,6 @@ def main():
                         else:
                             st.markdown(f"**{display_text}**: [Link]({url})")
 
+# Este bloco garante que a função main() é chamada quando o script é executado
 if __name__ == "__main__":
     main()
