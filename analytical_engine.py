@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import re
 from collections import defaultdict
-from scipy import stats # Necessário para moda/mediana se for usar
+from scipy import stats 
 import unicodedata
 import logging
 
@@ -83,9 +83,11 @@ class AnalyticalEngine:
         discounts = np.array([item[1] for item in companies_and_discounts])
         
         # Calcular moda
-        mode_result = stats.mode(discounts, keepdims=False) # keepdims=False para compatibilidade
+        # stats.mode pode retornar um array vazio se não houver moda, ou um array de um elemento
+        mode_result = stats.mode(discounts, keepdims=False)
         modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.size > 0 else "N/A"
+        # Acessa .ndim e .size para robustez
+        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Desconto no Preço de Exercício\n"
         report_text += f"- **Total de Empresas com Desconto:** {len(discounts)}\n"
@@ -173,10 +175,10 @@ class AnalyticalEngine:
         # Calcular moda
         mode_result = stats.mode(vesting_values, keepdims=False)
         modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.size > 0 else "N/A"
+        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Período de Vesting\n"
-        report_text += f"- **Total de Empresas com Período de Vesting Mapeado:** {len(vesting_values)}\n"
+        report_text += f"- **Total de Empresas com Vesting Mapeado:** {len(vesting_values)}\n"
         report_text += f"- **Vesting Médio:** {np.mean(vesting_values):.2f} anos\n"
         report_text += f"- **Desvio Padrão:** {np.std(vesting_values):.2f} anos\n"
         report_text += f"- **Mínimo:** {np.min(vesting_values):.2f} anos\n"
@@ -211,7 +213,7 @@ class AnalyticalEngine:
         # Calcular moda
         mode_result = stats.mode(lockup_values, keepdims=False)
         modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.size > 0 else "N/A"
+        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Período de Lock-up\n"
         report_text += f"- **Total de Empresas com Lock-up Mapeado:** {len(lockup_values)}\n"
@@ -255,7 +257,7 @@ class AnalyticalEngine:
             
             mode_result = stats.mode(percents, keepdims=False)
             modes = mode_result.mode
-            mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.size > 0 else "N/A"
+            mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
             report_text += "\n#### Diluição Percentual\n"
             report_text += f"- **Total de Empresas com Diluição % Mapeada:** {len(percents)}\n"
@@ -272,7 +274,7 @@ class AnalyticalEngine:
 
             mode_result = stats.mode(quantities, keepdims=False)
             modes = mode_result.mode
-            mode_str = ", ".join([f"{m:,.0f} ações" for m in modes]) if modes.size > 0 else "N/A"
+            mode_str = ", ".join([f"{m:,.0f} ações" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
             report_text += "\n#### Diluição em Quantidade de Ações\n"
             report_text += f"- **Total de Empresas com Diluição por Qtd. de Ações Mapeada:** {len(quantities)}\n"
