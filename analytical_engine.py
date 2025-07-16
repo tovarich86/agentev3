@@ -1,4 +1,4 @@
-# analytical_engine.py
+ analytical_engine.py
 # Este script contém o motor de análise para perguntas quantitativas.
 
 import numpy as np
@@ -390,37 +390,94 @@ class AnalyticalEngine:
         df = pd.DataFrame(sorted(companies_with_board_plans_mention), columns=["Empresas com Menção ao Conselho de Administração em Planos"])
         return report_text, df
 
+    # analytical_engine.py (trecho da função _analyze_common_goals)
+
     def _analyze_common_goals(self, normalized_query: str) -> tuple:
         """
-        Lista as metas de performance mais comuns entre as empresas.
+        Lista as metas de performance mais comuns entre as empresas,
+        detalhando também os subgrupos específicos.
         """
-        goal_counts = defaultdict(int)
+        category_counts = defaultdict(int) # Para contar as categorias principais
+        subtopic_counts = defaultdict(lambda: defaultdict(int)) # Para contar os subgrupos dentro de cada categoria
+
+        # Define termos gerais a serem excluídos da contagem de "subtópicos" específicos,
+        # pois são mais como categorias ou tipos de metas genéricas.
+        excluded_general_terms_lower = {
+            "metas gerais", "performance shares", "performance units", "psu",
+            "tsr absoluto", "tsr relativo", "grupo de comparacao",
+            "financeiro", "mercado", "esg" # Adicionar aqui as categorias principais se não quiser que apareçam como subtópicos diretos
+        }
+
         for company, details in self.data.items():
-            performance_topics = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-            for topic_raw in performance_topics.keys():
-                # Normaliza o nome do tópico para contagem (ex: 'TSR_Absoluto' -> 'TSR Absoluto')
-                canonical_goal_name = topic_raw.replace('_', ' ')
-                
-                # Excluir tópicos muito gerais que não são metas específicas
-                # Adicione mais termos gerais se necessário, mas mantenha a lista concisa.
-                excluded_general_terms = ["metas gerais", "performance shares", "performance units", "psu"]
-                if canonical_goal_name.lower() not in excluded_general_terms: 
-                    goal_counts[canonical_goal_name] += 1
-        
-        if not goal_counts:
-            return "Nenhum indicador de performance ou meta específica foi encontrado nos planos analisados.", None
-        
+            found_topics_by_section = details.get("topicos_encontrados", {})
+
+            # Processa tópicos da seção "IndicadoresPerformance"
+            performance_topics = found_topics_by_section.get("IndicadoresPerformance", {})
+            if performance_topics: # Se houver tópicos de performance para a empresa
+                # Conta a ocorrência das categorias principais (se o tópico for uma categoria)
+                for section_kb, topics_kb in self.kb.get("IndicadoresPerformance", {}).items():
+                     if section_kb in performance_topics:
+                        category_counts[section_kb] += 1 # Conta a empresa que tem tópicos nesta seção de KB
+
+                for topic_raw in performance_topics.keys():
+                    # Normaliza o nome do tópico para contagem (ex: 'TSR_Absoluto' -> 'TSR Absoluto')
+                    canonical_topic_name = topic_raw.replace('_', ' ')
+                    
+                    # Conta os subtópicos específicos
+                    if canonical_topic_name.lower() not in excluded_general_terms_lower:
+                        # Encontra a categoria principal à qual este subtópico pertence
+                        # Itera sobre o KB para encontrar a seção que contém este tópico_raw
+                        for kb_section, kb_topics in self.kb.items():
+                            if kb_section == "IndicadoresPerformance": # Foca apenas na seção de performance do KB
+                                for kb_topic_raw, kb_aliases in kb_topics.items():
+                                    if kb_topic_raw == topic_raw: # Se o tópico_raw do dado corresponde ao tópico_raw do KB
+                                        subtopic_counts[kb_section.replace('_', ' ')][canonical_topic_name] += 1
+                                        break # Encontrou a seção para este tópico, pode sair do loop interno
+                            else: # Adiciona uma contagem para o tópico direto, caso não seja uma subcategoria
+                                if topic_raw in kb_topics and kb_topics[topic_raw]: # Se o tópico está direto em uma seção
+                                     subtopic_counts[kb_section.replace('_', ' ')][canonical_topic_name] += 1
+
+            # Você também pode querer considerar outras seções do KB como "metas" se aplicável,
+            # mas "IndicadoresPerformance" é a mais direta.
+
         report_text = "### Metas de Performance Mais Comuns\n"
-        report_text += "Esta análise considera os tópicos de indicadores de performance encontrados nos documentos.\n\n"
+        report_text += "Esta análise detalha as metas e indicadores de performance encontrados nos documentos.\n\n"
         
-        df_data = []
-        sorted_goals = sorted(goal_counts.items(), key=lambda item: item[1], reverse=True)
-        for goal, count in sorted_goals:
-            report_text += f"- **{goal}:** {count} empresas\n"
-            df_data.append({"Meta de Performance": goal, "Número de Empresas": count})
-        
-        df = pd.DataFrame(df_data)
-        return report_text, df
+        # DataFrame para sumarizar todas as contagens (categorias e subtópicos)
+        df_summary_data = []
+
+        # 1. Apresentar categorias principais (se desejado)
+        # category_map = {
+        #     "Financeiro": "Financeiro",
+        #     "Mercado": "Mercado",
+        #     "MetasGerais": "Metas Gerais",
+        #     "TSR_Absoluto": "TSR Absoluto",
+        #     "TSR_Relativo": "TSR Relativo",
+        #     "ESG": "ESG",
+        #     "GrupoDeComparacao": "Grupo de Comparação"
+        # }
+        # for category_raw, count in sorted(category_counts.items(), key=lambda item: item[1], reverse=True):
+        #     display_name = category_map.get(category_raw, category_raw.replace('_', ' '))
+        #     report_text += f"- **{display_name}:** {count} empresas\n"
+        #     df_summary_data.append({"Tipo de Meta/Indicador": display_name, "Número de Empresas": count, "Nível": "Categoria"})
+
+
+        # 2. Apresentar os subtópicos detalhadamente, agrupados por categoria se relevante
+        for category_name, topics in subtopic_counts.items():
+            if topics: # Garante que a categoria tem subtópicos contados
+                report_text += f"\n#### Tópicos de Performance em **{category_name}**:\n"
+                for subtopic, count in sorted(topics.items(), key=lambda item: item[1], reverse=True):
+                    report_text += f"- **{subtopic}:** {count} empresas\n"
+                    df_summary_data.append({"Tipo de Meta/Indicador": subtopic, "Número de Empresas": count, "Nível": category_name})
+
+        if not df_summary_data:
+             return "Nenhum indicador de performance ou meta específica foi encontrado nos planos analisados.", None
+
+        df_final = pd.DataFrame(df_summary_data)
+        # Opcional: ordenar o DataFrame final como você preferir
+        df_final = df_final.sort_values(by=["Nível", "Número de Empresas"], ascending=[True, False]).reset_index(drop=True)
+
+        return report_text, df_final
 
     def _analyze_common_plan_types(self, normalized_query: str) -> tuple:
         """
