@@ -41,10 +41,10 @@ class AnalyticalEngine:
             
         discounts = np.array([item[1] for item in companies_and_discounts])
         
-        # Calcular moda
-        mode_result = stats.mode(discounts, keepdims=False)
-        modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+        # Moda removida daqui
+        # Removida: mode_result = stats.mode(discounts, keepdims=False)
+        # Removida: modes = mode_result.mode
+        # Removida: mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Desconto no Preço de Exercício\n"
         report_text += f"- **Total de Empresas com Desconto:** {len(discounts)}\n"
@@ -55,7 +55,7 @@ class AnalyticalEngine:
         report_text += f"- **Mediana (50º Percentil):** {np.median(discounts):.2f}%\n"
         report_text += f"- **75º Percentil:** {np.percentile(discounts, 75):.2f}%\n"
         report_text += f"- **Máximo:** {np.max(discounts):.2f}%\n"
-        report_text += f"- **Moda(s):** {mode_str}\n"
+        # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
         
         df = pd.DataFrame(companies_and_discounts, columns=["Empresa", "Desconto Aplicado (%)"])
         df_sorted = df.sort_values(by="Desconto Aplicado (%)", ascending=False).reset_index(drop=True)
@@ -129,10 +129,10 @@ class AnalyticalEngine:
         
         vesting_values = np.array([item[1] for item in periods])
         
-        # Calcular moda
-        mode_result = stats.mode(vesting_values, keepdims=False)
-        modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+        # Moda removida daqui
+        # Removida: mode_result = stats.mode(vesting_values, keepdims=False)
+        # Removida: modes = mode_result.mode
+        # Removida: mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Período de Vesting\n"
         report_text += f"- **Total de Empresas com Vesting Mapeado:** {len(vesting_values)}\n"
@@ -143,7 +143,7 @@ class AnalyticalEngine:
         report_text += f"- **Mediana (50º Percentil):** {np.median(vesting_values):.2f} anos\n"
         report_text += f"- **75º Percentil:** {np.percentile(vesting_values, 75):.2f} anos\n"
         report_text += f"- **Máximo:** {np.max(vesting_values):.2f} anos\n"
-        report_text += f"- **Moda(s):** {mode_str}\n"
+        # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
         
         df = pd.DataFrame(periods, columns=["Empresa", "Período de Vesting (Anos)"])
         df_sorted = df.sort_values(by="Período de Vesting (Anos)", ascending=False).reset_index(drop=True)
@@ -167,10 +167,10 @@ class AnalyticalEngine:
         
         lockup_values = np.array([item[1] for item in periods])
         
-        # Calcular moda
-        mode_result = stats.mode(lockup_values, keepdims=False)
-        modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+        # Moda removida daqui
+        # Removida: mode_result = stats.mode(lockup_values, keepdims=False)
+        # Removida: modes = mode_result.mode
+        # Removida: mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
         report_text = "### Análise de Período de Lock-up\n"
         report_text += f"- **Total de Empresas com Lock-up Mapeado:** {len(lockup_values)}\n"
@@ -181,7 +181,7 @@ class AnalyticalEngine:
         report_text += f"- **Mediana (50º Percentil):** {np.median(lockup_values):.2f} anos\n"
         report_text += f"- **75º Percentil:** {np.percentile(lockup_values, 75):.2f} anos\n"
         report_text += f"- **Máximo:** {np.max(lockup_values):.2f} anos\n"
-        report_text += f"- **Moda(s):** {mode_str}\n"
+        # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
         
         df = pd.DataFrame(periods, columns=["Empresa", "Período de Lock-up (Anos)"])
         df_sorted = df.sort_values(by="Período de Lock-up (Anos)", ascending=False).reset_index(drop=True)
@@ -212,15 +212,16 @@ class AnalyticalEngine:
         if diluicao_percentual:
             percents = np.array([item[1] for item in diluicao_percentual])
             
-            mode_result = stats.mode(percents, keepdims=False)
-            modes = mode_result.mode
-            mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+            # Moda removida daqui
+            # Removida: mode_result = stats.mode(percents, keepdims=False)
+            # Removida: modes = mode_result.mode
+            # Removida: mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
             report_text += "\n#### Diluição Percentual\n"
             report_text += f"- **Total de Empresas com Diluição % Mapeada:** {len(percents)}\n"
             report_text += f"- **Média:** {np.mean(percents):.2f}%\n"
             report_text += f"- **Máximo:** {np.max(percents):.2f}%\n"
-            report_text += f"- **Moda(s):** {mode_str}\n"
+            # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
             df_percent = pd.DataFrame(diluicao_percentual, columns=["Empresa", "Diluição Máxima (%)"])
             dfs_to_return['Diluição Percentual'] = df_percent.sort_values(by="Diluição Máxima (%)", ascending=False).reset_index(drop=True)
         else:
@@ -229,15 +230,16 @@ class AnalyticalEngine:
         if diluicao_quantidade:
             quantities = np.array([item[1] for item in diluicao_quantidade])
 
-            mode_result = stats.mode(quantities, keepdims=False)
-            modes = mode_result.mode
-            mode_str = ", ".join([f"{m:,.0f} ações" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
+            # Moda removida daqui
+            # Removida: mode_result = stats.mode(quantities, keepdims=False)
+            # Removida: modes = mode_result.mode
+            # Removida: mode_str = ", ".join([f"{m:,.0f} ações" for m in modes]) if modes.ndim > 0 and modes.size > 0 else "N/A"
 
             report_text += "\n#### Diluição em Quantidade de Ações\n"
             report_text += f"- **Total de Empresas com Diluição por Qtd. de Ações Mapeada:** {len(quantities)}\n"
             report_text += f"- **Média:** {np.mean(quantities):,.0f} ações\n"
             report_text += f"- **Máximo:** {np.max(quantities):,.0f} ações\n"
-            report_text += f"- **Moda(s):** {mode_str}\n"
+            # Removida: report_text += f"- **Moda(s):** {mode_str}\n"
             df_quantity = pd.DataFrame(diluicao_quantidade, columns=["Empresa", "Diluição Máxima (Ações)"])
             dfs_to_return['Diluição Quantidade'] = df_quantity.sort_values(by="Diluição Máxima (Ações)", ascending=False).reset_index(drop=True)
         else:
@@ -393,8 +395,7 @@ class AnalyticalEngine:
                 else:
                     # Fallback: Se não encontramos uma categoria específica para este tópico granular
                     # e ele não estava na lista de termos excluídos, ele é um tópico "solto".
-                    # Podemos contá-lo em uma categoria "Outros" ou como sua própria categoria principal.
-                    # A opção de contá-lo em "Outros Indicadores" é mais organizada.
+                    # Contamos em uma categoria "Outros Indicadores" para não perder a informação.
                     subtopic_counts["Outros Indicadores"][canonical_topic_name] += 1 
 
         report_text = "### Metas de Performance Mais Comuns\n"
