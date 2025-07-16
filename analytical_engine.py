@@ -39,7 +39,7 @@ class AnalyticalEngine:
         if not companies_and_discounts:
             return "Nenhuma empresa com desconto explícito ou implícito no preço de exercício foi encontrada nas fontes analisadas.", None
             
-        discounts = np.array([item[1] for item in companies_and_counts])
+        discounts = np.array([item[1] for item in companies_and_discounts])
         
         # Moda removida daqui
         # Removida: mode_result = stats.mode(discounts, keepdims=False)
@@ -351,95 +351,33 @@ class AnalyticalEngine:
 
     def _analyze_common_goals(self, normalized_query: str) -> tuple:
         """
-        Lista as metas de performance mais comuns entre as empresas,
-        detalhando também os subgrupos específicos.
+        Lista os indicadores de performance mais comuns entre as empresas.
+        Esta versão simplificada conta todos os tópicos encontrados sob
+        "IndicadoresPerformance" e os lista por frequência.
         """
-        # Para contar as ocorrências de cada sub-tópico dentro de suas respectivas categorias
-        subtopic_counts = defaultdict(lambda: defaultdict(int)) 
-
-        # Define termos que são categorias no KB, mas que queremos substituir/expandir
-        # quando aparecem como 'tópicos' no summary JSON.
-        high_level_categories_kb_keys = {
-            "Financeiro": "Financeiro", 
-            "Mercado": "Índices de Mercado", # Renomeia 'Mercado' para 'Índices de Mercado'
-            "TSR_Absoluto": "TSR Absoluto",
-            "TSR_Relativo": "TSR Relativo",
-            "ESG": "ESG",
-            "GrupoDeComparacao": "Grupo de Comparação",
-            "MetasGerais": "Metas Gerais" # Pode ser exibido, mas sem sub-itens detalhados
-        }
-        
+        goal_counts = defaultdict(int)
         for company, details in self.data.items():
-            found_topics_by_section = details.get("topicos_encontrados", {})
-            performance_topics_for_company = found_topics_by_section.get("IndicadoresPerformance", {})
-            
-            # 1. Contar as categorias de alto nível (TSR Absoluto, TSR Relativo, etc.)
-            for high_level_key, display_name in high_level_categories_kb_keys.items():
-                if high_level_key in performance_topics_for_company:
-                    specific_indicator_counts["Categorias Principais"][display_name] += 1
-
-            # 2. Iterar através dos tópicos encontrados para a empresa no resumo
-            # e mapeá-los para suas categorias pai no KB, se forem indicadores granulares.
-            indicators_kb_section = self.kb.get("IndicadoresPerformance", {})
-            
-            for topic_raw_from_summary in performance_topics_for_company.keys():
-                canonical_topic_name = topic_raw_from_summary.replace('_', ' ')
-                
-                # Ignorar se este tópico é uma das chaves de alto nível que já tratamos acima.
-                # Isso evita que 'Financeiro' seja contado como um subtópico de si mesmo.
-                if topic_raw_from_summary in high_level_categories_kb_keys:
-                    continue
-
-                found_category = None
-                for sub_category_kb_key, specific_topics_dict in indicators_kb_section.items():
-                    # Check if topic_raw_from_summary is a key in this specific_topics_dict
-                    # (e.g., 'ROIC' in {'ROIC': [...], 'EBITDA': [...]})
-                    if topic_raw_from_summary in specific_topics_dict:
-                        found_category = high_level_categories_kb_keys.get(sub_category_kb_key, sub_category_kb_key.replace('_', ' '))
-                        break
-                
-                if found_category:
-                    specific_indicator_counts[found_category][canonical_topic_name] += 1
-                else:
-                    # Fallback para tópicos que não foram categorizados no KB mas foram encontrados
-                    specific_indicator_counts["Outros Indicadores"][canonical_topic_name] += 1 
-
-        report_text = "### Indicadores de Performance Mais Comuns\n"
-        report_text += "Esta análise detalha os indicadores de performance encontrados nos documentos, agrupados por área.\n\n"
+            performance_topics = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
+            for topic_raw in performance_topics.keys():
+                # Normaliza o nome do tópico para contagem (ex: 'TSR_Absoluto' -> 'TSR Absoluto')
+                canonical_goal_name = topic_raw.replace('_', ' ')
+                goal_counts[canonical_goal_name] += 1
         
-        df_summary_data = [] 
+        if not goal_counts:
+            return "Nenhum indicador de performance foi encontrado nos planos analisados.", None
+        
+        report_text = "### Indicadores de Performance Mais Comuns\n"
+        report_text += "Esta análise lista todos os indicadores de performance encontrados, ordenados por frequência.\n\n"
+        
+        df_data = []
+        sorted_goals = sorted(goal_counts.items(), key=lambda item: item[1], reverse=True)
+        for goal, count in sorted_goals:
+            report_text += f"- **{goal}:** {count} empresas\n"
+            df_data.append({"Indicador de Performance": goal, "Número de Empresas": count})
+        
+        df = pd.DataFrame(df_data)
+        return report_text, df
 
-        # Apresentar as contagens, agrupadas por suas categorias de exibição.
-        # Ordenar as categorias para exibição consistente.
-        ordered_categories = [
-            "Categorias Principais", # Para garantir que "TSR Absoluto", "TSR Relativo", etc. apareçam primeiro
-            "Financeiro", 
-            "Índices de Mercado", # Renomeado de "Mercado"
-            "ESG", 
-            "Grupo de Comparação", 
-            "Metas Gerais", 
-            "Outros Indicadores" # Assegura que o fallback seja o último
-        ]
-
-        for category_display_name in ordered_categories:
-            if category_display_name in specific_indicator_counts:
-                topics_dict = specific_indicator_counts[category_display_name]
-                if topics_dict: # Só imprime se há itens específicos para listar
-                    report_text += f"\n#### {category_display_name}:\n"
-                    # Ordena os sub-tópicos por contagem (mais comuns primeiro)
-                    for subtopic, count in sorted(topics_dict.items(), key=lambda item: item[1], reverse=True):
-                        report_text += f"- **{subtopic}:** {count} empresas\n"
-                        df_summary_data.append({"Indicador": subtopic, "Número de Empresas": count, "Categoria": category_display_name})
-
-        if not df_summary_data:
-             return "Nenhum indicador de performance específico foi encontrado nos planos analisados.", None
-
-        df_final = pd.DataFrame(df_summary_data)
-        # Reordenar o DataFrame final pelas categorias na ordem definida
-        df_final['CategoryOrder'] = df_final['Categoria'].map({cat: i for i, cat in enumerate(ordered_categories)})
-        df_final = df_final.sort_values(by=['CategoryOrder', "Número de Empresas"], ascending=[True, False]).drop(columns=['CategoryOrder']).reset_index(drop=True)
-
-        return report_text, df_final
 
     def _analyze_common_plan_types(self, normalized_query: str) -> tuple:
         """
@@ -521,7 +459,7 @@ class AnalyticalEngine:
         if not summary_data:
             raise ValueError("Dados de resumo (summary_data) não podem ser nulos.")
         self.data = summary_data
-        self.kb = knowledge_base # knowledge_base é o DICIONARIO_UNIFICADO_HIERARQUICO
+        self.kb = knowledge_base 
         
         # --- ROTEADOR DECLARATIVO ---
         # Mapeamento de funções de análise para suas regras de ativação.
@@ -540,4 +478,4 @@ class AnalyticalEngine:
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
             # Fallback para busca genérica por tópico se nenhuma regra específica for acionada
             (lambda q: True, self._find_companies_by_general_topic),
-        ]
+                ]
