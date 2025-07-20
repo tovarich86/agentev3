@@ -534,31 +534,23 @@ def main():
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
         """)
-        st.subheader("1. Análise Quantitativa Rápida 📊")
+        st.subheader("1. Análise Quantitativa e Temática 📊")
         st.info("""
-        Para perguntas que buscam **listas, contagens, médias ou estatísticas**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas.
+        Para perguntas que buscam **listas, médias, padrões ou contagens**, o agente utiliza um conjunto de ferramentas para buscar, agregar e analisar os dados em tempo real.
         """)
         st.markdown("**Exemplos:**")
-        st.code("""- Qual o desconto médio no preço de exercício?
-- Quais empresas possuem TSR Relativo?
-- Liste as empresas que oferecem desconto no strike.
-- Quantas empresas mencionam planos de matching?""")
+        st.code("""- Quais empresas possuem matching? (Listagem)
+- Quais são os modelos típicos de vesting? (Análise Temática)
+- Qual o desconto médio no preço de exercício? (Análise Rápida)""")
         st.subheader("2. Análise Qualitativa Profunda 🧠")
         st.info("""
-        Para perguntas abertas que buscam **detalhes, explicações ou comparações**, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
+        Para perguntas abertas que buscam **detalhes sobre uma empresa específica ou comparações**, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG).
         """)
         st.markdown("**Exemplos:**")
         st.code("""- Como funciona o plano de vesting da Vale? (Específica)
-- O que é a cláusula de Malus? (Geral)
-- Compare os planos de ações restritas da Hypera e da Movida. (Comparativa)""")
-        st.subheader("❗ Limitações Importantes")
-        st.warning("""
-        * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet.
-        * **Não Emite Opinião:** Ele **encontra e apresenta** informações, mas não fornece conselhos.
-        * **Dependência da Extração:** As análises quantitativas dependem da extração prévia.
-        """)
+- Compare os planos de ações da Hypera e da Movida. (Comparativa)""")
 
-    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: O que é vesting? ou Como funciona o plano da Vale?")
+    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quais são os modelos típicos de vesting? ou Como funciona o plano da Vale?")
     
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
@@ -571,41 +563,32 @@ def main():
         with st.spinner("Analisando a intenção da sua pergunta..."):
             intent = get_query_intent_with_llm(user_query)
 
+        # --- ROTEADOR DE FERRAMENTAS E ANÁLISE ---
         if intent == "quantitativa":
             query_lower = user_query.lower()
             listing_keywords = ["quais empresas", "liste as empresas", "quais companhias"]
             thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
-
-    # Rota 1: Análise Temática (a mais complexa)
-            if any(keyword in query_lower for keyword in thematic_keywords):
-                with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
-                    topic_str = query_lower
-                    for keyword in thematic_keywords:
-                        topic_str = topic_str.replace(keyword, "")
-                    topic_str = re.sub(r'das empresas? para', '', topic_str).strip(" ?.")
             
-                    st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
+            # Cria o mapa de aliases para encontrar o tópico canônico
+            alias_map, _ = _create_alias_to_canonical_map(DICIONARIO_UNIFICADO_HIERARQUICO)
+            
+            # Tenta extrair um tópico canônico da pergunta
+            topic_str = _get_canonical_topic_from_text(query_lower, alias_map)
 
+            # Rota 1: Análise Temática (a mais complexa)
+            if any(keyword in query_lower for keyword in thematic_keywords) and topic_str:
+                with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
+                    st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
                     final_report = analyze_topic_thematically(
-                        topic=topic_str,
-                        query=user_query,
-                        artifacts=artifacts,
-                        model=model,
-                        kb=DICIONARIO_UNIFICADO_HIERARQUICO,
-                        execute_dynamic_plan_func=execute_dynamic_plan,
-                        get_final_unified_answer_func=get_final_unified_answer
+                        topic=topic_str, query=user_query, artifacts=artifacts, model=model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
+                        execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer
                     )
                     st.markdown(final_report)
 
-    #         Rota 2: Listagem de Empresas (ferramenta simples)
-            elif any(keyword in query_lower for keyword in listing_keywords):
+            # Rota 2: Listagem de Empresas (ferramenta simples)
+            elif any(keyword in query_lower for keyword in listing_keywords) and topic_str:
                 with st.spinner(f"Usando ferramentas para encontrar empresas..."):
-                    topic_str = query_lower
-                    for keyword in listing_keywords:
-                        topic_str = topic_str.replace(keyword, "")
-                    topic_str = topic_str.replace("têm", "").replace("possuem", "").strip(" ?.")
                     st.write(f"**Tópico identificado para busca:** `{topic_str}`")
-
                     companies_found = find_companies_by_topic(topic=topic_str, artifacts=artifacts, model=model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
 
                     if companies_found:
@@ -633,14 +616,11 @@ def main():
                                     st.dataframe(df_content, use_container_width=True, hide_index=True)
                     else: 
                         st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
-        else:
+        
+        else: # intent == 'qualitativa'
             final_answer, sources = handle_rag_query(
-                user_query,
-                artifacts,
-                model,
-                DICIONARIO_UNIFICADO_HIERARQUICO,
-                st.session_state.company_catalog_rich,
-                summary_data
+                user_query, artifacts, model, DICIONARIO_UNIFICADO_HIERARQUICO,
+                st.session_state.company_catalog_rich, summary_data
             )
             st.markdown(final_answer)
             
