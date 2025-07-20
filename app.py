@@ -572,45 +572,45 @@ def main():
             intent = get_query_intent_with_llm(user_query)
 
         if intent == "quantitativa":
-    # Por enquanto, vamos rotear perguntas de listagem para nossa nova ferramenta
-    # e manter o resto para o AnalyticalEngine.
-    # Esta é uma transição gradual.
-    
-    query_lower = user_query.lower()
-    listing_keywords = ["quais empresas", "liste as empresas", "quais companhias", "quais são as empresas"]
-
-    if any(keyword in query_lower for keyword in listing_keywords):
-        with st.spinner(f"Usando ferramentas para encontrar empresas..."):
-            # 1. Extrair o tópico da pergunta (uma abordagem simples por enquanto)
-            # Remove as palavras-chave de listagem para isolar o tópico
-            topic_str = query_lower
-            for keyword in listing_keywords:
-                topic_str = topic_str.replace(keyword, "")
-            topic_str = topic_str.replace("têm", "").replace("possuem", "").strip(" ?.")
+            # --- CÓDIGO CORRIGIDO ---
+            # Por enquanto, vamos rotear perguntas de listagem para nossa nova ferramenta
+            # e manter o resto para o AnalyticalEngine.
+            # Esta é uma transição gradual.
             
-            st.write(f"**Tópico identificado para busca:** `{topic_str}`")
+            query_lower = user_query.lower()
+            listing_keywords = ["quais empresas", "liste as empresas", "quais companhias", "quais são as empresas"]
 
-            # 2. Chamar a nova ferramenta
-            companies_found = find_companies_by_topic(
-                topic=topic_str,
-                artifacts=artifacts,
-                model=model,
-                kb=DICIONARIO_UNIFICADO_HIERARQUICO
-            )
+            if any(keyword in query_lower for keyword in listing_keywords):
+                with st.spinner(f"Usando ferramentas para encontrar empresas..."):
+                    # 1. Extrair o tópico da pergunta (uma abordagem simples por enquanto)
+                    # Remove as palavras-chave de listagem para isolar o tópico
+                    topic_str = query_lower
+                    for keyword in listing_keywords:
+                        topic_str = topic_str.replace(keyword, "")
+                    topic_str = topic_str.replace("têm", "").replace("possuem", "").strip(" ?.")
+                    
+                    st.write(f"**Tópico identificado para busca:** `{topic_str}`")
 
-            # 3. Exibir os resultados
-            if companies_found:
-                st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topic_str}':")
-                # Exibe em uma lista
-                for company in companies_found:
-                    st.markdown(f"- {company}")
-                
-                # Opcional: Exibe também em um DataFrame
-                df = pd.DataFrame(companies_found, columns=[f"Empresas com o tópico: {topic_str}"])
-                with st.expander("Ver em formato de tabela"):
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topic_str}'.")
+                    # 2. Chamar a nova ferramenta
+                    companies_found = find_companies_by_topic(
+                        topic=topic_str,
+                        artifacts=artifacts,
+                        model=model,
+                        kb=DICIONARIO_UNIFICADO_HIERARQUICO
+                    )
+
+                    # 3. Exibir os resultados
+                    if companies_found:
+                        st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topic_str}':")
+                        for company in companies_found:
+                            st.markdown(f"- {company}")
+                        
+                        df = pd.DataFrame(companies_found, columns=[f"Empresas com o tópico: {topic_str}"])
+                        with st.expander("Ver em formato de tabela"):
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topic_str}'.")
+
 
     else:
         # Se não for uma pergunta de listagem, ainda usa o AnalyticalEngine antigo
