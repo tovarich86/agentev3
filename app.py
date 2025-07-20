@@ -1,4 +1,4 @@
-# app.py (versão final, completa e sem omissões)
+# app.py (versão com Melhoria 1 - Roteador de Intenção LLM)
 
 import streamlit as st
 import json
@@ -157,6 +157,57 @@ def get_final_unified_answer(query: str, context: str) -> str:
         logger.error(f"ERRO ao gerar resposta final com LLM: {e}")
         return f"Ocorreu um erro ao contatar o modelo de linguagem. Detalhes: {str(e)}"
 
+# <<< MELHORIA 1 ADICIONADA >>>
+def get_query_intent_with_llm(query: str) -> str:
+    """
+    Usa um LLM para classificar a intenção do usuário em 'quantitativa' ou 'qualitativa'.
+    Retorna 'qualitativa' como padrão em caso de erro.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    Analise a pergunta do usuário e classifique a sua intenção principal. Responda APENAS com uma única palavra em JSON.
+    
+    As opções de classificação são:
+    1. "quantitativa": Se a pergunta busca por números, listas diretas, contagens, médias, estatísticas ou agregações. 
+       Exemplos: "Quantas empresas têm TSR Relativo?", "Qual a média de vesting?", "Liste as empresas com desconto no strike.".
+    2. "qualitativa": Se a pergunta busca por explicações, detalhes, comparações, descrições ou análises aprofundadas.
+       Exemplos: "Como funciona o plano da Vale?", "Compare os planos da Hypera e Movida.", "Detalhe o tratamento de dividendos.".
+
+    Pergunta do Usuário: "{query}"
+
+    Responda apenas com o JSON da classificação. Exemplo de resposta: {{"intent": "qualitativa"}}
+    """
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 50
+        }
+    }
+    headers = {'Content-Type': 'application/json'}
+
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
+        response.raise_for_status()
+        
+        response_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+        intent_json = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group())
+        intent = intent_json.get("intent", "qualitativa").lower()
+        
+        logger.info(f"Intenção detectada pelo LLM: '{intent}' para a pergunta: '{query}'")
+        
+        if intent in ["quantitativa", "qualitativa"]:
+            return intent
+        else:
+            logger.warning(f"Intenção não reconhecida '{intent}'. Usando 'qualitativa' como padrão.")
+            return "qualitativa"
+
+    except Exception as e:
+        logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
+        return "qualitativa"
+
 def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[str, list[dict]]:
     full_context, unique_chunks_content = "", set()
     retrieved_sources_structured, seen_sources = [], set()
@@ -281,7 +332,7 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
                     summaries.append(f"## Análise para {empresa.upper()}\n\n{get_final_unified_answer(summary_prompt, context)}")
         
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
-            comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado  e bem estruturado com ajuda de tabela sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
+            comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado e bem estruturado com ajuda de tabela sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
             final_answer = get_final_unified_answer(comparison_prompt, "\n\n".join(summaries))
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
     else:
@@ -299,93 +350,68 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
 
     return final_answer, all_sources_structured
 
-# app.py (trecho da função main - para colar no seu app.py)
-
 def main():
-    # Define o título e ícone da página no Streamlit
-    st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
-
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
 
-    # --- Carrega os dados e modelos ---
-    # Esta função é cacheada para evitar recarregar a cada interação
     model, artifacts, summary_data = setup_and_load_data()
     
-    # Verifica se os dados críticos foram carregados com sucesso
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
         st.stop()
     
-    # Inicializa o AnalyticalEngine, passando os dados do resumo e o dicionário de conhecimento
-    # Assumimos que DICIONARIO_UNIFICADO_HIERARQUICO está disponível globalmente ou importado
     engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO) 
     
-    # Tenta importar o catálogo rico de empresas; se não existir, usa uma lista vazia
     try:
         from catalog_data import company_catalog_rich 
     except ImportError:
         company_catalog_rich = [] 
     
-    # Armazena company_catalog_rich no session_state para acesso por outras funções (como create_dynamic_analysis_plan)
     st.session_state.company_catalog_rich = company_catalog_rich
 
-    # --- UI da Sidebar ---
     with st.sidebar:
         st.header("📊 Informações do Sistema")
         st.metric("Categorias de Documentos (RAG)", len(artifacts))
         st.metric("Empresas no Resumo", len(summary_data))
         with st.expander("Empresas com dados no resumo"):
-            # Exibe as empresas de forma mais compacta em um DataFrame
             st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
         st.success("✅ Sistema pronto para análise")
         st.info(f"Embedding Model: `{MODEL_NAME}`")
         st.info(f"Generative Model: `{GEMINI_MODEL}`")
     
-    # --- UI Principal ---
     st.header("💬 Faça sua pergunta")
     
-    # --- Bloco do Expander (Menu Drill-Down: Sobre o Agente) ---
     with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
+        # ... (conteúdo do expander permanece o mesmo) ...
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
         """)
         st.subheader("1. Análise Quantitativa Rápida 📊")
         st.info("""
-        Para perguntas que começam com **"quais", "quantas", "qual a média", etc.**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas, com cálculos e estatísticas.
+        Para perguntas que buscam **listas, contagens, médias ou estatísticas**, o agente utiliza um motor de análise de fatos pré-extraídos para fornecer respostas quase instantâneas.
         """)
-        st.markdown("**Exemplos de perguntas que ele responde bem:**")
+        st.markdown("**Exemplos:**")
         st.code("""- Qual o desconto médio no preço de exercício?
 - Quais empresas possuem TSR Relativo?
-- Liste as empresas que oferecem desconto no strike e o percentual.
-- Quantas empresas mencionam planos de matching?
-- Qual o período de vesting médio e a moda?
-- Qual a diluição máxima média em percentual e quantidade de ações?
-- Quantas empresas têm cláusulas de malus ou clawback?
-- Quem são os membros mais comuns dos planos e quantas empresas os incluem?
-- Quais são os tipos de planos mais comuns e as metas de performance?
-""")
+- Liste as empresas que oferecem desconto no strike.
+- Quantas empresas mencionam planos de matching?""")
         st.subheader("2. Análise Qualitativa Profunda 🧠")
         st.info("""
-        Para perguntas abertas que buscam detalhes, explicações ou comparações, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
+        Para perguntas abertas que buscam **detalhes, explicações ou comparações**, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
         """)
-        st.markdown("**Exemplos de perguntas que ele responde bem:**")
+        st.markdown("**Exemplos:**")
         st.code("""- Como funciona o plano de vesting da Vale?
 - Detalhe o tratamento de dividendos no plano da Magazine Luiza.
 - Compare os planos de ações restritas da Hypera e da Movida.""")
         st.subheader("❗ Limitações Importantes")
         st.warning("""
-        Para usar o agente de forma eficaz, é crucial entender suas limitações:
-        * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet. Seu conhecimento está limitado aos documentos processados na data em que sua base de dados foi criada.
-        * **Não Emite Opinião:** Ele é um especialista em **encontrar e apresentar** informações. Ele **NÃO** pode fornecer conselhos financeiros, opiniões ou julgamentos de valor.
-        * **Dependência da Extração de Dados:** As análises quantitativas dependem de "fatos" extraídos dos textos. Se um documento descreve um fato de forma muito ambígua, a extração pode falhar, e aquela empresa pode não aparecer em uma análise estatística.
-        * **Atenção à Moda:** Para dados contínuos (como percentuais ou anos), a moda pode ser menos representativa ou ter múltiplos valores. Sua interpretação deve considerar a natureza dos dados.
+        * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet.
+        * **Não Emite Opinião:** Ele **encontra e apresenta** informações, mas não fornece conselhos.
+        * **Dependência da Extração:** As análises quantitativas dependem da extração prévia. Se um fato não foi extraído, ele não aparecerá.
         """)
-    
-    # Caixa de texto para a pergunta do usuário
+
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Qual o período de vesting médio e a moda dos planos de ações restritas?")
     
-    # Lógica do botão de análise
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
@@ -394,63 +420,46 @@ def main():
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
         
-        query_lower = user_query.lower()
-        # Palavras-chave que indicam uma intenção quantitativa ou de listagem
-        # Usamos 'in query_lower' para uma busca mais abrangente (não exige palavra exata)
-        aggregate_keywords = ["quais", "quantas", "liste", "qual a lista", "qual o desconto", "qual a media", "qual é o", "qual o periodo medio", "quantas empresas tem"]
-        
-        # Roteador de Intenção: Primeiro tenta a análise quantitativa (AnalyticalEngine)
-        if any(keyword in query_lower for keyword in aggregate_keywords): 
-            with st.spinner("Analisando dados estruturados..."):
-                # Chama o motor de análise. Ele retorna o texto do relatório e o(s) DataFrame(s)
+        # <<< MELHORIA 1 APLICADA >>>
+        # Roteador de Intenção baseado em LLM para maior precisão
+        with st.spinner("Analisando a intenção da sua pergunta..."):
+            intent = get_query_intent_with_llm(user_query)
+
+        if intent == "quantitativa":
+            with st.spinner("Executando análise quantitativa rápida..."):
                 report_text, data_result = engine.answer_query(user_query)
                 
-                # Exibe o texto do relatório
                 if report_text:
                     st.markdown(report_text)
                 
-                # Lógica robusta para lidar com DataFrames únicos ou múltiplos DataFrames (dicionário)
                 if data_result is not None:
                     if isinstance(data_result, pd.DataFrame):
-                        # Se for um único DataFrame
                         if not data_result.empty:
                             st.dataframe(data_result, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("Nenhum dado tabular encontrado para esta análise específica.")
                     elif isinstance(data_result, dict):
-                        # Se for um dicionário de DataFrames
                         for df_name, df_content in data_result.items():
                             if df_content is not None and not df_content.empty:
-                                st.markdown(f"#### {df_name}") # Título para cada DataFrame
+                                st.markdown(f"#### {df_name}")
                                 st.dataframe(df_content, use_container_width=True, hide_index=True)
-                            else:
-                                st.info(f"Nenhum dado tabular encontrado para '{df_name}'.")
-                    else:
-                        # Caso o retorno não seja DataFrame nem dict de DataFrames
-                        st.info("O formato do resultado da análise quantitativa não pôde ser exibido como tabela.")
                 else: 
-                    # Caso data_result seja None (a análise não encontrou dados para tabelar)
                     st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
-        else:
-            # Se não for uma pergunta quantitativa, tenta o RAG (Retrieval Augmented Generation)
+        else: # A intenção é 'qualitativa' ou houve um erro (fallback seguro)
             final_answer, sources = handle_rag_query(
                 user_query,
                 artifacts,
                 model,
                 DICIONARIO_UNIFICADO_HIERARQUICO,
-                st.session_state.company_catalog_rich, # Passa o catálogo do session_state
+                st.session_state.company_catalog_rich,
                 summary_data
             )
             st.markdown(final_answer)
             
-            # Exibe os documentos consultados pelo RAG
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
                     for src in sorted(sources, key=lambda x: x['company']):
                         display_text = f"{src['company']} - {src['doc_type'].replace('_', ' ')}"
                         url = src['url']
-                        # Adapta a exibição do link dependendo do tipo de URL da CVM
                         if "frmExibirArquivoIPEExterno" in url:
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
@@ -462,6 +471,5 @@ def main():
                         else:
                             st.markdown(f"**{display_text}**: [Link]({url})")
 
-# Este bloco garante que a função main() é chamada quando o script é executado
 if __name__ == "__main__":
     main()
