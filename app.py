@@ -633,7 +633,7 @@ def main():
                                     st.dataframe(df_content, use_container_width=True, hide_index=True)
                     else: 
                         st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
-            else:
+        else:
             final_answer, sources = handle_rag_query(
                 user_query,
                 artifacts,
