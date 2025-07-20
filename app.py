@@ -294,6 +294,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     mentioned_companies = []
     
+    # --- 1. Identificação da Empresa (sem alterações) ---
     if company_catalog_rich:
         companies_found_by_alias = {}
         for company_data in company_catalog_rich:
@@ -311,16 +312,44 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
 
-    # <<< MELHORIA 2 APLICADA >>>
-    # Bloco que retornava erro foi removido daqui. A função agora continua mesmo sem empresas.
-    # if not mentioned_companies:
-    #     return {"status": "error", "plan": {}}
+    # Se nenhuma empresa foi encontrada, não há como prosseguir.
+    if not mentioned_companies:
+        # Mantemos o status de erro aqui para o handle_rag_query saber que não deve prosseguir
+        return {"status": "error", "plan": {}}
 
+    # --- 2. Identificação de Tópicos ---
+    topics = []
     alias_map = _create_flat_alias_map(kb)
+    
+    # 2a. Tenta encontrar tópicos específicos mencionados na query
     topics = list({canonical for alias, canonical in alias_map.items() if re.search(r'\b' + re.escape(alias) + r'\b', query_lower)})
     
+    # 2b. NOVO: Se nenhum tópico específico foi encontrado, verifica se é um pedido de resumo
     if not topics:
-        logger.info("Nenhum tópico local encontrado, consultando LLM para planejamento...")
+        summary_keywords = ['resumo', 'geral', 'completo', 'visão geral', 'como funciona o plano', 'detalhes do plano']
+        is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
+        
+        if is_summary_request and mentioned_companies:
+            company_name = mentioned_companies[0] # Pega a primeira empresa identificada para o resumo
+            logger.info(f"Intenção de resumo detectada para {company_name}. Extraindo tópicos do summary_data.")
+            
+            company_summary_info = summary_data.get(company_name, {}).get("topicos_encontrados", {})
+            if company_summary_info:
+                # Extrai todos os tópicos de todas as seções para essa empresa
+                all_company_topics = set()
+                for section in company_summary_info.values():
+                    for topic_raw in section.keys():
+                        all_company_topics.add(topic_raw.replace('_', ' '))
+                
+                topics = sorted(list(all_company_topics))
+                logger.info(f"Tópicos para o resumo de {company_name}: {topics}")
+            else:
+                logger.warning(f"Pedido de resumo para {company_name}, mas não foram encontrados tópicos no summary_data.")
+                # Se não encontrar, cai no fallback
+
+    # 2c. Fallback final: Se ainda não houver tópicos, usa o LLM (como antes)
+    if not topics:
+        logger.info("Nenhum tópico específico ou de resumo encontrado, consultando LLM para planejamento...")
         prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
         Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
         Formato: ["Tópico 1", "Tópico 2"]"""
@@ -333,51 +362,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
-
-
-    # <<< MELHORIA 2 APLICADA >>>
-    # A lógica de comparação só é ativada se houver mais de uma empresa.
-    # Buscas gerais (sem empresa) seguirão o fluxo 'else' normal.
-    if len(plan.get('empresas', [])) > 1:
-        st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas.")
-        summaries = []
-        for i, empresa in enumerate(plan['empresas']):
-            with st.status(f"Analisando {i+1}/{len(plan['empresas'])}: {empresa}...", expanded=True):
-                single_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
-                context, sources_list = execute_dynamic_plan(single_plan, artifacts, model, kb)
-                for src_dict in sources_list:
-                    src_tuple = (src_dict['company'], src_dict['url'])
-                    if src_tuple not in seen_sources_tuples:
-                        seen_sources_tuples.add(src_tuple)
-                        all_sources_structured.append(src_dict)
-                if not context:
-                    summaries.append(f"## Análise para {empresa.upper()}\n\nNenhuma informação encontrada.")
-                else:
-                    summary_prompt = f"Com base no contexto a seguir sobre a empresa {empresa}, resuma os pontos principais sobre os tópicos: {', '.join(plan['topicos'])}.\n\nContexto:\n{context}"
-                    summaries.append(f"## Análise para {empresa.upper()}\n\n{get_final_unified_answer(summary_prompt, context)}")
-        
-        with st.status("Gerando relatório comparativo final...", expanded=True) as status:
-            comparison_prompt = f"Com base nos resumos individuais a seguir, crie um relatório comparativo detalhado e bem estruturado com ajuda de tabela sobre '{query}'.\n\n" + "\n\n---\n\n".join(summaries)
-            final_answer = get_final_unified_answer(comparison_prompt, "\n\n".join(summaries))
-            status.update(label="✅ Relatório comparativo gerado!", state="complete")
-    else:
-        with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
-            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb)
-            if not context:
-                st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
-                return "Nenhuma informação relevante encontrada.", []
-            st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
-            status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
-        
-        with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
-            final_answer = get_final_unified_answer(query, context)
-            status.update(label="✅ Análise concluída!", state="complete")
-
-    return final_answer, all_sources_structured
-
-# Função main permanece a mesma da melhoria anterior
-# <<< MELHORIA 5 APLICADA >>>
-# Substitua a função inteira por esta nova versão
+    
 def analyze_single_company(empresa: str, plan: dict, artifacts: dict, model, kb: dict) -> dict:
     """
     Executa o plano de análise para uma única empresa e retorna um DICIONÁRIO ESTRUTURADO com os resultados.
