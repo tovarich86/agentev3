@@ -14,6 +14,7 @@ from pathlib import Path
 import zipfile
 import io
 import shutil
+from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
 
 # --- Módulos do Projeto (devem estar na mesma pasta) ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
@@ -326,29 +327,6 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
 
-def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_data):
-    with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
-        plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
-        
-        # <<< MELHORIA 2 APLICADA >>>
-        # A verificação de erro foi removida daqui, pois o plano agora é sempre um sucesso.
-        # if plan_response['status'] != "success" or not plan_response['plan']['empresas']:
-        #     st.error("❌ Não consegui identificar empresas na sua pergunta.")
-        #     return "Análise abortada.", []
-        
-        plan = plan_response['plan']
-        
-        # Mostra as empresas apenas se elas foram identificadas
-        if plan['empresas']:
-            st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
-        else:
-            st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
-            
-        st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
-        status.update(label="✅ Plano gerado com sucesso!", state="complete")
-
-    final_answer, all_sources_structured = "", []
-    seen_sources_tuples = set()
 
     # <<< MELHORIA 2 APLICADA >>>
     # A lógica de comparação só é ativada se houver mais de uma empresa.
@@ -391,6 +369,139 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
     return final_answer, all_sources_structured
 
 # Função main permanece a mesma da melhoria anterior
+# <<< MELHORIA 5 APLICADA >>>
+# Substitua a função inteira por esta nova versão
+def analyze_single_company(empresa: str, plan: dict, artifacts: dict, model, kb: dict) -> dict:
+    """
+    Executa o plano de análise para uma única empresa e retorna um DICIONÁRIO ESTRUTURADO com os resultados.
+    """
+    single_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
+    context, sources_list = execute_dynamic_plan(single_plan, artifacts, model, kb)
+    
+    # Prepara um dicionário de resultado padrão
+    result_data = {
+        "empresa": empresa,
+        "resumos_por_topico": {topico: "Informação não encontrada" for topico in plan['topicos']},
+        "sources": sources_list
+    }
+
+    if context:
+        # O prompt agora pede um JSON estruturado como resposta
+        summary_prompt = f"""
+        Com base no CONTEXTO abaixo sobre a empresa {empresa}, crie um resumo para cada um dos TÓPICOS solicitados.
+        Sua resposta deve ser APENAS um objeto JSON válido, sem nenhum texto adicional.
+        
+        TÓPICOS PARA RESUMIR: {json.dumps(plan['topicos'])}
+        
+        CONTEXTO:
+        {context}
+        
+        FORMATO OBRIGATÓRIO DA RESPOSTA (APENAS JSON):
+        {{
+          "resumos_por_topico": {{
+            "Tópico 1": "Resumo conciso sobre o Tópico 1...",
+            "Tópico 2": "Resumo conciso sobre o Tópico 2...",
+            "...": "..."
+          }}
+        }}
+        """
+        
+        try:
+            # Usamos get_final_unified_answer, mas o "query" é o nosso prompt detalhado
+            json_response_str = get_final_unified_answer(summary_prompt, context)
+            
+            # Limpa e extrai o JSON da resposta do LLM
+            json_match = re.search(r'\{.*\}', json_response_str, re.DOTALL)
+            if json_match:
+                parsed_json = json.loads(json_match.group())
+                # Atualiza o dicionário de resultados com os resumos obtidos
+                result_data["resumos_por_topico"] = parsed_json.get("resumos_por_topico", result_data["resumos_por_topico"])
+            else:
+                 logger.warning(f"Não foi possível extrair JSON da resposta para a empresa {empresa}.")
+
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Erro ao processar o resumo JSON para {empresa}: {e}")
+            # Mantém os valores padrão "Informação não encontrada"
+            
+    return result_data
+
+
+def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_data):
+    with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
+        plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
+        plan = plan_response['plan']
+        
+        if plan['empresas']:
+            st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
+        else:
+            st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
+            
+        st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
+        status.update(label="✅ Plano gerado com sucesso!", state="complete")
+
+    final_answer, all_sources_structured = "", []
+    seen_sources_tuples = set()
+
+    # <<< MELHORIA 4 APLICADA >>>
+    if len(plan.get('empresas', [])) > 1:
+    st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas. Executando análises em paralelo...")
+    
+    with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
+        with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
+            futures = [
+                executor.submit(analyze_single_company, empresa, plan, artifacts, model, kb) 
+                for empresa in plan['empresas']
+            ]
+            # 'results' agora é uma lista de dicionários estruturados
+            results = [future.result() for future in futures]
+
+    # Processa as fontes de todos os resultados
+    for result in results:
+        for src_dict in result['sources']:
+            src_tuple = (src_dict['company'], src_dict['url'])
+            if src_tuple not in seen_sources_tuples:
+                seen_sources_tuples.add(src_tuple)
+                all_sources_structured.append(src_dict)
+
+    with st.status("Gerando relatório comparativo final...", expanded=True) as status:
+        # Converte a lista de dicionários em uma string JSON formatada para o contexto
+        structured_context = json.dumps(results, indent=2, ensure_ascii=False)
+        
+        # Novo prompt que instrui o LLM a trabalhar com o JSON
+        comparison_prompt = f"""
+        Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
+        Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
+        O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada que compare os tópicos lado a lado para cada empresa.
+
+        CONTEXTO (em formato JSON):
+        {structured_context}
+
+        INSTRUÇÕES PARA O RELATÓRIO:
+        1.  **Análise Textual:** Escreva um ou dois parágrafos iniciais resumindo as principais semelhanças e diferenças entre os planos das empresas, com base nos dados.
+        2.  **Tabela Comparativa:** Crie uma tabela Markdown. A primeira coluna deve ser "Tópico". As colunas seguintes devem ser os nomes das empresas. As linhas devem corresponder a cada tópico analisado.
+        3.  Se um resumo para um tópico for "Informação não encontrada", coloque isso na célula correspondente da tabela.
+        4.  Seja preciso e atenha-se estritamente aos dados fornecidos no CONTEXTO JSON.
+        """
+        
+        # O segundo argumento de get_final_unified_answer é o contexto, que agora é nosso JSON
+        final_answer = get_final_unified_answer(comparison_prompt, structured_context)
+        status.update(label="✅ Relatório comparativo gerado!", state="complete")
+            
+    else: # Lógica para busca geral ou de empresa única
+        with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
+            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb)
+            if not context:
+                st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
+                return "Nenhuma informação relevante encontrada.", []
+            st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
+            status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
+        
+        with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
+            final_answer = get_final_unified_answer(query, context)
+            status.update(label="✅ Análise concluída!", state="complete")
+
+    return final_answer, all_sources_structured
+
 def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
