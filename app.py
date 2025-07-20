@@ -1,4 +1,4 @@
-# app.py (versão com Melhoria 1 - Roteador de Intenção LLM)
+# app.py (versão com Melhoria 1 e 2)
 
 import streamlit as st
 import json
@@ -208,9 +208,12 @@ def get_query_intent_with_llm(query: str) -> str:
         logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
         return "qualitativa"
 
+# <<< MELHORIA 2 APLICADA >>>
+# Função modificada para lidar com buscas gerais (sem empresa)
 def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[str, list[dict]]:
     full_context, unique_chunks_content = "", set()
     retrieved_sources_structured, seen_sources = [], set()
+    
     class Config:
         MAX_CONTEXT_TOKENS, SCORE_THRESHOLD_GENERAL = 256000, 0.4
     
@@ -224,36 +227,58 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
 
         unique_chunks_content.add(chunk_hash)
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
-        source_header = f"(Empresa: {source_info_dict['company']}, Documento: {source_info_dict['doc_type']})"
+        
+        company_name = source_info_dict.get('company', 'N/A')
+        doc_type = source_info_dict.get('doc_type', 'N/A')
+        source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
+        
         source_tuple = (source_info_dict['company'], source_info_dict['url'])
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
+        
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
             retrieved_sources_structured.append(source_info_dict)
 
-    for empresa in plan.get("empresas", []):
-        logger.info(f"Executando plano para: {empresa}")
-        target_tags = set()
-        for topico in plan.get("topicos", []):
-            target_tags.update(expand_search_terms(topico, kb))
-        
-        tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
-        for chunk_info in tagged_chunks:
-            source_info = {'company': chunk_info['company'],'doc_type': chunk_info['source'],'url': chunk_info['path']}
-            add_unique_chunk_to_context(chunk_info['text'], source_info)
+    empresas = plan.get("empresas", [])
+    topicos = plan.get("topicos", [])
 
-        for topico in plan.get("topicos", []):
+    if not empresas:
+        logger.info("Executando plano de busca geral (sem empresa especificada).")
+        for topico in topicos:
             for term in expand_search_terms(topico, kb)[:3]:
-                search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
+                search_query = f"explicação sobre o conceito de {term}"
                 query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                 for doc_type, artifact_data in artifacts.items():
                     scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
                     for i, idx in enumerate(indices[0]):
                         if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                             chunk_map_item = artifact_data['chunks']['map'][idx]
-                            if empresa.lower() in chunk_map_item['company_name'].lower():
-                                source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
-                                add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
+                            source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
+                            add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
+    else:
+        for empresa in empresas:
+            logger.info(f"Executando plano para: {empresa}")
+            target_tags = set()
+            for topico in topicos:
+                target_tags.update(expand_search_terms(topico, kb))
+            
+            tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
+            for chunk_info in tagged_chunks:
+                source_info = {'company': chunk_info['company'],'doc_type': chunk_info['source'],'url': chunk_info['path']}
+                add_unique_chunk_to_context(chunk_info['text'], source_info)
+
+            for topico in topicos:
+                for term in expand_search_terms(topico, kb)[:3]:
+                    search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
+                    query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
+                    for doc_type, artifact_data in artifacts.items():
+                        scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
+                        for i, idx in enumerate(indices[0]):
+                            if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
+                                chunk_map_item = artifact_data['chunks']['map'][idx]
+                                if empresa.lower() in chunk_map_item['company_name'].lower():
+                                    source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
+                                    add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
     
     return full_context, retrieved_sources_structured
 
@@ -278,8 +303,10 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
 
-    if not mentioned_companies:
-        return {"status": "error", "plan": {}}
+    # <<< MELHORIA 2 APLICADA >>>
+    # Bloco que retornava erro foi removido daqui. A função agora continua mesmo sem empresas.
+    # if not mentioned_companies:
+    #     return {"status": "error", "plan": {}}
 
     alias_map = _create_flat_alias_map(kb)
     topics = list({canonical for alias, canonical in alias_map.items() if re.search(r'\b' + re.escape(alias) + r'\b', query_lower)})
@@ -290,7 +317,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
         Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
         Formato: ["Tópico 1", "Tópico 2"]"""
         try:
-            llm_response = get_final_unified_answer("Gere uma lista de tópicos para a pergunta.", prompt) # Contexto é o prompt aqui
+            llm_response = get_final_unified_answer("Gere uma lista de tópicos para a pergunta.", prompt)
             topics = json.loads(re.search(r'\[.*\]', llm_response, re.DOTALL).group())
         except Exception as e:
             logger.warning(f"Falha ao obter tópicos do LLM: {e}. Usando tópicos padrão.")
@@ -302,18 +329,31 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
 def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_data):
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
-        if plan_response['status'] != "success" or not plan_response['plan']['empresas']:
-            st.error("❌ Não consegui identificar empresas na sua pergunta.")
-            return "Análise abortada.", []
+        
+        # <<< MELHORIA 2 APLICADA >>>
+        # A verificação de erro foi removida daqui, pois o plano agora é sempre um sucesso.
+        # if plan_response['status'] != "success" or not plan_response['plan']['empresas']:
+        #     st.error("❌ Não consegui identificar empresas na sua pergunta.")
+        #     return "Análise abortada.", []
+        
         plan = plan_response['plan']
-        st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
+        
+        # Mostra as empresas apenas se elas foram identificadas
+        if plan['empresas']:
+            st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
+        else:
+            st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
+            
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
     final_answer, all_sources_structured = "", []
     seen_sources_tuples = set()
 
-    if len(plan['empresas']) > 1:
+    # <<< MELHORIA 2 APLICADA >>>
+    # A lógica de comparação só é ativada se houver mais de uma empresa.
+    # Buscas gerais (sem empresa) seguirão o fluxo 'else' normal.
+    if len(plan.get('empresas', [])) > 1:
         st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas.")
         summaries = []
         for i, empresa in enumerate(plan['empresas']):
@@ -350,6 +390,7 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
 
     return final_answer, all_sources_structured
 
+# Função main permanece a mesma da melhoria anterior
 def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
@@ -382,7 +423,6 @@ def main():
     st.header("💬 Faça sua pergunta")
     
     with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
-        # ... (conteúdo do expander permanece o mesmo) ...
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
         """)
@@ -400,17 +440,17 @@ def main():
         Para perguntas abertas que buscam **detalhes, explicações ou comparações**, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG). Ele lê os trechos mais relevantes dos documentos para construir uma resposta detalhada.
         """)
         st.markdown("**Exemplos:**")
-        st.code("""- Como funciona o plano de vesting da Vale?
-- Detalhe o tratamento de dividendos no plano da Magazine Luiza.
-- Compare os planos de ações restritas da Hypera e da Movida.""")
+        st.code("""- Como funciona o plano de vesting da Vale? (Específica)
+- O que é a cláusula de Malus? (Geral)
+- Compare os planos de ações restritas da Hypera e da Movida. (Comparativa)""")
         st.subheader("❗ Limitações Importantes")
         st.warning("""
         * **Conhecimento Estático:** O agente **NÃO** tem acesso à internet.
         * **Não Emite Opinião:** Ele **encontra e apresenta** informações, mas não fornece conselhos.
-        * **Dependência da Extração:** As análises quantitativas dependem da extração prévia. Se um fato não foi extraído, ele não aparecerá.
+        * **Dependência da Extração:** As análises quantitativas dependem da extração prévia.
         """)
 
-    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Qual o período de vesting médio e a moda dos planos de ações restritas?")
+    user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: O que é vesting? ou Como funciona o plano da Vale?")
     
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
@@ -420,8 +460,6 @@ def main():
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
         
-        # <<< MELHORIA 1 APLICADA >>>
-        # Roteador de Intenção baseado em LLM para maior precisão
         with st.spinner("Analisando a intenção da sua pergunta..."):
             intent = get_query_intent_with_llm(user_query)
 
@@ -443,7 +481,7 @@ def main():
                                 st.dataframe(df_content, use_container_width=True, hide_index=True)
                 else: 
                     st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
-        else: # A intenção é 'qualitativa' ou houve um erro (fallback seguro)
+        else:
             final_answer, sources = handle_rag_query(
                 user_query,
                 artifacts,
