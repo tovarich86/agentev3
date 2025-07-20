@@ -15,7 +15,13 @@ import zipfile
 import io
 import shutil
 from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
-from tools import find_companies_by_topic
+from tools import (
+    find_companies_by_topic, 
+    analyze_topic_thematically, 
+    get_summary_for_topic_at_company,
+    _create_alias_to_canonical_map, 
+    _get_canonical_topic_from_text
+)
 
 # --- Módulos do Projeto (devem estar na mesma pasta) ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
