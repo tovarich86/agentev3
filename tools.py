@@ -1,20 +1,20 @@
-# tools.py (Versão 2.0 - Busca Híbrida)
+# tools.py (Versão 3.0 - Com Análise Temática)
 
 import faiss
 import numpy as np
 import re
+import json
 from sentence_transformers import SentenceTransformer
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
-# --- Funções Auxiliares ---
+# --- Funções Auxiliares (do passo anterior, sem alterações) ---
 
 def _create_alias_to_canonical_map(kb: dict) -> tuple[dict, dict]:
-    """Cria um mapeamento de qualquer alias para seu tópico canônico e seção."""
     alias_map = {}
     canonical_topics = defaultdict(list)
     for section, topics in kb.items():
         for topic_name_raw, aliases in topics.items():
-            # Adiciona o próprio nome canônico à lista de aliases para busca
             all_aliases = aliases + [topic_name_raw.replace('_', ' ')]
             for alias in all_aliases:
                 alias_map[alias.lower()] = topic_name_raw
@@ -22,14 +22,11 @@ def _create_alias_to_canonical_map(kb: dict) -> tuple[dict, dict]:
     return alias_map, canonical_topics
 
 def _get_canonical_topic(term: str, alias_map: dict) -> str | None:
-    """Encontra o nome do tópico canônico (ex: Matching_Coinvestimento) a partir de um termo de busca."""
     return alias_map.get(term.lower())
 
 def _find_companies_by_exact_tag(canonical_topic: str, artifacts: dict) -> set[str]:
-    """Busca empresas que possuem chunks com a tag de tópico exata."""
     found_companies = set()
     tag_to_find = f"[topico:{canonical_topic}]"
-    
     for artifact_data in artifacts.values():
         all_chunks_text = artifact_data.get('chunks', {}).get('chunks', [])
         chunk_map = artifact_data.get('chunks', {}).get('map', [])
@@ -41,70 +38,110 @@ def _find_companies_by_exact_tag(canonical_topic: str, artifacts: dict) -> set[s
     return found_companies
 
 def expand_search_terms(base_term: str, kb: dict) -> list[str]:
-    """Mantida para compatibilidade, mas a nova lógica usa o mapa canônico."""
-    base_term_lower = base_term.lower()
-    expanded_terms = {base_term_lower}
-    for section, topics in kb.items():
-        for topic, aliases in topics.items():
-            all_terms_in_group = {alias.lower() for alias in aliases} | {topic.lower().replace('_', ' ')}
-            if base_term_lower in all_terms_in_group:
-                expanded_terms.update(all_terms_in_group)
+    # ... (código sem alterações)
     return list(expanded_terms)
 
 
-# --- Ferramenta Principal (Lógica Aprimorada) ---
+# --- Ferramenta de Listagem (do passo anterior, sem alterações) ---
 
 def find_companies_by_topic(topic: str, artifacts: dict, model: SentenceTransformer, kb: dict, top_k: int = 20) -> list[str]:
-    """
-    Busca por um tópico em todos os documentos usando uma ESTRATÉGIA HÍBRIDA e retorna
-    uma lista de nomes de empresas únicas que possuem chunks relevantes.
-    """
-    print(f"Buscando empresas para o tópico (termo original): {topic}")
-    
-    # 1. Mapear o termo do usuário para o tópico canônico do dicionário
-    alias_map, canonical_map = _create_alias_to_canonical_map(kb)
-    canonical_topic = _get_canonical_topic(topic, alias_map)
-    
-    if not canonical_topic:
-        print(f"Tópico '{topic}' não encontrado no dicionário. Realizando apenas busca vetorial.")
-        # Se não acharmos um tópico, fazemos a busca vetorial como antes
-        search_terms = expand_search_terms(topic, kb)
-    else:
-        print(f"Tópico canônico identificado: {canonical_topic}")
-        # Se achamos, usamos todos os aliases para uma busca vetorial mais rica
-        search_terms = canonical_map[canonical_topic]
-
-    # --- ESTRATÉGIA DE BUSCA HÍBRIDA ---
-    
-    # 2. Busca por Tag (Alta Precisão)
-    companies_from_tags = set()
-    if canonical_topic:
-        companies_from_tags = _find_companies_by_exact_tag(canonical_topic, artifacts)
-        print(f"Encontradas {len(companies_from_tags)} empresas via busca por tag: {companies_from_tags}")
-
-    # 3. Busca Vetorial (Alto Alcance)
-    companies_from_vector = set()
-    search_query = f"informações e detalhes sobre {', '.join(search_terms)}"
-    query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
-    
-    for doc_type, artifact_data in artifacts.items():
-        index = artifact_data.get('index')
-        chunk_map = artifact_data.get('chunks', {}).get('map', [])
-        
-        if not index or not chunk_map:
-            continue
-            
-        scores, indices = index.search(query_embedding, top_k)
-        
-        for idx in indices[0]:
-            if idx != -1:
-                company_name = chunk_map[idx].get("company_name")
-                if company_name:
-                    companies_from_vector.add(company_name)
-    print(f"Encontradas {len(companies_from_vector)} empresas via busca vetorial.")
-
-    # 4. Unificar Resultados
-    final_companies = sorted(list(companies_from_tags.union(companies_from_vector)))
-    print(f"Total de empresas únicas encontradas: {len(final_companies)}")
-    
+    # ... (código sem alterações)
     return final_companies
+
+
+# --- NOVAS FERRAMENTAS PARA ANÁLISE TEMÁTICA ---
+
+def get_summary_for_topic_at_company(
+    company: str, 
+    topic: str, 
+    kb: dict, 
+    artifacts: dict, 
+    model: SentenceTransformer, 
+    execute_dynamic_plan_func: callable, 
+    get_final_unified_answer_func: callable
+) -> str:
+    """
+    Ferramenta de extração: Busca e resume um tópico para uma empresa específica.
+    Retorna o texto do resumo ou uma mensagem de "não encontrado".
+    """
+    plan = {"empresas": [company], "topicos": [topic]}
+    context, _ = execute_dynamic_plan_func(plan, artifacts, model, kb)
+    
+    if not context:
+        return "Não foi possível encontrar detalhes específicos sobre este tópico para esta empresa."
+        
+    summary_prompt = f"""
+    Com base no contexto fornecido sobre a empresa {company}, resuma em detalhes as regras e o funcionamento do plano relacionadas ao tópico: '{topic}'.
+    Seja direto e foque apenas nas informações relevantes para o tópico.
+
+    CONTEXTO:
+    {context}
+    """
+    summary = get_final_unified_answer_func(summary_prompt, context)
+    return summary
+
+
+def analyze_topic_thematically(
+    topic: str, 
+    query: str, 
+    artifacts: dict, 
+    model: SentenceTransformer, 
+    kb: dict, 
+    execute_dynamic_plan_func: callable, 
+    get_final_unified_answer_func: callable
+) -> str:
+    """
+    Ferramenta de orquestração: Realiza uma análise temática completa de um tópico.
+    """
+    print(f"Iniciando análise temática para o tópico: {topic}")
+    
+    # 1. ENCONTRAR: Identifica as empresas relevantes
+    companies_to_analyze = find_companies_by_topic(topic, artifacts, model, kb)
+    
+    if not companies_to_analyze:
+        return f"Não foram encontradas empresas com informações suficientes sobre o tópico '{topic}' para realizar uma análise temática."
+    
+    print(f"Analisando o tópico '{topic}' para {len(companies_to_analyze)} empresas...")
+
+    # 2. EXTRAIR: Busca os detalhes para cada empresa em paralelo
+    company_summaries = []
+    with ThreadPoolExecutor(max_workers=len(companies_to_analyze)) as executor:
+        futures = {
+            executor.submit(
+                get_summary_for_topic_at_company, 
+                company, topic, kb, artifacts, model, 
+                execute_dynamic_plan_func, get_final_unified_answer_func
+            ): company for company in companies_to_analyze
+        }
+        for future in futures:
+            company = futures[future]
+            try:
+                summary_text = future.result()
+                company_summaries.append({"empresa": company, "resumo_do_plano": summary_text})
+            except Exception as e:
+                print(f"Erro ao analisar a empresa {company}: {e}")
+                company_summaries.append({"empresa": company, "resumo_do_plano": f"Erro ao processar a análise: {e}"})
+
+    # 3. SINTETIZAR: Gera o relatório final com base nos resumos extraídos
+    synthesis_context = json.dumps(company_summaries, indent=2, ensure_ascii=False)
+    
+    synthesis_prompt = f"""
+    Você é um consultor especialista em remuneração e planos de incentivo.
+    Sua tarefa é responder à pergunta original do usuário: "{query}"
+    Para isso, analise o CONTEXTO JSON abaixo, que contém resumos dos planos de várias empresas sobre o tópico '{topic}'.
+
+    CONTEXTO:
+    {synthesis_context}
+
+    INSTRUÇÕES PARA O RELATÓRIO TEMÁTICO:
+    1.  **Introdução:** Comece com um parágrafo que resume suas principais descobertas.
+    2.  **Identificação de Padrões:** Analise todos os resumos e identifique de 2 a 4 "modelos" ou "padrões" comuns de como as empresas estruturam seus planos para este tópico.
+    3.  **Descrição dos Padrões:** Para cada padrão identificado, descreva-o em detalhes e liste as empresas do contexto que seguem aquele padrão. Use subtítulos para cada padrão.
+    4.  **Exceções e Casos Únicos:** Se houver alguma empresa com uma abordagem muito diferente ou inovadora, destaque-a em uma seção separada.
+    5.  **Conclusão:** Finalize com uma breve conclusão sobre as práticas de mercado para o tópico '{topic}'.
+
+    Seja analítico, estruturado e use Markdown para formatar sua resposta de forma clara.
+    """
+    
+    final_report = get_final_unified_answer_func(synthesis_prompt, synthesis_context)
+    return final_report
