@@ -15,6 +15,7 @@ import zipfile
 import io
 import shutil
 from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
+from tools import find_companies_by_topic
 
 # --- Módulos do Projeto (devem estar na mesma pasta) ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
@@ -571,23 +572,66 @@ def main():
             intent = get_query_intent_with_llm(user_query)
 
         if intent == "quantitativa":
-            with st.spinner("Executando análise quantitativa rápida..."):
-                report_text, data_result = engine.answer_query(user_query)
+    # Por enquanto, vamos rotear perguntas de listagem para nossa nova ferramenta
+    # e manter o resto para o AnalyticalEngine.
+    # Esta é uma transição gradual.
+    
+    query_lower = user_query.lower()
+    listing_keywords = ["quais empresas", "liste as empresas", "quais companhias", "quais são as empresas"]
+
+    if any(keyword in query_lower for keyword in listing_keywords):
+        with st.spinner(f"Usando ferramentas para encontrar empresas..."):
+            # 1. Extrair o tópico da pergunta (uma abordagem simples por enquanto)
+            # Remove as palavras-chave de listagem para isolar o tópico
+            topic_str = query_lower
+            for keyword in listing_keywords:
+                topic_str = topic_str.replace(keyword, "")
+            topic_str = topic_str.replace("têm", "").replace("possuem", "").strip(" ?.")
+            
+            st.write(f"**Tópico identificado para busca:** `{topic_str}`")
+
+            # 2. Chamar a nova ferramenta
+            companies_found = find_companies_by_topic(
+                topic=topic_str,
+                artifacts=artifacts,
+                model=model,
+                kb=DICIONARIO_UNIFICADO_HIERARQUICO
+            )
+
+            # 3. Exibir os resultados
+            if companies_found:
+                st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topic_str}':")
+                # Exibe em uma lista
+                for company in companies_found:
+                    st.markdown(f"- {company}")
                 
-                if report_text:
-                    st.markdown(report_text)
-                
-                if data_result is not None:
-                    if isinstance(data_result, pd.DataFrame):
-                        if not data_result.empty:
-                            st.dataframe(data_result, use_container_width=True, hide_index=True)
-                    elif isinstance(data_result, dict):
-                        for df_name, df_content in data_result.items():
-                            if df_content is not None and not df_content.empty:
-                                st.markdown(f"#### {df_name}")
-                                st.dataframe(df_content, use_container_width=True, hide_index=True)
-                else: 
-                    st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
+                # Opcional: Exibe também em um DataFrame
+                df = pd.DataFrame(companies_found, columns=[f"Empresas com o tópico: {topic_str}"])
+                with st.expander("Ver em formato de tabela"):
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topic_str}'.")
+
+    else:
+        # Se não for uma pergunta de listagem, ainda usa o AnalyticalEngine antigo
+        st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
+        with st.spinner("Executando análise quantitativa rápida..."):
+            report_text, data_result = engine.answer_query(user_query)
+            # ... (código original de exibição do resultado do AnalyticalEngine) ...
+            if report_text:
+                st.markdown(report_text)
+            
+            if data_result is not None:
+                if isinstance(data_result, pd.DataFrame):
+                    if not data_result.empty:
+                        st.dataframe(data_result, use_container_width=True, hide_index=True)
+                elif isinstance(data_result, dict):
+                    for df_name, df_content in data_result.items():
+                        if df_content is not None and not df_content.empty:
+                            st.markdown(f"#### {df_name}")
+                            st.dataframe(df_content, use_container_width=True, hide_index=True)
+            else: 
+                st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
         else:
             final_answer, sources = handle_rag_query(
                 user_query,
