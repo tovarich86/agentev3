@@ -442,50 +442,46 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
     final_answer, all_sources_structured = "", []
     seen_sources_tuples = set()
 
-    # <<< MELHORIA 4 APLICADA >>>
     if len(plan.get('empresas', [])) > 1:
-    st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas. Executando análises em paralelo...")
-    
-    with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
-        with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
-            futures = [
-                executor.submit(analyze_single_company, empresa, plan, artifacts, model, kb) 
-                for empresa in plan['empresas']
-            ]
-            # 'results' agora é uma lista de dicionários estruturados
-            results = [future.result() for future in futures]
-
-    # Processa as fontes de todos os resultados
-    for result in results:
-        for src_dict in result['sources']:
-            src_tuple = (src_dict['company'], src_dict['url'])
-            if src_tuple not in seen_sources_tuples:
-                seen_sources_tuples.add(src_tuple)
-                all_sources_structured.append(src_dict)
-
-    with st.status("Gerando relatório comparativo final...", expanded=True) as status:
-        # Converte a lista de dicionários em uma string JSON formatada para o contexto
-        structured_context = json.dumps(results, indent=2, ensure_ascii=False)
+        # --- BLOCO CORRIGIDO ---
+        st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas. Executando análises em paralelo...")
         
-        # Novo prompt que instrui o LLM a trabalhar com o JSON
-        comparison_prompt = f"""
-        Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
-        Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
-        O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada que compare os tópicos lado a lado para cada empresa.
+        with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
+            with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
+                futures = [
+                    executor.submit(analyze_single_company, empresa, plan, artifacts, model, kb) 
+                    for empresa in plan['empresas']
+                ]
+                results = [future.result() for future in futures]
 
-        CONTEXTO (em formato JSON):
-        {structured_context}
+        for result in results:
+            for src_dict in result['sources']:
+                src_tuple = (src_dict['company'], src_dict['url'])
+                if src_tuple not in seen_sources_tuples:
+                    seen_sources_tuples.add(src_tuple)
+                    all_sources_structured.append(src_dict)
 
-        INSTRUÇÕES PARA O RELATÓRIO:
-        1.  **Análise Textual:** Escreva um ou dois parágrafos iniciais resumindo as principais semelhanças e diferenças entre os planos das empresas, com base nos dados.
-        2.  **Tabela Comparativa:** Crie uma tabela Markdown. A primeira coluna deve ser "Tópico". As colunas seguintes devem ser os nomes das empresas. As linhas devem corresponder a cada tópico analisado.
-        3.  Se um resumo para um tópico for "Informação não encontrada", coloque isso na célula correspondente da tabela.
-        4.  Seja preciso e atenha-se estritamente aos dados fornecidos no CONTEXTO JSON.
-        """
-        
-        # O segundo argumento de get_final_unified_answer é o contexto, que agora é nosso JSON
-        final_answer = get_final_unified_answer(comparison_prompt, structured_context)
-        status.update(label="✅ Relatório comparativo gerado!", state="complete")
+        with st.status("Gerando relatório comparativo final...", expanded=True) as status:
+            structured_context = json.dumps(results, indent=2, ensure_ascii=False)
+            
+            comparison_prompt = f"""
+            Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
+            Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
+            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada que compare os tópicos lado a lado para cada empresa.
+
+            CONTEXTO (em formato JSON):
+            {structured_context}
+
+            INSTRUÇÕES PARA O RELATÓRIO:
+            1.  **Análise Textual:** Escreva um ou dois parágrafos iniciais resumindo as principais semelhanças e diferenças entre os planos das empresas, com base nos dados.
+            2.  **Tabela Comparativa:** Crie uma tabela Markdown. A primeira coluna deve ser "Tópico". As colunas seguintes devem ser os nomes das empresas. As linhas devem corresponder a cada tópico analisado.
+            3.  Se um resumo para um tópico for "Informação não encontrada", coloque isso na célula correspondente da tabela.
+            4.  Seja preciso e atenha-se estritamente aos dados fornecidos no CONTEXTO JSON.
+            """
+            
+            final_answer = get_final_unified_answer(comparison_prompt, structured_context)
+            status.update(label="✅ Relatório comparativo gerado!", state="complete")
+        # --- FIM DO BLOCO CORRIGIDO ---
             
     else: # Lógica para busca geral ou de empresa única
         with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
