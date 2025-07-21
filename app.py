@@ -657,8 +657,8 @@ def main():
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
-                    for src in sorted(sources, key=lambda x: x['company']):
-                        display_text = f"{src['company']} - {src['doc_type'].replace('_', ' ')}"
+                    for src in sorted(sources, key=lambda x: x['company_name']):
+                        display_text = f"{src['company_name']} - {src['doc_type'].replace('_', ' ')}"
                         url = src['url']
                         if "frmExibirArquivoIPEExterno" in url:
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
