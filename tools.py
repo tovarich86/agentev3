@@ -18,6 +18,8 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
+import logging
+logger = logging.getLogger(__name__)
 
 def get_final_unified_answer(query: str, context: str) -> str:
     # Acessamos as variáveis de configuração através do Streamlit
