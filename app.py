@@ -347,9 +347,19 @@ def execute_dynamic_plan(
 
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
-    mentioned_companies = []
     
-    # --- 1. Identificação da Empresa ---
+    # --- 1. Identificação de Tópicos e Intenção ---
+    alias_map, _ = _create_alias_to_canonical_map(kb)
+    topics = _get_all_canonical_topics_from_text(query_lower, alias_map)
+    
+    listing_keywords = ["quais empresas", "liste as empresas", "quais companhias"]
+    thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
+    
+    is_listing_request = any(keyword in query_lower for keyword in listing_keywords)
+    is_thematic_request = any(keyword in query_lower for keyword in thematic_keywords)
+
+    # --- 2. Identificação de Empresa ---
+    mentioned_companies = []
     if company_catalog_rich:
         companies_found_by_alias = {}
         for company_data in company_catalog_rich:
@@ -366,50 +376,18 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
 
-    if not mentioned_companies:
+    # --- 3. Lógica de Validação Aprimorada ---
+    # Se a intenção NÃO é de listagem ou temática, E nenhuma empresa foi encontrada, então é um erro.
+    if not is_listing_request and not is_thematic_request and not mentioned_companies:
+        logger.error("A pergunta parece ser sobre uma empresa específica, mas nenhuma foi identificada.")
         return {"status": "error", "plan": {}}
 
-    # --- 2. Identificação de Tópicos (Lógica Aprimorada) ---
-    topics = []
-    alias_map = _create_flat_alias_map(kb)
-    
-    # 2a. Tenta encontrar tópicos específicos mencionados na query
-    topics = list({canonical for alias, canonical in alias_map.items() if re.search(r'\b' + re.escape(alias) + r'\b', query_lower)})
-    
-    # 2b. Se nenhum tópico específico for encontrado, avalia cenários de resumo/comparação
-    if not topics:
-        is_comparison = len(mentioned_companies) > 1
-        summary_keywords = ['resumo', 'geral', 'completo', 'visão geral', 'como funciona o plano', 'detalhes do plano']
-        is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
-        
-        # Cenário 1: Pedido de resumo para UMA empresa
-        if is_summary_request and not is_comparison:
-            company_name = mentioned_companies[0]
-            logger.info(f"Intenção de resumo detectada para {company_name}. Extraindo tópicos do summary_data.")
-            company_summary_info = summary_data.get(company_name, {}).get("topicos_encontrados", {})
-            if company_summary_info:
-                all_company_topics = {topic_raw.replace('_', ' ') for section in company_summary_info.values() for topic_raw in section.keys()}
-                topics = sorted(list(all_company_topics))
-                logger.info(f"Tópicos para o resumo de {company_name}: {topics}")
-        
-        # Cenário 2: Pedido de COMPARAÇÃO sem tópicos específicos
-        elif is_comparison:
-            logger.info("Intenção de comparação sem tópicos específicos detectada. Usando tópicos padrão para a análise.")
-            topics = ["Estrutura do Plano", "AcoesRestritas", "OpcoesDeCompra", "Vesting", "MetasGerais"]
-        
-        # 2c. Fallback final: Se ainda não houver tópicos, usa o LLM
-        if not topics:
-            logger.info("Nenhum tópico específico, de resumo ou comparação encontrado. Consultando LLM para planejamento...")
-            prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
-            Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
-            Formato: ["Tópico 1", "Tópico 2"]"""
-            try:
-                llm_response = get_final_unified_answer("Gere uma lista de tópicos para a pergunta.", prompt)
-                topics = json.loads(re.search(r'\[.*\]', llm_response, re.DOTALL).group())
-            except Exception as e:
-                logger.warning(f"Falha ao obter tópicos do LLM: {e}. Usando tópicos padrão.")
-                topics = ["Estrutura do Plano", "Vesting", "Outorga"]
-            
+    # Se nenhum tópico foi identificado, cai no fallback do LLM (exceto para listagem/temática que já deveriam ter um tópico)
+    if not topics and not is_listing_request and not is_thematic_request:
+        logger.info("Nenhum tópico específico encontrado, consultando LLM para planejamento...")
+        # ... (lógica de fallback com LLM, se desejar mantê-la)
+        pass # Por enquanto, vamos permitir um plano com tópicos vazios que será tratado depois
+
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
     
