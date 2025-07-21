@@ -646,10 +646,12 @@ def main():
             thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
             
             alias_map, _ = _create_alias_to_canonical_map(DICIONARIO_UNIFICADO_HIERARQUICO)
-            topic_str = _get_canonical_topic_from_text(query_lower, alias_map)
+            topics_to_search = _get_all_canonical_topics_from_text(query_lower, alias_map)
+            topics_to_search = [t for t in topics_to_search if t.lower() not in listing_keywords and t.lower() not in thematic_keywords]
 
             # Rota 1: Análise Temática
-            if any(keyword in query_lower for keyword in thematic_keywords) and topic_str:
+            if any(keyword in query_lower for keyword in thematic_keywords) and topics_to_search:
+            primary_topic = topics_to_search[0]
                 with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
                     st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
                     final_report = analyze_topic_thematically(
