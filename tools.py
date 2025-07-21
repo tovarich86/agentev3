@@ -18,6 +18,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
+import requests
 import logging
 logger = logging.getLogger(__name__)
 
