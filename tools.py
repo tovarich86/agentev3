@@ -162,13 +162,22 @@ def suggest_alternative_query(failed_query: str) -> str:
                 chosen_template = random.choice(template_variations)
                 safe_suggestions.append(chosen_template.format(topic=primary_topic))
     else:
+        # Se nenhum tópico foi encontrado, oferecer sugestões gerais e seguras
         context_for_llm = "O usuário fez uma pergunta genérica ou sobre um tópico não reconhecido."
-        print("---NENHUM TÓPICO IDENTIFICADO. USANDO SUGESTÕES GERAIS.---")
+        print("---NENHUM TÓPICO IDENTIFICADO. USANDO SUGESTÕES GERAIS E SEGURAS.---")
+        
+        # --- BLOCO DE SUGESTÕES CORRIGIDO ---
         safe_suggestions = [
-            "Quais são os modelos típicos de vesting?",
+            # MANTÉM: Esta pergunta aciona a ferramenta de listagem (qualitativa)
             "Liste as empresas que utilizam TSR Relativo como métrica de performance.",
-            "Compare os planos de Ações Restritas da Vale e da Magazine Luiza.",
+            
+            # SUBSTITUIÇÃO: Troca a pergunta quantitativa por uma qualitativa poderosa
+            "Analise os modelos típicos de planos de Ações Restritas (RSU), o tipo mais comum no mercado.",
+            
+            # MANTÉM: Esta pergunta aciona o RAG para uma empresa específica (qualitativa)
+            "Como funciona o plano de vesting da Vale?"
         ]
+        # 
 
     # Limita o número de sugestões para não sobrecarregar o usuário
     safe_suggestions = safe_suggestions[:3]
