@@ -87,6 +87,27 @@ QUESTION_TEMPLATES = {
     ]
 }
 
+def _create_company_lookup_map(company_catalog_rich: list) -> dict:
+    """
+    Cria um dicionário de mapeamento reverso: {nome_variante.lower(): canonical_name}.
+    """
+    lookup_map = {}
+    if not company_catalog_rich:
+        return lookup_map
+        
+    for company_data in company_catalog_rich:
+        canonical_name = company_data.get("canonical_name")
+        if not canonical_name:
+            continue
+        
+        # Adiciona o próprio nome canônico e todos os apelidos ao mapa
+        all_names_to_map = [canonical_name] + company_data.get("aliases", [])
+        
+        for name in all_names_to_map:
+            lookup_map[name.lower()] = canonical_name
+            
+    return lookup_map
+
 def get_final_unified_answer(query: str, context: str) -> str:
     # Acessamos as variáveis de configuração através do Streamlit
     GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
