@@ -229,20 +229,15 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
         nonlocal full_context, unique_chunks_content, retrieved_sources_structured, seen_sources
         chunk_hash = hash(re.sub(r'\s+', '', chunk_text.lower())[:200])
         if chunk_hash in unique_chunks_content: return
-        
         estimated_tokens = len(full_context + chunk_text) // 4
         if estimated_tokens > Config.MAX_CONTEXT_TOKENS: return
-
         unique_chunks_content.add(chunk_hash)
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
-        
         company_name = source_info_dict.get('company', 'N/A')
         doc_type = source_info_dict.get('doc_type', 'N/A')
         source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
-        
         source_tuple = (source_info_dict['company'], source_info_dict['url'])
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
-        
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
             retrieved_sources_structured.append(source_info_dict)
@@ -250,31 +245,37 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
     empresas = plan.get("empresas", [])
     topicos = plan.get("topicos", [])
 
-    if not empresas:
-        logger.info("Executando plano de busca geral (sem empresa especificada).")
-        for topico in topicos:
-            for term in expand_search_terms(topico, kb)[:3]:
-                search_query = f"explicação sobre o conceito de {term}"
+    for empresa in empresas:
+        logger.info(f"Executando plano para: {empresa}")
+
+        # --- LÓGICA DE BUSCA OTIMIZADA ---
+        if is_summary_plan:
+            # Para resumos, os tópicos já são os corretos. Fazemos busca vetorial direta.
+            logger.info("Modo de busca para resumo ativado: busca vetorial direta.")
+            for topico in topicos:
+                search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa}"
                 query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                 for doc_type, artifact_data in artifacts.items():
                     scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
                     for i, idx in enumerate(indices[0]):
                         if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                             chunk_map_item = artifact_data['chunks']['map'][idx]
-                            source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
-                            add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
-    else:
-        for empresa in empresas:
-            logger.info(f"Executando plano para: {empresa}")
+                            if empresa.lower() in chunk_map_item['company_name'].lower():
+                                add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
+        else:
+            # Para buscas específicas, usamos a lógica híbrida original (tag + expansão)
+            logger.info("Modo de busca padrão ativado: busca híbrida com expansão de termos.")
             target_tags = set()
             for topico in topicos:
                 target_tags.update(expand_search_terms(topico, kb))
             
+            # 1. Busca por Tags
             tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
             for chunk_info in tagged_chunks:
                 source_info = {'company': chunk_info['company'],'doc_type': chunk_info['source'],'url': chunk_info['path']}
                 add_unique_chunk_to_context(chunk_info['text'], source_info)
 
+            # 2. Busca Vetorial com Expansão
             for topico in topicos:
                 for term in expand_search_terms(topico, kb)[:3]:
                     search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
@@ -285,11 +286,9 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
                             if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                                 chunk_map_item = artifact_data['chunks']['map'][idx]
                                 if empresa.lower() in chunk_map_item['company_name'].lower():
-                                    source_info = {'company': chunk_map_item['company_name'],'doc_type': doc_type,'url': chunk_map_item['source_url']}
-                                    add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], source_info)
+                                    add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
     
     return full_context, retrieved_sources_structured
-
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     mentioned_companies = []
@@ -421,7 +420,22 @@ def analyze_single_company(empresa: str, plan: dict, artifacts: dict, model, kb:
 def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_data):
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
+        
+        # Se a criação do plano falhar (ex: nenhuma empresa encontrada), encerra.
+        if plan_response['status'] != "success":
+            st.error("❌ Não consegui identificar empresas na sua pergunta para realizar uma análise detalhada.")
+            return "Análise abortada.", []
+            
         plan = plan_response['plan']
+        
+        # --- LÓGICA DE DETECÇÃO DE INTENÇÃO DE RESUMO ---
+        summary_keywords = ['resumo', 'geral', 'completo', 'visão geral', 'como funciona o plano', 'detalhes do plano']
+        is_summary_request = any(keyword in query.lower() for keyword in summary_keywords)
+        
+        # Um plano de resumo é ativado se for um pedido de resumo e NENHUM tópico específico foi extraído da query
+        specific_topics_in_query = list({canonical for alias, canonical in _create_flat_alias_map(kb).items() if re.search(r'\b' + re.escape(alias) + r'\b', query.lower())})
+        is_summary_plan = is_summary_request and not specific_topics_in_query
+        # --- FIM DA LÓGICA ---
         
         if plan['empresas']:
             st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
@@ -429,25 +443,28 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
             st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
             
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
+        if is_summary_plan:
+            st.info("💡 Modo de resumo geral ativado. A busca será otimizada para os tópicos encontrados.")
+            
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
     final_answer, all_sources_structured = "", []
     seen_sources_tuples = set()
 
+    # --- Lógica para Múltiplas Empresas (Comparação) ---
     if len(plan.get('empresas', [])) > 1:
-        # --- BLOCO CORRIGIDO ---
         st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas. Executando análises em paralelo...")
         
         with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
             with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
                 futures = [
-                    executor.submit(analyze_single_company, empresa, plan, artifacts, model, kb) 
+                    executor.submit(analyze_single_company, empresa, plan, artifacts, model, kb, execute_dynamic_plan, get_final_unified_answer) 
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
 
         for result in results:
-            for src_dict in result['sources']:
+            for src_dict in result.get('sources', []):
                 src_tuple = (src_dict['company'], src_dict['url'])
                 if src_tuple not in seen_sources_tuples:
                     seen_sources_tuples.add(src_tuple)
@@ -455,32 +472,27 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
-            
             comparison_prompt = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
             Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
-            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada que compare os tópicos lado a lado para cada empresa.
+            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada.
 
             CONTEXTO (em formato JSON):
             {structured_context}
-
-            INSTRUÇÕES PARA O RELATÓRIO:
-            1.  **Análise Textual:** Escreva um ou dois parágrafos iniciais resumindo as principais semelhanças e diferenças entre os planos das empresas, com base nos dados.
-            2.  **Tabela Comparativa:** Crie uma tabela Markdown. A primeira coluna deve ser "Tópico". As colunas seguintes devem ser os nomes das empresas. As linhas devem corresponder a cada tópico analisado.
-            3.  Se um resumo para um tópico for "Informação não encontrada", coloque isso na célula correspondente da tabela.
-            4.  Seja preciso e atenha-se estritamente aos dados fornecidos no CONTEXTO JSON.
             """
-            
             final_answer = get_final_unified_answer(comparison_prompt, structured_context)
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
-        # --- FIM DO BLOCO CORRIGIDO ---
             
-    else: # Lógica para busca geral ou de empresa única
+    # --- Lógica para Empresa Única ou Busca Geral ---
+    else:
         with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
-            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb)
+            # Passa o novo parâmetro 'is_summary_plan' para a função de execução
+            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb, is_summary_plan=is_summary_plan)
+            
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
                 return "Nenhuma informação relevante encontrada.", []
+                
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
             status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
         
