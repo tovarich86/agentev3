@@ -474,44 +474,40 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
         
         with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
             with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
-                # Chamada corrigida para passar os 7 argumentos necessários
                 futures = [
                     executor.submit(
                         analyze_single_company, 
-                        empresa, 
-                        plan, 
-                        artifacts, 
-                        model, 
-                        kb,
-                        execute_dynamic_plan,
-                        get_final_unified_answer
+                        empresa, plan, artifacts, model, kb,
+                        execute_dynamic_plan, get_final_unified_answer
                     ) 
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
 
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Processa os resultados usando as chaves corretas: 'company_name' e 'source_url'
         for result in results:
             for src_dict in result.get('sources', []):
-                src_tuple = (src_dict['company'], src_dict['url'])
-                if src_tuple not in seen_sources_tuples:
-                    seen_sources_tuples.add(src_tuple)
-                    all_sources_structured.append(src_dict)
+                # Usa .get() para uma abordagem mais segura, caso uma chave falte
+                company_name = src_dict.get('company_name')
+                source_url = src_dict.get('source_url')
+                
+                if company_name and source_url:
+                    src_tuple = (company_name, source_url)
+                    if src_tuple not in seen_sources_tuples:
+                        seen_sources_tuples.add(src_tuple)
+                        all_sources_structured.append(src_dict)
+        # --- FIM DA CORREÇÃO ---
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
             comparison_prompt = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
             Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
-            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada que compare os tópicos lado a lado para cada empresa.
+            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada.
 
             CONTEXTO (em formato JSON):
             {structured_context}
-
-            INSTRUÇÕES PARA O RELATÓRIO:
-            1.  **Análise Textual:** Escreva um ou dois parágrafos iniciais resumindo as principais semelhanças e diferenças entre os planos das empresas, com base nos dados.
-            2.  **Tabela Comparativa:** Crie uma tabela Markdown. A primeira coluna deve ser "Tópico". As colunas seguintes devem ser os nomes das empresas. As linhas devem corresponder a cada tópico analisado.
-            3.  Se um resumo para um tópico for "Informação não encontrada", coloque isso na célula correspondente da tabela.
-            4.  Seja preciso e atenha-se estritamente aos dados fornecidos no CONTEXTO JSON.
             """
             final_answer = get_final_unified_answer(comparison_prompt, structured_context)
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
@@ -533,7 +529,6 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
             status.update(label="✅ Análise concluída!", state="complete")
 
     return final_answer, all_sources_structured
-
 def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
