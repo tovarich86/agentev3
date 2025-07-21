@@ -68,8 +68,13 @@ def setup_and_load_data():
             except requests.exceptions.RequestException as e:
                 st.error(f"Erro ao baixar {filename} de {url}: {e}")
                 st.stop()
-
-    model = SentenceTransformer(MODEL_NAME)
+    # --- Carregamento de Modelos ---
+    st.write("Carregando modelo de embedding...")
+    embedding_model = SentenceTransformer(MODEL_NAME)
+    
+    st.write("Carregando modelo de Re-ranking (Cross-Encoder)...")
+    cross_encoder_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    
     artifacts = {}
     for index_file in CACHE_DIR.glob('*_faiss_index_final.bin'):
         category = index_file.stem.replace('_faiss_index_final', '')
@@ -91,7 +96,8 @@ def setup_and_load_data():
         st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado.")
         st.stop()
         
-    return model, artifacts, summary_data
+    return embedding_model, cross_encoder_model, artifacts, summary_data
+
 
 
 # --- FUNÇÕES GLOBAIS E DE RAG ---
@@ -230,85 +236,114 @@ def get_query_intent_with_llm(query: str) -> str:
 # <<< MELHORIA 2 APLICADA >>>
 # Função modificada para lidar com buscas gerais (sem empresa)
 # Em app.py, substitua esta função
-def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summary_plan: bool = False) -> tuple[str, list[dict]]:
+def execute_dynamic_plan(
+    query: str, 
+    plan: dict, 
+    artifacts: dict, 
+    model: SentenceTransformer, 
+    cross_encoder_model: CrossEncoder, 
+    kb: dict, 
+    is_summary_plan: bool = False
+) -> tuple[str, list[dict]]:
     """
-    Executa o plano de busca. 
-    Se 'is_summary_plan' for True, realiza uma busca vetorial direta e focada.
+    Executa o plano de busca, coleta uma lista ampla de chunks candidatos,
+    usa um re-ranker (Cross-Encoder) para selecionar os mais relevantes,
+    e então constrói o contexto final para o LLM.
     """
-    full_context, unique_chunks_content = "", set()
-    retrieved_sources_structured, seen_sources = [], set()
-    
-    class Config:
-        MAX_CONTEXT_TOKENS, SCORE_THRESHOLD_GENERAL = 256000, 0.4
-    
-    def add_unique_chunk_to_context(chunk_text, source_info_dict):
-        nonlocal full_context, unique_chunks_content, retrieved_sources_structured, seen_sources
-        chunk_hash = hash(re.sub(r'\s+', '', chunk_text.lower())[:200])
-        if chunk_hash in unique_chunks_content: return
-        estimated_tokens = len(full_context + chunk_text) // 4
-        if estimated_tokens > Config.MAX_CONTEXT_TOKENS: return
-        unique_chunks_content.add(chunk_hash)
-        clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
-        
-        # Esta parte agora funciona para ambas as fontes de busca
-        company_name = source_info_dict.get('company_name', 'N/A')
-        doc_type = source_info_dict.get('doc_type', 'N/A')
-        source_url = source_info_dict.get('source_url', 'N/A')
-        
-        source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
-        source_tuple = (company_name, source_url)
-        
-        full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
-        if source_tuple not in seen_sources:
-            seen_sources.add(source_tuple)
-            # Adiciona o dicionário original para manter todos os dados
-            retrieved_sources_structured.append(source_info_dict)
+    candidate_chunks = {} # Usamos um dicionário para evitar duplicatas exatas de chunks
+    TOP_K_INITIAL_RETRIEVAL = 25 # Aumentamos o número de chunks recuperados inicialmente
+
+    def add_candidate(chunk_text, source_info):
+        """Função auxiliar para adicionar um chunk à lista de candidatos, evitando duplicatas."""
+        # A chave do dicionário é o hash do texto do chunk para garantir unicidade
+        chunk_hash = hash(chunk_text)
+        if chunk_hash not in candidate_chunks:
+            # Combina o texto do chunk com suas informações de origem
+            candidate_chunks[chunk_hash] = {
+                "text": chunk_text,
+                **source_info
+            }
 
     empresas = plan.get("empresas", [])
     topicos = plan.get("topicos", [])
 
     for empresa in empresas:
-        logger.info(f"Executando plano para: {empresa}")
+        logger.info(f"Coletando candidatos para: {empresa}")
 
+        # Lógica de busca para resumos gerais (sem expansão de termos)
         if is_summary_plan:
             logger.info("Modo de busca para resumo ativado: busca vetorial direta.")
             for topico in topicos:
                 search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa}"
                 query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                 for doc_type, artifact_data in artifacts.items():
-                    scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
+                    scores, indices = artifact_data['index'].search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
                     for i, idx in enumerate(indices[0]):
-                        if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
+                        if idx != -1:
                             chunk_map_item = artifact_data['chunks']['map'][idx]
                             if empresa.lower() in chunk_map_item.get('company_name', '').lower():
-                                chunk_map_item['doc_type'] = doc_type # Adiciona o doc_type para consistência
-                                add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
+                                chunk_map_item['doc_type'] = doc_type
+                                add_candidate(artifact_data['chunks']['chunks'][idx], chunk_map_item)
+        
+        # Lógica de busca padrão (híbrida)
         else:
             logger.info("Modo de busca padrão ativado: busca híbrida com expansão de termos.")
             target_tags = set()
             for topico in topicos:
                 target_tags.update(expand_search_terms(topico, kb))
             
-            # A busca por tags agora retorna o formato correto
+            # 1. Coleta de candidatos via Busca por Tags
             tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
             for chunk_info in tagged_chunks:
-                # O chunk_info já vem com 'text', 'company_name', 'source_url', 'doc_type'
-                add_unique_chunk_to_context(chunk_info['text'], chunk_info)
+                add_candidate(chunk_info['text'], chunk_info)
 
+            # 2. Coleta de candidatos via Busca Vetorial com Expansão
             for topico in topicos:
                 for term in expand_search_terms(topico, kb)[:3]:
                     search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                     for doc_type, artifact_data in artifacts.items():
-                        scores, indices = artifact_data['index'].search(query_embedding, TOP_K_SEARCH)
+                        scores, indices = artifact_data['index'].search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
                         for i, idx in enumerate(indices[0]):
-                            if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
+                            if idx != -1:
                                 chunk_map_item = artifact_data['chunks']['map'][idx]
                                 if empresa.lower() in chunk_map_item.get('company_name', '').lower():
                                     chunk_map_item['doc_type'] = doc_type
-                                    add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
+                                    add_candidate(artifact_data['chunks']['chunks'][idx], chunk_map_item)
     
+    # --- ETAPA DE RE-RANKING ---
+    if not candidate_chunks:
+        logger.warning("Nenhum chunk candidato encontrado para re-ranking.")
+        return "", []
+        
+    candidate_list = list(candidate_chunks.values())
+    logger.info(f"Total de {len(candidate_list)} chunks candidatos únicos encontrados. Re-ranqueando...")
+    
+    # Chama a ferramenta de re-ranking para obter os 7 melhores chunks
+    reranked_chunks = rerank_with_cross_encoder(query, candidate_list, cross_encoder_model, top_n=7)
+    
+    # --- CONSTRUÇÃO DO CONTEXTO FINAL A PARTIR DOS MELHORES CHUNKS ---
+    full_context, retrieved_sources_structured = "", []
+    seen_sources = set()
+
+    for chunk in reranked_chunks:
+        company_name = chunk.get('company_name', 'N/A')
+        source_url = chunk.get('source_url', 'N/A')
+        doc_type = chunk.get('doc_type', 'N/A')
+
+        source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
+        source_tuple = (company_name, source_url)
+        
+        clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk.get('text', '')).strip()
+        full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
+        
+        if source_tuple not in seen_sources:
+            seen_sources.add(source_tuple)
+            retrieved_sources_structured.append(chunk)
+            
+    logger.info(f"Contexto final construído a partir de {len(reranked_chunks)} chunks re-ranqueados.")
     return full_context, retrieved_sources_structured
+
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     mentioned_companies = []
@@ -380,8 +415,10 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
 def analyze_single_company(
     empresa: str, 
     plan: dict, 
+    query: str,  # Novo argumento
     artifacts: dict, 
     model: SentenceTransformer, 
+    cross_encoder_model: CrossEncoder, # Novo argumento
     kb: dict,
     execute_dynamic_plan_func: callable,
     get_final_unified_answer_func: callable
@@ -394,8 +431,7 @@ def analyze_single_company(
     
     # --- CORREÇÃO APLICADA AQUI ---
     # Adicionado o argumento 'is_summary_plan=False' na chamada.
-    # Uma comparação nunca é um plano de resumo, então o valor é sempre False.
-    context, sources_list = execute_dynamic_plan_func(single_plan, artifacts, model, kb, is_summary_plan=False)
+    context, sources_list = execute_dynamic_plan_func(query, single_plan, artifacts, model, cross_encoder_model, kb, is_summary_plan=False)
     
     result_data = {
         "empresa": empresa,
@@ -438,7 +474,15 @@ def analyze_single_company(
     return result_data
 
 
-def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_data):
+def handle_rag_query(
+    query: str, 
+    artifacts: dict, 
+    model: SentenceTransformer, 
+    cross_encoder_model: CrossEncoder, # Novo argumento
+    kb: dict, 
+    company_catalog_rich: list, 
+    summary_data: dict
+) -> tuple[str, list[dict]]:
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
         
@@ -477,9 +521,9 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
                 futures = [
                     executor.submit(
                         analyze_single_company, 
-                        empresa, plan, artifacts, model, kb,
+                        empresa, plan, query, artifacts, model, cross_encoder_model, kb,
                         execute_dynamic_plan, get_final_unified_answer
-                    ) 
+                    )
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
@@ -514,9 +558,10 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
             
     # --- Lógica para Empresa Única ou Busca Geral ---
     else:
-        with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
-            context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb, is_summary_plan=is_summary_plan)
-            
+        with st.status("2️⃣ Recuperando e re-ranqueando contexto...", expanded=True) as status:
+            context, all_sources_structured = execute_dynamic_plan(
+                query, plan, artifacts, model, cross_encoder_model, kb
+            )     
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
                 return "Nenhuma informação relevante encontrada.", []
@@ -534,8 +579,8 @@ def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
 
-    model, artifacts, summary_data = setup_and_load_data()
-    
+    embedding_model, cross_encoder_model, artifacts, summary_data = setup_and_load_data()
+        
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
         st.stop()
@@ -645,8 +690,13 @@ def main():
         
         else: # intent == 'qualitativa'
             final_answer, sources = handle_rag_query(
-                user_query, artifacts, model, DICIONARIO_UNIFICADO_HIERARQUICO,
-                st.session_state.company_catalog_rich, summary_data
+                user_query, 
+                artifacts, 
+                embedding_model, 
+                cross_encoder_model, 
+                kb=DICIONARIO_UNIFICADO_HIERARQUICO,
+                company_catalog_rich=st.session_state.company_catalog_rich, 
+                summary_data=summary_data
             )
             st.markdown(final_answer)
             
