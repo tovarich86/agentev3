@@ -823,11 +823,11 @@ def main():
                     # Usa 'company_name' para ordenar de forma segura e .get() para todas as chaves
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
                         company_name = src.get('company_name', 'N/A')
-                        doc_type = src.get('doc_type', '').replace('_', ' ')
+                        
                         doc_type_raw = src.get('doc_type', '')
                         url = src.get('source_url', '') # Chave correta é 'source_url'
 
-                        if doc_type_raw == 'outros documentos ':
+                        if doc_type_raw == 'outros_documentos ':
                             display_doc_type = 'Plano de Remuneração'
                         else:
                             display_doc_type = doc_type_raw.replace('_', ' ')
