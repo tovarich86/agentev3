@@ -651,7 +651,7 @@ def main():
 
             # Rota 1: Análise Temática
             if any(keyword in query_lower for keyword in thematic_keywords) and topics_to_search:
-            primary_topic = topics_to_search[0]
+                primary_topic = topics_to_search[0]
                 with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
                     st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
                     final_report = analyze_topic_thematically(
