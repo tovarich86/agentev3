@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 import faiss
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 import requests
 import re
 import unicodedata
