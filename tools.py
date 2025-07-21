@@ -20,7 +20,72 @@ from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 import requests
 import logging
+import random
 logger = logging.getLogger(__name__)
+
+# Habilidades: 'thematic', 'listing', 'statistic', 'comparison'
+CAPABILITY_MAP = {
+    # Tipos de Plano (Geralmente não têm estatísticas diretas)
+    "AcoesRestritas": ["listing", "thematic", "comparison", "example_deep_dive"],
+    "OpcoesDeCompra": ["listing", "thematic", "comparison", "example_deep_dive"],
+    "AcoesFantasmas": ["listing", "thematic", "comparison"],
+    "Matching Coinvestimento": ["listing", "thematic", "comparison"],
+
+    # Mecânicas (Alguns têm estatísticas claras)
+    "Vesting": ["statistic", "thematic", "listing", "comparison", "example_deep_dive"],
+    "Lockup": ["statistic", "thematic", "listing", "comparison"],
+    "PrecoDesconto": ["statistic", "listing", "thematic"],
+    "VestingAcelerado": ["listing", "thematic", "comparison"],
+    "Outorga": ["thematic", "listing"],
+
+    # Governança e Risco
+    "MalusClawback": ["listing", "thematic", "comparison", "example_deep_dive"],
+    "Diluicao": ["statistic", "listing", "thematic"],
+    "OrgaoDeliberativo": ["listing", "thematic"],
+
+    # Participantes e Condições
+    "Elegibilidade": ["listing", "thematic", "comparison"],
+    "CondicaoSaida": ["thematic", "listing", "comparison", "example_deep_dive"],
+
+    # Indicadores de Performance
+    "TSR Relativo": ["listing", "thematic", "comparison", "example_deep_dive"],
+    "TSR Absoluto": ["listing", "thematic", "comparison"],
+    "ESG": ["listing", "thematic"],
+    "GrupoDeComparacao": ["thematic", "listing"],
+
+    # Eventos Financeiros
+    "DividendosProventos": ["listing", "thematic", "comparison", "example_deep_dive"],
+    "MudancaDeControle": ["listing", "thematic", "comparison"],
+}
+
+# MAPEIA HABILIDADES PARA TEMPLATES DE PERGUNTAS GARANTIDAS
+QUESTION_TEMPLATES = {
+    "thematic": [
+        "Analise os modelos típicos de **{topic}** encontrados nos planos das empresas.",
+        "Quais são as abordagens mais comuns para **{topic}** no mercado brasileiro?",
+        "Descreva os padrões de mercado relacionados a **{topic}**."
+    ],
+    "listing": [
+        "Quais empresas na base de dados possuem planos com **{topic}**?",
+        "Gere uma lista de companhias que mencionam **{topic}** em seus documentos.",
+        "Liste as empresas que adotam práticas de **{topic}**."
+    ],
+    "statistic": [
+        "Qual o valor médio ou mais comum para o tópico de **{topic}** entre as empresas?",
+        "Apresente as estatísticas (média, mediana, máximo) para **{topic}**.",
+        "Qual a prevalência de **{topic}** nos planos analisados?"
+    ],
+    "comparison": [
+        "Compare como a Vale e a Petrobras abordam o tópico de **{topic}** em seus planos.",
+        "Quais as principais diferenças entre os planos da Magazine Luiza e da Localiza sobre **{topic}**?",
+    ],
+    # NOVO TIPO: Uma forma inteligente de responder perguntas de "definição"
+    # com exemplos reais, o que aciona o RAG perfeitamente.
+    "example_deep_dive": [
+        "Como o plano da Vale define e aplica o conceito de **{topic}**?",
+        "Descreva em detalhes como a Hypera trata a questão de **{topic}** em seu plano de remuneração.",
+    ]
+}
 
 def get_final_unified_answer(query: str, context: str) -> str:
     # Acessamos as variáveis de configuração através do Streamlit
@@ -66,18 +131,63 @@ def get_final_unified_answer(query: str, context: str) -> str:
 
 def suggest_alternative_query(failed_query: str) -> str:
     """
-    Usa o LLM para transformar uma pergunta que falhou em uma pergunta viável.
+    Motor de sugestão robusto que usa os mapas enriquecidos para gerar
+    sugestões variadas, relevantes e garantidas de funcionar.
     """
+    # ... imports locais e extração de tópicos (como na versão anterior) ...
+    from tools import get_final_unified_answer, _create_alias_to_canonical_map, _get_all_canonical_topics_from_text
+    from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
+
+    print("---EXECUTANDO MOTOR DE SUGESTÃO ROBUSTO (v2)---")
+
+    alias_map, _ = _create_alias_to_canonical_map(DICIONARIO_UNIFICADO_HIERARQUICO)
+    topics_found = _get_all_canonical_topics_from_text(failed_query.lower(), alias_map)
+    
+    safe_suggestions = []
+    context_for_llm = ""
+
+    if topics_found:
+        primary_topic = topics_found[0]
+        context_for_llm = f"O usuário demonstrou interesse no tópico de '{primary_topic}'."
+        print(f"---TÓPICO IDENTIFICADO: '{primary_topic}'---")
+
+        capabilities = CAPABILITY_MAP.get(primary_topic, ["listing", "thematic"])
+        print(f"---HABILIDADES ENCONTRADAS PARA O TÓPICO: {capabilities}---")
+        
+        # Gera uma sugestão para cada capacidade, escolhendo uma variação aleatória do template
+        for cap in capabilities:
+            template_variations = QUESTION_TEMPLATES.get(cap)
+            if template_variations:
+                # Escolhe aleatoriamente um dos templates para aquela habilidade
+                chosen_template = random.choice(template_variations)
+                safe_suggestions.append(chosen_template.format(topic=primary_topic))
+    else:
+        context_for_llm = "O usuário fez uma pergunta genérica ou sobre um tópico não reconhecido."
+        print("---NENHUM TÓPICO IDENTIFICADO. USANDO SUGESTÕES GERAIS.---")
+        safe_suggestions = [
+            "Quais são os modelos típicos de vesting?",
+            "Liste as empresas que utilizam TSR Relativo como métrica de performance.",
+            "Compare os planos de Ações Restritas da Vale e da Magazine Luiza.",
+        ]
+
+    # Limita o número de sugestões para não sobrecarregar o usuário
+    safe_suggestions = safe_suggestions[:3]
+
+    # O refinamento com o LLM continua sendo uma boa prática para naturalidade
     prompt = f"""
-    Um usuário fez a seguinte pergunta, mas nosso sistema não conseguiu processá-la por não identificar uma empresa conhecida:
-    "{failed_query}"
-    Sua tarefa é transformar esta pergunta em uma consulta geral e temática que nosso sistema POSSA responder.
-    Remova qualquer nome de empresa e foque no tópico principal.
-    Retorne APENAS o texto da nova pergunta sugerida.
+    Você é um assistente de IA prestativo. A pergunta de um usuário falhou porque não identificamos a empresa mencionada.
+    PERGUNTA ORIGINAL: "{failed_query}"
+    CONTEXTO: {context_for_llm}
+    Eu gerei uma lista de perguntas "seguras" que eu sei responder. Sua tarefa é **apresentá-las de forma clara e convidativa** para o usuário. Você pode fazer pequenas melhorias para soar mais natural, mas **mantenha a intenção original** de cada pergunta intacta.
+
+    PERGUNTAS SEGURAS PARA APRESENTAR:
+    {json.dumps(safe_suggestions, indent=2, ensure_ascii=False)}
+
+    Apresente o resultado como uma lista de marcadores em Markdown.
     """
-    # Agora a chamada funciona, pois a função está no mesmo arquivo e escopo.
-    suggested_query = get_final_unified_answer(prompt, "")
-    return suggested_query
+    
+    final_suggestions = get_final_unified_answer(prompt, "")
+    return final_suggestions
     
 def _create_alias_to_canonical_map(kb: dict) -> tuple[dict, dict]:
     """
