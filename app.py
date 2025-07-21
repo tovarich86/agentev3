@@ -270,23 +270,28 @@ def execute_dynamic_plan(
     # --- ROTEAMENTO DE ESTRATÉGIA DE BUSCA ---
 
     # ROTA 1: Plano especial para buscar o Item 8.4 de uma empresa específica
-    if plan_type == "section_8_4" and empresas:
-        empresa_alvo = empresas[0]
-        logger.info(f"ROTA 1: Executando busca direcionada para o Item 8.4 da empresa: {empresa_alvo}")
-        
-        artifact_data = artifacts.get('item_8_4', {})
-        if artifact_data:
-            chunks_map = artifact_data.get('chunks', {}).get('map', [])
-            all_chunks = artifact_data.get('chunks', {}).get('chunks', [])
+    if any(keyword in query_lower for keyword in thematic_keywords) and topics_to_search:
+        st.info(f"Intenção de análise temática detectada para {len(topics_to_search)} tópico(s).")
+    
+    # --- LÓGICA CORRIGIDA: Itera sobre cada tópico encontrado ---
+        final_reports = []
+        for topic_item in topics_to_search:
+            with st.spinner(f"Analisando em profundidade o tópico: '{topic_item}'... (Isso pode levar um minuto)"):
+                st.write(f"#### 🔎 Análise Temática para: **{topic_item}**")
             
-            for i, mapping in enumerate(chunks_map):
-                if empresa_alvo.lower() in mapping.get("company_name", "").lower():
-                    source_info = {
-                        "company_name": mapping.get("company_name"),
-                        "doc_type": 'item_8_4',
-                        "source_url": mapping.get("source_url")
-                    }
-                    add_candidate(all_chunks[i], source_info)
+                # Chama a ferramenta de análise para CADA tópico individualmente
+                report_for_topic = analyze_topic_thematically(
+                    topic=topic_item,  # <-- CORREÇÃO: Passando um único tópico (string)
+                    query=user_query,
+                    artifacts=artifacts,
+                    model=embedding_model,
+                    cross_encoder_model=cross_encoder_model,
+                    kb=DICIONARIO_UNIFICADO_HIERARQUICO,
+                    execute_dynamic_plan_func=execute_dynamic_plan,
+                    get_final_unified_answer_func=get_final_unified_answer
+                )
+                st.markdown(report_for_topic)
+                st.markdown("---") # Adiciona um separador entre as análises
 
     # ROTA 2: Plano especial para Resumo Geral de uma empresa
     elif plan_type == "general_summary" and empresas:
