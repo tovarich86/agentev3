@@ -338,7 +338,7 @@ def execute_dynamic_plan(
         if not empresas and topicos:
             logger.info(f"ROTA 3.1: Executando busca geral/conceitual para os tópicos: {topicos}")
             for topico in topicos:
-                for term in expand_search_terms(topico, kb)[:3]: 
+                for term in expand_search_terms(topico, kb)[:3]:
                     search_query = f"explicação detalhada sobre o conceito e funcionamento de {term}"
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                     for doc_type, artifact_data in artifacts.items():
@@ -428,7 +428,7 @@ def execute_dynamic_plan(
             
     logger.info(f"Contexto final construído a partir de {len(reranked_chunks)} chunks re-ranqueados.")
     return full_context, retrieved_sources_structured
-
+    
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     """
     Versão definitiva do planejador.
