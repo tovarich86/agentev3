@@ -833,7 +833,7 @@ def main():
                             display_doc_type = doc_type_raw.replace('_', ' ')
                     # --- FIM DA LÓGICA APRIMORADA -
                         
-                        display_text = f"{company_name} - {doc_type}"
+                        isplay_text = f"{company_name} - {display_doc_type}"
                         
                         if "frmExibirArquivoIPEExterno" in url:
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
