@@ -652,7 +652,7 @@ def main():
                 with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
                     st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
                     final_report = analyze_topic_thematically(
-                        topic=topic_str, query=user_query, artifacts=artifacts, model=model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
+                        topic=topic_str, query=user_query, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
                         execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer
                     )
                     st.markdown(final_report)
@@ -661,7 +661,7 @@ def main():
             elif any(keyword in query_lower for keyword in listing_keywords) and topic_str:
                 with st.spinner(f"Usando ferramentas para encontrar empresas..."):
                     st.write(f"**Tópico identificado para busca:** `{topic_str}`")
-                    companies_found = find_companies_by_topic(topic=topic_str, artifacts=artifacts, model=model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
+                    companies_found = find_companies_by_topic(topic=topic_str, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
                     if companies_found:
                         st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topic_str}':")
                         for company in companies_found: st.markdown(f"- {company}")
