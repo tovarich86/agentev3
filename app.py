@@ -818,33 +818,37 @@ def main():
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
-                    
-                    # --- BLOCO FINAL CORRIGIDO ---
-                    # Usa 'company_name' para ordenar de forma segura e .get() para todas as chaves
+        
+        # --- BLOCO CORRIGIDO ---
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
                         company_name = src.get('company_name', 'N/A')
-                        
                         doc_type_raw = src.get('doc_type', '')
-                        url = src.get('source_url', '') # Chave correta é 'source_url'
+                        url = src.get('source_url', '')
 
-                        if doc_type_raw == 'outros_documentos ':
+                        if doc_type_raw == 'outros_documentos':
                             display_doc_type = 'Plano de Remuneração'
                         else:
                             display_doc_type = doc_type_raw.replace('_', ' ')
-                    # --- FIM DA LÓGICA APRIMORADA -
-                        
-                        isplay_text = f"{company_name} - {display_doc_type}"
-                        
+            
+                        display_text = f"{company_name} - {display_doc_type}"
+            
+                        # A lógica de exibição agora está corretamente separada por tipo de documento
                         if "frmExibirArquivoIPEExterno" in url:
+                            # O protocolo SÓ é definido e usado dentro deste bloco
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
                             st.markdown(f"**{display_text}** (Protocolo: **{protocolo}**)")
-                            st.markdown(f"↳ [Link Direto ]({url}) | [Buscar na CVM]({CVM_SEARCH_URL})", unsafe_allow_html=True)
+                            st.markdown(f"↳ [Link Direto]({url}) | [Buscar na CVM]({CVM_SEARCH_URL})", unsafe_allow_html=True)
+            
                         elif "frmExibirArquivoFRE" in url:
+                            # Este bloco não usa a variável 'protocolo'
                             st.markdown(f"**{display_text}**")
                             st.markdown(f"↳ [Link Direto para Formulário de Referência]({url})", unsafe_allow_html=True)
+            
                         else:
+                            # Este bloco também não usa a variável 'protocolo'
                             st.markdown(f"**{display_text}**: [Link]({url})")
+
 
 if __name__ == "__main__":
     main()
