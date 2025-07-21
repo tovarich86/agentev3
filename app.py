@@ -17,6 +17,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
 from tools import (
     find_companies_by_topic,
+    get_final_unified_answer,
     suggest_alternative_query,
     analyze_topic_thematically, 
     get_summary_for_topic_at_company,
