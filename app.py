@@ -599,25 +599,38 @@ def main():
     
     st.header("💬 Faça sua pergunta")
     
-    with st.expander("ℹ️ **Sobre este Agente: Capacidades e Limitações**"):
+    # Em app.py, localize o bloco `with st.expander(...)` e substitua seu conteúdo por este:
+
+    with st.expander("ℹ️ **Guia do Usuário: Como Extrair o Máximo do Agente**", expanded=False): # `expanded=False` é uma boa prática para não poluir a tela inicial
         st.markdown("""
-        Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Ele possui duas capacidades principais de análise:
+        Eu sou um agente especialista em Planos de Incentivo de Longo Prazo (ILP), projetado para analisar uma vasta base de dados de documentos públicos da CVM. Para me ajudar a encontrar a melhor resposta para você, é útil entender minhas duas principais capacidades de análise:
         """)
-        st.subheader("1. Análise Quantitativa e Temática 📊")
+
+        st.subheader("1. Análise Rápida e Quantitativa 📊")
         st.info("""
-        Para perguntas que buscam **listas, médias, padrões ou contagens**, o agente utiliza um conjunto de ferramentas para buscar, agregar e analisar os dados em tempo real.
+        Para perguntas que buscam **listas, médias, padrões ou contagens**, eu utilizo um motor de análise otimizado que consulta dados já estruturados de dezenas de empresas para fornecer respostas rápidas e precisas.
         """)
-        st.markdown("**Exemplos:**")
-        st.code("""- Quais empresas possuem matching? (Listagem)
-- Quais são os modelos típicos de vesting? (Análise Temática)
-- Qual o desconto médio no preço de exercício? (Análise Rápida)""")
-        st.subheader("2. Análise Qualitativa Profunda 🧠")
+        st.markdown("**Exemplos ideais para este modo:**")
+        st.code("""- Quais empresas possuem cláusulas de Malus ou Clawback? (Listagem)
+    - Qual o período médio de vesting entre as empresas? (Estatística)
+    - Quais são os tipos de plano mais comuns no mercado? (Padrões)
+    - Liste as empresas que utilizam TSR Relativo como métrica.""")
+
+        st.subheader("2. Análise Profunda e Qualitativa 🧠")
         st.info("""
-        Para perguntas abertas que buscam **detalhes sobre uma empresa específica ou comparações**, o agente utiliza um pipeline de Recuperação Aumentada por Geração (RAG).
+        Para perguntas abertas que buscam **explicações detalhadas, comparações complexas ou o funcionamento específico** do plano de uma empresa, eu ativo meu modo de análise profunda (RAG), que lê e interpreta os documentos originais para construir uma resposta completa.
         """)
-        st.markdown("**Exemplos:**")
-        st.code("""- Como funciona o plano de vesting da Vale? (Específica)
-- Compare os planos de ações da Hypera e da Movida. (Comparativa)""")
+        st.markdown("**Exemplos ideais para este modo:**")
+        st.code("""- Como funciona o plano de Ações Restritas da Vale? (Específica)
+    - Compare os planos da Movida e da Localiza quanto ao tratamento de dividendos. (Comparativa)
+    - Analise os modelos típicos de condições de saída (Good/Bad Leaver) nos planos.""")
+
+        st.subheader("❗ Conhecendo as Limitações")
+        st.warning("""
+        - **Fonte dos Dados:** Minha análise se baseia em documentos públicos da CVM com data de corte 31/07/2025. Não tenho acesso a informações em tempo real ou privadas.
+        - **Identificação de Nomes:** Para análises profundas, preciso que o nome da empresa seja claro e reconhecível. Se o nome for ambíguo ou não estiver na minha base, posso não encontrar os detalhes.
+        - **Escopo:** Sou altamente especializado em Incentivos de Longo Prazo. Perguntas fora deste domínio podem não ter respostas adequadas.
+        """)
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quais são os modelos típicos de vesting? ou Como funciona o plano da Vale?")
     
