@@ -618,27 +618,49 @@ def main():
 
     with st.expander("ℹ️ **Guia do Usuário: Como Extrair o Máximo do Agente**", expanded=False): # `expanded=False` é uma boa prática para não poluir a tela inicial
         st.markdown("""
-        Eu sou um agente especialista em Planos de Incentivo de Longo Prazo (ILP), projetado para analisar uma vasta base de dados de documentos públicos da CVM. Para me ajudar a encontrar a melhor resposta para você, é útil entender minhas duas principais capacidades de análise:
+        Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Para obter os melhores resultados, formule perguntas que explorem suas principais capacidades.
         """)
 
-        st.subheader("1. Análise Rápida e Quantitativa 📊")
+        st.subheader("1. Perguntas de Listagem (Quem tem?) 🎯")
         st.info("""
-        Para perguntas que buscam **listas, médias, padrões ou contagens**, eu utilizo um motor de análise otimizado que consulta dados já estruturados de dezenas de empresas para fornecer respostas rápidas e precisas.
+        Use estas perguntas para identificar e listar empresas que adotam uma prática específica. Ideal para mapeamento de mercado.
         """)
-        st.markdown("**Exemplos ideais para este modo:**")
-        st.code("""- Quais empresas possuem cláusulas de Malus ou Clawback? (Listagem)
-    - Qual o período médio de vesting entre as empresas? (Estatística)
-    - Quais são os tipos de plano mais comuns no mercado? (Padrões)
-    - Liste as empresas que utilizam TSR Relativo como métrica.""")
+        st.markdown("**Exemplos:**")
+        st.code("""- Liste as empresas que pagam dividendos ou JCP durante o período de carência (vesting).
+        - Quais companhias possuem cláusulas de Malus ou Clawback?
+        - Gere uma lista de empresas que oferecem planos com contrapartida do empregador (Matching/Coinvestimento).
+        - Quais organizações mencionam explicitamente o Comitê de Remuneração como órgão aprovador dos planos?""")
 
-        st.subheader("2. Análise Profunda e Qualitativa 🧠")
+        st.subheader("2. Análise Estatística (Qual a média?) 📈")
         st.info("""
-        Para perguntas abertas que buscam **explicações detalhadas, comparações complexas ou o funcionamento específico** do plano de uma empresa, eu ativo meu modo de análise profunda (RAG), que lê e interpreta os documentos originais para construir uma resposta completa.
+        Pergunte por médias, medianas e outros dados estatísticos para entender os números por trás das práticas de mercado e fazer benchmarks.
         """)
-        st.markdown("**Exemplos ideais para este modo:**")
-        st.code("""- Como funciona o plano de Ações Restritas da Vale? (Específica)
-    - Compare os planos da Movida e da Localiza quanto ao tratamento de dividendos. (Comparativa)
-    - Analise os modelos típicos de condições de saída (Good/Bad Leaver) nos planos.""")
+        st.markdown("**Exemplos:**")
+        st.code("""- Qual o período médio de vesting (em anos) entre as empresas analisadas?
+        - Qual a diluição máxima média (% do capital social) que os planos costumam aprovar?
+        - Apresente as estatísticas do desconto no preço de exercício (mínimo, média, máximo).
+        - Qual o prazo de lock-up (restrição de venda) mais comum após o vesting das ações?""")
+
+        st.subheader("3. Padrões de Mercado (Como é o normal?) 🗺️")
+        st.info("""
+        Faça perguntas abertas para que o agente analise diversos planos e descreva os padrões e as abordagens mais comuns para um determinado tópico.
+        """)
+        st.markdown("**Exemplos:**")
+        st.code("""- Analise os modelos típicos de planos de Ações Restritas (RSU), o tipo mais comum no mercado.
+        - Além do TSR, quais são as metas de performance (ESG, Financeiras) mais utilizadas pelas empresas?
+        - Descreva os padrões de tratamento para condições de saída (Good Leaver vs. Bad Leaver) nos planos.
+        - Quais as abordagens mais comuns para o tratamento de dividendos em ações ainda não investidas?""")
+
+        st.subheader("4. Análise Profunda e Comparativa (Me explique em detalhes) 🧠")
+        st.info("""
+        Use o poder do RAG para pedir análises detalhadas sobre uma ou mais empresas, comparando regras e estruturas específicas.
+        """)
+        st.markdown("**Exemplos:**")
+        st.code("""- Como o plano da Petrobras trata a aceleração de vesting em caso de mudança de controle?
+        - Compare as cláusulas de Malus/Clawback da Vale com as do Itaú.
+        - Descreva em detalhes o plano de Opções de Compra da Localiza, incluindo prazos, condições e forma de liquidação.
+        - Quais as diferenças na elegibilidade de participantes entre os planos da Magazine Luiza e da Lojas Renner?""")
+
 
         st.subheader("❗ Conhecendo as Limitações")
         st.warning("""
