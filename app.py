@@ -478,12 +478,16 @@ def analyze_single_company(
 def handle_rag_query(
     query: str, 
     artifacts: dict, 
-    model: SentenceTransformer, 
-    cross_encoder_model: CrossEncoder, # Novo argumento
+    embedding_model: SentenceTransformer,  # <-- CORREÇÃO APLICADA AQUI
+    cross_encoder_model: CrossEncoder,
     kb: dict, 
     company_catalog_rich: list, 
     summary_data: dict
 ) -> tuple[str, list[dict]]:
+    """
+    Orquestra o pipeline de RAG para perguntas qualitativas, incluindo a geração do plano,
+    a execução da busca (com re-ranking) e a síntese da resposta final.
+    """
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
         
@@ -524,16 +528,13 @@ def handle_rag_query(
                         analyze_single_company, 
                         empresa, plan, query, artifacts, embedding_model, cross_encoder_model, kb,
                         execute_dynamic_plan, get_final_unified_answer
-                    )
+                    ) 
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
 
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Processa os resultados usando as chaves corretas: 'company_name' e 'source_url'
         for result in results:
             for src_dict in result.get('sources', []):
-                # Usa .get() para uma abordagem mais segura, caso uma chave falte
                 company_name = src_dict.get('company_name')
                 source_url = src_dict.get('source_url')
                 
@@ -542,7 +543,6 @@ def handle_rag_query(
                     if src_tuple not in seen_sources_tuples:
                         seen_sources_tuples.add(src_tuple)
                         all_sources_structured.append(src_dict)
-        # --- FIM DA CORREÇÃO ---
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
@@ -561,14 +561,15 @@ def handle_rag_query(
     else:
         with st.status("2️⃣ Recuperando e re-ranqueando contexto...", expanded=True) as status:
             context, all_sources_structured = execute_dynamic_plan(
-                query, plan, artifacts, embedding_model, cross_encoder_model, kb
-            )     
+                query, plan, artifacts, embedding_model, cross_encoder_model, kb, is_summary_plan=is_summary_plan
+            )
+            
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
                 return "Nenhuma informação relevante encontrada.", []
                 
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
-            status.update(label="✅ Contexto recuperado com sucesso!", state="complete")
+            status.update(label="✅ Contexto relevante selecionado!", state="complete")
         
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
             final_answer = get_final_unified_answer(query, context)
