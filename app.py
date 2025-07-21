@@ -653,26 +653,26 @@ def main():
             if any(keyword in query_lower for keyword in thematic_keywords) and topics_to_search:
                 primary_topic = topics_to_search[0]
                 with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
-                    st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
+                    st.write(f"**Tópico identificado para análise temática:** `{topics_to_search}`")
                     final_report = analyze_topic_thematically(
-                        topic=topic_str, query=user_query, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
+                        topic=topics_to_search, query=user_query, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
                         execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer
                     )
                     st.markdown(final_report)
 
             # Rota 2: Listagem de Empresas
-            elif any(keyword in query_lower for keyword in listing_keywords) and topic_str:
+            elif any(keyword in query_lower for keyword in listing_keywords) and topics_to_search:
                 with st.spinner(f"Usando ferramentas para encontrar empresas..."):
-                    st.write(f"**Tópico identificado para busca:** `{topic_str}`")
-                    companies_found = find_companies_by_topic(topic=topic_str, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
+                    st.write(f"**Tópico identificado para busca:** `{topics_to_search}`")
+                    companies_found = find_companies_by_topic(topic=topics_to_search, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
                     if companies_found:
-                        st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topic_str}':")
+                        st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topics_to_search}':")
                         for company in companies_found: st.markdown(f"- {company}")
-                        df = pd.DataFrame(companies_found, columns=[f"Empresas com o tópico: {topic_str}"])
+                        df = pd.DataFrame(companies_found, columns=[f"Empresas com o tópico: {topics_to_search}"])
                         with st.expander("Ver em formato de tabela"):
                             st.dataframe(df, use_container_width=True, hide_index=True)
                     else:
-                        st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topic_str}'.")
+                        st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topics_to_search}'.")
 
             # Rota 3: Fallback para o AnalyticalEngine
             else:
