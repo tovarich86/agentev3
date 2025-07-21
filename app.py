@@ -218,7 +218,11 @@ def get_query_intent_with_llm(query: str) -> str:
 
 # <<< MELHORIA 2 APLICADA >>>
 # Função modificada para lidar com buscas gerais (sem empresa)
-def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[str, list[dict]]:
+def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summary_plan: bool = False) -> tuple[str, list[dict]]:
+    """
+    Executa o plano de busca. 
+    Se 'is_summary_plan' for True, realiza uma busca vetorial direta e focada.
+    """
     full_context, unique_chunks_content = "", set()
     retrieved_sources_structured, seen_sources = [], set()
     
@@ -233,10 +237,10 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
         if estimated_tokens > Config.MAX_CONTEXT_TOKENS: return
         unique_chunks_content.add(chunk_hash)
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
-        company_name = source_info_dict.get('company', 'N/A')
+        company_name = source_info_dict.get('company_name', 'N/A') # Corrigido para usar 'company_name'
         doc_type = source_info_dict.get('doc_type', 'N/A')
         source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
-        source_tuple = (source_info_dict['company'], source_info_dict['url'])
+        source_tuple = (source_info_dict['company_name'], source_info_dict['source_url']) # Corrigido
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
@@ -248,9 +252,7 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
     for empresa in empresas:
         logger.info(f"Executando plano para: {empresa}")
 
-        # --- LÓGICA DE BUSCA OTIMIZADA ---
         if is_summary_plan:
-            # Para resumos, os tópicos já são os corretos. Fazemos busca vetorial direta.
             logger.info("Modo de busca para resumo ativado: busca vetorial direta.")
             for topico in topicos:
                 search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa}"
@@ -263,19 +265,16 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict) -> tuple[
                             if empresa.lower() in chunk_map_item['company_name'].lower():
                                 add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
         else:
-            # Para buscas específicas, usamos a lógica híbrida original (tag + expansão)
             logger.info("Modo de busca padrão ativado: busca híbrida com expansão de termos.")
             target_tags = set()
             for topico in topicos:
                 target_tags.update(expand_search_terms(topico, kb))
             
-            # 1. Busca por Tags
             tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
             for chunk_info in tagged_chunks:
-                source_info = {'company': chunk_info['company'],'doc_type': chunk_info['source'],'url': chunk_info['path']}
-                add_unique_chunk_to_context(chunk_info['text'], source_info)
+                # O chunk_info já tem os dados no formato correto
+                add_unique_chunk_to_context(chunk_info['text'], chunk_info)
 
-            # 2. Busca Vetorial com Expansão
             for topico in topicos:
                 for term in expand_search_terms(topico, kb)[:3]:
                     search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
@@ -370,9 +369,12 @@ def analyze_single_company(
     Executa o plano de análise para uma única empresa e retorna um dicionário estruturado.
     Esta função é projetada para ser executada em um processo paralelo.
     """
-    # Cria um plano específico para esta empresa com os tópicos da comparação
     single_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
-    context, sources_list = execute_dynamic_plan_func(single_plan, artifacts, model, kb)
+    
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Adicionado o argumento 'is_summary_plan=False' na chamada.
+    # Uma comparação nunca é um plano de resumo, então o valor é sempre False.
+    context, sources_list = execute_dynamic_plan_func(single_plan, artifacts, model, kb, is_summary_plan=False)
     
     result_data = {
         "empresa": empresa,
