@@ -255,7 +255,7 @@ def execute_dynamic_plan(
     """
     candidate_chunks = {}
     TOP_K_INITIAL_RETRIEVAL = 25
-    TOP_K_SEARCH_FINAL = 7
+    TOP_K_SEARCH_FINAL = 10
 
     plan_type = plan.get("plan_type", "default")
     empresas = plan.get("empresas", [])
