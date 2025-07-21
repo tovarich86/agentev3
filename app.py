@@ -264,7 +264,7 @@ def execute_dynamic_plan(
 
     candidate_chunks = {}
     TOP_K_INITIAL_RETRIEVAL = 30
-    TOP_K_SEARCH_FINAL = 10
+    TOP_K_SEARCH_FINAL = 15
 
     plan_type = plan.get("plan_type", "default")
     empresas = plan.get("empresas", [])
@@ -480,9 +480,9 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
         plan["topicos"] = [
             "Elegibilidade",
             "TiposDePlano", # Será expandido para os tipos específicos
-            "MecanicasCicloDeVi",
+            "MecanicasCicloDeVida",
             "IndicadoresPerformance",
-            "DividendosProvent"
+            "DividendosProventos"
         ]
         # O plan_type continua "default", para acionar a busca híbrida.
         return {"status": "success", "plan": plan}
