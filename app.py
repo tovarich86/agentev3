@@ -248,12 +248,16 @@ def execute_dynamic_plan(
 ) -> tuple[str, list[dict]]:
     """
     Executa o plano de busca. Para buscas gerais (sem empresa), ele primeiro
-    identifica empresas relevantes e depois busca o contexto nelas.
+    identifica empresas relevantes e depois busca o contexto nelas. Para buscas
+    específicas, ele coleta uma lista ampla de chunks candidatos e usa um 
+    re-ranker (Cross-Encoder) para selecionar os mais relevantes antes de 
+    construir o contexto final para o LLM.
     """
     candidate_chunks = {}
     TOP_K_INITIAL_RETRIEVAL = 25
 
     def add_candidate(chunk_text, source_info):
+        """Função auxiliar para adicionar um chunk à lista de candidatos, evitando duplicatas."""
         chunk_hash = hash(chunk_text)
         if chunk_hash not in candidate_chunks:
             candidate_chunks[chunk_hash] = {"text": chunk_text, **source_info}
@@ -261,12 +265,11 @@ def execute_dynamic_plan(
     empresas = plan.get("empresas", [])
     topicos = plan.get("topicos", [])
 
-    # --- LÓGICA DE BUSCA APRIMORADA ---
+    # --- LÓGICA DE COLETA DE CANDIDATOS ---
 
-    # Se nenhuma empresa foi especificada, mas temos tópicos (ex: "modelos de matching")
+    # Cenário 1: Busca geral (sem empresa especificada, mas com tópicos)
     if not empresas and topicos:
         logger.info(f"Busca geral iniciada para os tópicos: {topicos}")
-        # Primeiro, encontramos todas as empresas que falam sobre esses tópicos
         relevant_companies = set()
         for topic in topicos:
             found = find_companies_by_topic(topic, artifacts, model, kb)
@@ -276,29 +279,66 @@ def execute_dynamic_plan(
             logger.warning(f"Nenhuma empresa encontrada para os tópicos {topicos} na busca geral.")
             return "", []
 
+        logger.info(f"Empresas relevantes encontradas para busca de contexto: {list(relevant_companies)}")
         # Agora, para cada empresa relevante, buscamos chunks sobre os tópicos
         for empresa in relevant_companies:
-            # Reutilizamos a lógica de busca padrão, agora com uma empresa definida
             target_tags = {term for topic in topicos for term in expand_search_terms(topic, kb)}
             tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
             for chunk_info in tagged_chunks:
                 add_candidate(chunk_info['text'], chunk_info)
     
-    # Se empresas foram especificadas, usa a lógica de busca normal
+    # Cenário 2: Busca para empresas específicas
     else:
         for empresa in empresas:
             logger.info(f"Coletando candidatos para: {empresa}")
+            
+            # Sub-cenário 2a: Plano de resumo otimizado
             if is_summary_plan:
-                # ... (lógica de busca para resumo sem alterações)
+                logger.info("Modo de busca para resumo ativado: busca vetorial direta.")
+                for topico in topicos:
+                    search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa}"
+                    query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
+                    for doc_type, artifact_data in artifacts.items():
+                        scores, indices = artifact_data['index'].search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
+                        for i, idx in enumerate(indices[0]):
+                            if idx != -1:
+                                chunk_map_item = artifact_data['chunks']['map'][idx]
+                                if empresa.lower() in chunk_map_item.get('company_name', '').lower():
+                                    chunk_map_item['doc_type'] = doc_type
+                                    add_candidate(artifact_data['chunks']['chunks'][idx], chunk_map_item)
+            
+            # Sub-cenário 2b: Busca híbrida padrão
             else:
-                # ... (lógica de busca híbrida padrão sem alterações)
+                logger.info("Modo de busca padrão ativado: busca híbrida com expansão de termos.")
+                target_tags = set()
+                for topico in topicos:
+                    target_tags.update(expand_search_terms(topico, kb))
+                
+                tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
+                for chunk_info in tagged_chunks:
+                    add_candidate(chunk_info['text'], chunk_info)
+
+                for topico in topicos:
+                    for term in expand_search_terms(topico, kb)[:3]:
+                        search_query = f"informações sobre {term} no plano de remuneração da empresa {empresa}"
+                        query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
+                        for doc_type, artifact_data in artifacts.items():
+                            scores, indices = artifact_data['index'].search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
+                            for i, idx in enumerate(indices[0]):
+                                if idx != -1:
+                                    chunk_map_item = artifact_data['chunks']['map'][idx]
+                                    if empresa.lower() in chunk_map_item.get('company_name', '').lower():
+                                        chunk_map_item['doc_type'] = doc_type
+                                        add_candidate(artifact_data['chunks']['chunks'][idx], chunk_map_item)
     
-    # --- ETAPA DE RE-RANKING E SÍNTESE (sem alterações) ---
+    # --- ETAPA DE RE-RANKING E SÍNTESE ---
     if not candidate_chunks:
         logger.warning("Nenhum chunk candidato encontrado para re-ranking.")
         return "", []
         
     candidate_list = list(candidate_chunks.values())
+    logger.info(f"Total de {len(candidate_list)} chunks candidatos únicos encontrados. Re-ranqueando...")
+    
     reranked_chunks = rerank_with_cross_encoder(query, candidate_list, cross_encoder_model, top_n=TOP_K_SEARCH)
     
     full_context, retrieved_sources_structured = "", []
@@ -308,16 +348,19 @@ def execute_dynamic_plan(
         company_name = chunk.get('company_name', 'N/A')
         source_url = chunk.get('source_url', 'N/A')
         doc_type = chunk.get('doc_type', 'N/A')
+
         source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
         source_tuple = (company_name, source_url)
+        
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk.get('text', '')).strip()
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
+        
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
             retrieved_sources_structured.append(chunk)
             
+    logger.info(f"Contexto final construído a partir de {len(reranked_chunks)} chunks re-ranqueados.")
     return full_context, retrieved_sources_structured
-
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     
