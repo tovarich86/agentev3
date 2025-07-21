@@ -19,7 +19,36 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 # --- Funções Auxiliares Internas ---
+def suggest_alternative_query(failed_query: str) -> str:
+    """
+    Usa o LLM para transformar uma pergunta que falhou (por não identificar
+    uma empresa) em uma pergunta temática ou de listagem que o agente pode responder.
+    """
+    from tools import get_final_unified_answer # Import local para evitar dependência circular se movido
 
+    prompt = f"""
+    Um usuário fez a seguinte pergunta, mas nosso sistema não conseguiu identificar uma empresa conhecida nela para fazer uma análise detalhada:
+    "{failed_query}"
+
+    Sua tarefa é transformar esta pergunta em uma consulta geral e temática que nosso sistema POSSA responder.
+    Remova qualquer nome de empresa que pareça ser o motivo da falha e foque no tópico principal.
+
+    Exemplos de transformação:
+    - PERGUNTA FALHA: "Como funciona o plano da empresa XPTO S.A.?"
+    - SUGESTÃO: "Quais são os modelos típicos de planos de incentivo?"
+    - PERGUNTA FALHA: "qual o vesting da padaria da esquina?"
+    - SUGESTÃO: "Qual o período médio de vesting entre as empresas analisadas?"
+    - PERGUNTA FALHA: "compare os planos da acme e da wayne enterprises"
+    - SUGESTÃO: "Compare os planos de duas empresas conhecidas, como Vale e Petrobras."
+
+    Agora, transforme a pergunta do usuário. Retorne APENAS o texto da nova pergunta sugerida.
+
+    Nova Pergunta Sugerida:
+    """
+    # Usamos a própria função de geração de resposta para esta tarefa
+    suggested_query = get_final_unified_answer(prompt, "")
+    return suggested_query
+    
 def _create_alias_to_canonical_map(kb: dict) -> tuple[dict, dict]:
     """
     Cria dois mapeamentos a partir da knowledge base:
