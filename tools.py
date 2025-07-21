@@ -18,34 +18,60 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
-# --- Funções Auxiliares Internas ---
+def get_final_unified_answer(query: str, context: str) -> str:
+    # Acessamos as variáveis de configuração através do Streamlit
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+    GEMINI_MODEL = "gemini-2.0-flash-lite" # Usando o modelo mais recente recomendado
+
+    if not GEMINI_API_KEY:
+        return "Erro: A chave da API do Gemini não foi configurada."
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    
+    # Lógica da sua função original...
+    structure_instruction = "Organize a resposta de forma lógica e clara usando Markdown."
+    prompt = f"""Você é um consultor especialista em planos de incentivo de longo prazo (ILP).
+    PERGUNTA ORIGINAL DO USUÁRIO: "{query}"
+    CONTEXTO COLETADO DOS DOCUMENTOS:
+    {context}
+    {structure_instruction}
+    INSTRUÇÕES PARA O RELATÓRIO FINAL:
+    1. Responda diretamente à pergunta do usuário com base no contexto fornecido.
+    2. Seja detalhado, preciso e profissional na sua linguagem. Use formatação Markdown.
+    3. Se uma informação específica pedida não estiver no contexto, declare explicitamente: "Informação não encontrada nas fontes analisadas.". Não invente dados.
+    RELATÓRIO ANALÍTICO FINAL:"""
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    headers = {'Content-Type': 'application/json'}
+    
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=180)
+        response.raise_for_status()
+        # Adiciona verificação para o caso de a resposta não ter o formato esperado
+        candidates = response.json().get('candidates', [])
+        if candidates and 'content' in candidates[0] and 'parts' in candidates[0]['content']:
+            return candidates[0]['content']['parts'][0]['text'].strip()
+        else:
+            logger.error(f"Resposta inesperada da API Gemini: {response.json()}")
+            return "Ocorreu um erro ao processar a resposta do modelo de linguagem."
+            
+    except Exception as e:
+        logger.error(f"ERRO ao gerar resposta final com LLM: {e}")
+        return f"Ocorreu um erro ao contatar o modelo de linguagem. Detalhes: {str(e)}"
+
+# --- FUNÇÃO DE SUGESTÃO (AGORA CORRIGIDA) ---
+
 def suggest_alternative_query(failed_query: str) -> str:
     """
-    Usa o LLM para transformar uma pergunta que falhou (por não identificar
-    uma empresa) em uma pergunta temática ou de listagem que o agente pode responder.
+    Usa o LLM para transformar uma pergunta que falhou em uma pergunta viável.
     """
-    from tools import get_final_unified_answer # Import local para evitar dependência circular se movido
-
     prompt = f"""
-    Um usuário fez a seguinte pergunta, mas nosso sistema não conseguiu identificar uma empresa conhecida nela para fazer uma análise detalhada:
+    Um usuário fez a seguinte pergunta, mas nosso sistema não conseguiu processá-la por não identificar uma empresa conhecida:
     "{failed_query}"
-
     Sua tarefa é transformar esta pergunta em uma consulta geral e temática que nosso sistema POSSA responder.
-    Remova qualquer nome de empresa que pareça ser o motivo da falha e foque no tópico principal.
-
-    Exemplos de transformação:
-    - PERGUNTA FALHA: "Como funciona o plano da empresa XPTO S.A.?"
-    - SUGESTÃO: "Quais são os modelos típicos de planos de incentivo?"
-    - PERGUNTA FALHA: "qual o vesting da padaria da esquina?"
-    - SUGESTÃO: "Qual o período médio de vesting entre as empresas analisadas?"
-    - PERGUNTA FALHA: "compare os planos da acme e da wayne enterprises"
-    - SUGESTÃO: "Compare os planos de duas empresas conhecidas, como Vale e Petrobras."
-
-    Agora, transforme a pergunta do usuário. Retorne APENAS o texto da nova pergunta sugerida.
-
-    Nova Pergunta Sugerida:
+    Remova qualquer nome de empresa e foque no tópico principal.
+    Retorne APENAS o texto da nova pergunta sugerida.
     """
-    # Usamos a própria função de geração de resposta para esta tarefa
+    # Agora a chamada funciona, pois a função está no mesmo arquivo e escopo.
     suggested_query = get_final_unified_answer(prompt, "")
     return suggested_query
     
