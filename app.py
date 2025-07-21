@@ -529,6 +529,7 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
             status.update(label="✅ Análise concluída!", state="complete")
 
     return final_answer, all_sources_structured
+
 def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
@@ -593,19 +594,15 @@ def main():
         with st.spinner("Analisando a intenção da sua pergunta..."):
             intent = get_query_intent_with_llm(user_query)
 
-        # --- ROTEADOR DE FERRAMENTAS E ANÁLISE ---
         if intent == "quantitativa":
             query_lower = user_query.lower()
             listing_keywords = ["quais empresas", "liste as empresas", "quais companhias"]
             thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
             
-            # Cria o mapa de aliases para encontrar o tópico canônico
             alias_map, _ = _create_alias_to_canonical_map(DICIONARIO_UNIFICADO_HIERARQUICO)
-            
-            # Tenta extrair um tópico canônico da pergunta
             topic_str = _get_canonical_topic_from_text(query_lower, alias_map)
 
-            # Rota 1: Análise Temática (a mais complexa)
+            # Rota 1: Análise Temática
             if any(keyword in query_lower for keyword in thematic_keywords) and topic_str:
                 with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
                     st.write(f"**Tópico identificado para análise temática:** `{topic_str}`")
@@ -615,12 +612,11 @@ def main():
                     )
                     st.markdown(final_report)
 
-            # Rota 2: Listagem de Empresas (ferramenta simples)
+            # Rota 2: Listagem de Empresas
             elif any(keyword in query_lower for keyword in listing_keywords) and topic_str:
                 with st.spinner(f"Usando ferramentas para encontrar empresas..."):
                     st.write(f"**Tópico identificado para busca:** `{topic_str}`")
                     companies_found = find_companies_by_topic(topic=topic_str, artifacts=artifacts, model=model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
-
                     if companies_found:
                         st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topic_str}':")
                         for company in companies_found: st.markdown(f"- {company}")
@@ -630,7 +626,7 @@ def main():
                     else:
                         st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topic_str}'.")
 
-            # Rota 3: Fallback para o AnalyticalEngine antigo (para médias, etc.)
+            # Rota 3: Fallback para o AnalyticalEngine
             else:
                 st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
                 with st.spinner("Executando análise quantitativa rápida..."):
@@ -657,9 +653,16 @@ def main():
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
-                    for src in sorted(sources, key=lambda x: x['company_name']):
-                        display_text = f"{src['company_name']} - {src['doc_type'].replace('_', ' ')}"
-                        url = src['url']
+                    
+                    # --- BLOCO FINAL CORRIGIDO ---
+                    # Usa 'company_name' para ordenar de forma segura e .get() para todas as chaves
+                    for src in sorted(sources, key=lambda x: x.get('company_name', '')):
+                        company_name = src.get('company_name', 'N/A')
+                        doc_type = src.get('doc_type', '').replace('_', ' ')
+                        url = src.get('source_url', '') # Chave correta é 'source_url'
+                        
+                        display_text = f"{company_name} - {doc_type}"
+                        
                         if "frmExibirArquivoIPEExterno" in url:
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
