@@ -690,6 +690,11 @@ def main():
     
     st.session_state.company_catalog_rich = company_catalog_rich
 
+   
+    from tools import _create_company_lookup_map
+    st.session_state.company_lookup_map = _create_company_lookup_map(company_catalog_rich)
+
+
     with st.sidebar:
         st.header("📊 Informações do Sistema")
         st.metric("Categorias de Documentos (RAG)", len(artifacts))
