@@ -729,9 +729,10 @@ def main():
         Use o poder do RAG para pedir análises detalhadas sobre uma ou mais empresas, comparando regras e estruturas específicas.
         """)
         st.markdown("**Exemplos:**")
-        st.code("""- Como o plano da Petrobras trata a aceleração de vesting em caso de mudança de controle?
+        st.code("""- Como o plano da Vale trata a aceleração de vesting em caso de mudança de controle?
         - Compare as cláusulas de Malus/Clawback da Vale com as do Itaú.
         - Descreva em detalhes o plano de Opções de Compra da Localiza, incluindo prazos, condições e forma de liquidação.
+        - Descreva o Item 8.4 da M.dias Braco.
         - Quais as diferenças na elegibilidade de participantes entre os planos da Magazine Luiza e da Lojas Renner?""")
 
 
