@@ -37,16 +37,16 @@ def _create_alias_to_canonical_map(kb: dict) -> tuple[dict, dict]:
             canonical_topics[canonical_name] = all_aliases
     return alias_map, canonical_topics
 
-def _get_canonical_topic_from_text(text: str, alias_map: dict) -> str | None:
+def _get_all_canonical_topics_from_text(text: str, alias_map: dict) -> list[str]:
     """
-    Encontra o primeiro tópico canônico que corresponde a um alias em um texto de entrada.
-    Prioriza aliases mais longos para evitar correspondências parciais.
+    Encontra TODOS os tópicos canônicos que correspondem a aliases em um texto.
     """
-    for alias in sorted(alias_map.keys(), key=len, reverse=True):
+    found_topics = set()
+    for alias, canonical_topic in alias_map.items():
         if re.search(r'\b' + re.escape(alias) + r'\b', text.lower()):
-            return alias_map[alias]
-    return None
-
+            found_topics.add(canonical_topic)
+    return sorted(list(found_topics))
+    
 def _find_companies_by_exact_tag(canonical_topic: str, artifacts: dict, kb: dict) -> set[str]:
     """
     Busca empresas que possuem chunks com a tag de tópico exata.
