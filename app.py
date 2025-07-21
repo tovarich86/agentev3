@@ -854,7 +854,7 @@ def main():
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
                             st.markdown(f"**{display_text}** (Protocolo: **{protocolo}**)")
-                            st.markdown(f"↳ [Link Direto]({url}) | [Buscar na CVM]({CVM_SEARCH_URL})", unsafe_allow_html=True)
+                            st.markdown(f"↳ [Link Direto]({url}) )", unsafe_allow_html=True)
             
                         elif "frmExibirArquivoFRE" in url:
                             # Este bloco não usa a variável 'protocolo'
