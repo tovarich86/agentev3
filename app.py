@@ -660,6 +660,12 @@ def main():
                         company_name = src.get('company_name', 'N/A')
                         doc_type = src.get('doc_type', '').replace('_', ' ')
                         url = src.get('source_url', '') # Chave correta é 'source_url'
+
+                        if doc_type_raw == 'outros_documentos':
+                            display_doc_type = 'Plano de Remuneração'
+                        else:
+                            display_doc_type = doc_type_raw.replace('_', ' ')
+                    # --- FIM DA LÓGICA APRIMORADA -
                         
                         display_text = f"{company_name} - {doc_type}"
                         
