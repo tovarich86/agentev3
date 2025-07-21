@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
 from tools import (
     find_companies_by_topic, 
     analyze_topic_thematically, 
-    get_summary_for_topic_at_company,
+    _get_all_canonical_topics_from_text,
     _create_alias_to_canonical_map, 
     rerank_with_cross_encoder, 
     _get_canonical_topic_from_text
