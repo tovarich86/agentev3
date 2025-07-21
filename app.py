@@ -483,8 +483,21 @@ def handle_rag_query(
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
         
         if plan_response['status'] != "success":
-            st.error("❌ Não consegui identificar empresas na sua pergunta para realizar uma análise detalhada.")
-            return "Análise abortada.", []
+            status.update(label="⚠️ Falha na identificação", state="error", expanded=True)
+            
+            st.warning("Não consegui identificar uma empresa conhecida na sua pergunta para realizar uma análise profunda.")
+            st.info("Para análises detalhadas, por favor, use o nome de uma das empresas listadas na barra lateral.")
+            
+            with st.spinner("Estou pensando em uma pergunta alternativa que eu possa responder..."):
+                alternative_query = suggest_alternative_query(query)
+            
+            st.markdown("#### Que tal tentar uma pergunta mais geral?")
+            st.markdown("Você pode copiar a sugestão abaixo ou reformular sua pergunta original.")
+            st.code(alternative_query, language=None)
+            
+            # Retornamos uma string vazia para o texto e para as fontes, encerrando a análise de forma limpa.
+            return "", []
+        # --- FIM DO NOVO BLOCO ---
             
         plan = plan_response['plan']
         
