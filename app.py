@@ -118,10 +118,12 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
                 expanded_terms.update(all_terms_in_group)
     return list(expanded_terms)
 
+# Em app.py, substitua esta função
 def search_by_tags(artifacts: dict, company_name: str, target_tags: list) -> list:
     results = []
     searchable_company_name = unicodedata.normalize('NFKD', company_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
     target_tags_lower = {tag.lower() for tag in target_tags}
+    
     for index_name, artifact_data in artifacts.items():
         chunk_map = artifact_data.get('chunks', {}).get('map', [])
         all_chunks_text = artifact_data.get('chunks', {}).get('chunks', [])
@@ -133,7 +135,16 @@ def search_by_tags(artifacts: dict, company_name: str, target_tags: list) -> lis
                     topics_in_chunk_set = {t.lower() for t in found_topics_in_chunk[0].split(',')}
                     intersection = target_tags_lower.intersection(topics_in_chunk_set)
                     if intersection:
-                        results.append({'text': chunk_text, 'path': mapping.get('source_url', 'N/A'), 'index': i,'source': index_name, 'tag_found': ','.join(intersection), 'company': mapping.get("company_name")})
+                        # --- CORREÇÃO APLICADA AQUI ---
+                        # Padroniza o dicionário de saída para usar as chaves corretas
+                        result_item = {
+                            "text": all_chunks_text[i],
+                            "company_name": mapping.get("company_name"),
+                            "source_url": mapping.get("source_url", "N/A"),
+                            # Mantém informações úteis para a função que a chama
+                            "doc_type": index_name 
+                        }
+                        results.append(result_item)
     return results
 
 def get_final_unified_answer(query: str, context: str) -> str:
@@ -218,6 +229,7 @@ def get_query_intent_with_llm(query: str) -> str:
 
 # <<< MELHORIA 2 APLICADA >>>
 # Função modificada para lidar com buscas gerais (sem empresa)
+# Em app.py, substitua esta função
 def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summary_plan: bool = False) -> tuple[str, list[dict]]:
     """
     Executa o plano de busca. 
@@ -237,13 +249,19 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summar
         if estimated_tokens > Config.MAX_CONTEXT_TOKENS: return
         unique_chunks_content.add(chunk_hash)
         clean_text = re.sub(r'\[(secao|topico):[^\]]+\]', '', chunk_text).strip()
-        company_name = source_info_dict.get('company_name', 'N/A') # Corrigido para usar 'company_name'
+        
+        # Esta parte agora funciona para ambas as fontes de busca
+        company_name = source_info_dict.get('company_name', 'N/A')
         doc_type = source_info_dict.get('doc_type', 'N/A')
+        source_url = source_info_dict.get('source_url', 'N/A')
+        
         source_header = f"(Empresa: {company_name}, Documento: {doc_type})"
-        source_tuple = (source_info_dict['company_name'], source_info_dict['source_url']) # Corrigido
+        source_tuple = (company_name, source_url)
+        
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
+            # Adiciona o dicionário original para manter todos os dados
             retrieved_sources_structured.append(source_info_dict)
 
     empresas = plan.get("empresas", [])
@@ -262,7 +280,8 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summar
                     for i, idx in enumerate(indices[0]):
                         if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                             chunk_map_item = artifact_data['chunks']['map'][idx]
-                            if empresa.lower() in chunk_map_item['company_name'].lower():
+                            if empresa.lower() in chunk_map_item.get('company_name', '').lower():
+                                chunk_map_item['doc_type'] = doc_type # Adiciona o doc_type para consistência
                                 add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
         else:
             logger.info("Modo de busca padrão ativado: busca híbrida com expansão de termos.")
@@ -270,9 +289,10 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summar
             for topico in topicos:
                 target_tags.update(expand_search_terms(topico, kb))
             
+            # A busca por tags agora retorna o formato correto
             tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
             for chunk_info in tagged_chunks:
-                # O chunk_info já tem os dados no formato correto
+                # O chunk_info já vem com 'text', 'company_name', 'source_url', 'doc_type'
                 add_unique_chunk_to_context(chunk_info['text'], chunk_info)
 
             for topico in topicos:
@@ -284,7 +304,8 @@ def execute_dynamic_plan(plan: dict, artifacts: dict, model, kb: dict, is_summar
                         for i, idx in enumerate(indices[0]):
                             if idx != -1 and scores[0][i] > Config.SCORE_THRESHOLD_GENERAL:
                                 chunk_map_item = artifact_data['chunks']['map'][idx]
-                                if empresa.lower() in chunk_map_item['company_name'].lower():
+                                if empresa.lower() in chunk_map_item.get('company_name', '').lower():
+                                    chunk_map_item['doc_type'] = doc_type
                                     add_unique_chunk_to_context(artifact_data['chunks']['chunks'][idx], chunk_map_item)
     
     return full_context, retrieved_sources_structured
