@@ -293,7 +293,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     query_lower = query.lower().strip()
     mentioned_companies = []
     
-    # --- 1. Identificação da Empresa (sem alterações) ---
+    # --- 1. Identificação da Empresa ---
     if company_catalog_rich:
         companies_found_by_alias = {}
         for company_data in company_catalog_rich:
@@ -305,71 +305,75 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
                         companies_found_by_alias[canonical_name] = score
         if companies_found_by_alias:
             mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
-
     if not mentioned_companies:
         for empresa_nome in summary_data.keys():
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
 
-    # Se nenhuma empresa foi encontrada, não há como prosseguir.
     if not mentioned_companies:
-        # Mantemos o status de erro aqui para o handle_rag_query saber que não deve prosseguir
         return {"status": "error", "plan": {}}
 
-    # --- 2. Identificação de Tópicos ---
+    # --- 2. Identificação de Tópicos (Lógica Aprimorada) ---
     topics = []
     alias_map = _create_flat_alias_map(kb)
     
     # 2a. Tenta encontrar tópicos específicos mencionados na query
     topics = list({canonical for alias, canonical in alias_map.items() if re.search(r'\b' + re.escape(alias) + r'\b', query_lower)})
     
-    # 2b. NOVO: Se nenhum tópico específico foi encontrado, verifica se é um pedido de resumo
+    # 2b. Se nenhum tópico específico for encontrado, avalia cenários de resumo/comparação
     if not topics:
+        is_comparison = len(mentioned_companies) > 1
         summary_keywords = ['resumo', 'geral', 'completo', 'visão geral', 'como funciona o plano', 'detalhes do plano']
         is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
         
-        if is_summary_request and mentioned_companies:
-            company_name = mentioned_companies[0] # Pega a primeira empresa identificada para o resumo
+        # Cenário 1: Pedido de resumo para UMA empresa
+        if is_summary_request and not is_comparison:
+            company_name = mentioned_companies[0]
             logger.info(f"Intenção de resumo detectada para {company_name}. Extraindo tópicos do summary_data.")
-            
             company_summary_info = summary_data.get(company_name, {}).get("topicos_encontrados", {})
             if company_summary_info:
-                # Extrai todos os tópicos de todas as seções para essa empresa
-                all_company_topics = set()
-                for section in company_summary_info.values():
-                    for topic_raw in section.keys():
-                        all_company_topics.add(topic_raw.replace('_', ' '))
-                
+                all_company_topics = {topic_raw.replace('_', ' ') for section in company_summary_info.values() for topic_raw in section.keys()}
                 topics = sorted(list(all_company_topics))
                 logger.info(f"Tópicos para o resumo de {company_name}: {topics}")
-            else:
-                logger.warning(f"Pedido de resumo para {company_name}, mas não foram encontrados tópicos no summary_data.")
-                # Se não encontrar, cai no fallback
-
-    # 2c. Fallback final: Se ainda não houver tópicos, usa o LLM (como antes)
-    if not topics:
-        logger.info("Nenhum tópico específico ou de resumo encontrado, consultando LLM para planejamento...")
-        prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
-        Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
-        Formato: ["Tópico 1", "Tópico 2"]"""
-        try:
-            llm_response = get_final_unified_answer("Gere uma lista de tópicos para a pergunta.", prompt)
-            topics = json.loads(re.search(r'\[.*\]', llm_response, re.DOTALL).group())
-        except Exception as e:
-            logger.warning(f"Falha ao obter tópicos do LLM: {e}. Usando tópicos padrão.")
-            topics = ["Estrutura do Plano", "Vesting", "Outorga"]
+        
+        # Cenário 2: Pedido de COMPARAÇÃO sem tópicos específicos
+        elif is_comparison:
+            logger.info("Intenção de comparação sem tópicos específicos detectada. Usando tópicos padrão para a análise.")
+            topics = ["Estrutura do Plano", "AcoesRestritas", "OpcoesDeCompra", "Vesting", "MetasGerais"]
+        
+        # 2c. Fallback final: Se ainda não houver tópicos, usa o LLM
+        if not topics:
+            logger.info("Nenhum tópico específico, de resumo ou comparação encontrado. Consultando LLM para planejamento...")
+            prompt = f"""Você é um consultor de ILP. Identifique os TÓPICOS CENTRAIS da pergunta: "{query}".
+            Retorne APENAS uma lista JSON com os tópicos mais relevantes de: {json.dumps(AVAILABLE_TOPICS)}.
+            Formato: ["Tópico 1", "Tópico 2"]"""
+            try:
+                llm_response = get_final_unified_answer("Gere uma lista de tópicos para a pergunta.", prompt)
+                topics = json.loads(re.search(r'\[.*\]', llm_response, re.DOTALL).group())
+            except Exception as e:
+                logger.warning(f"Falha ao obter tópicos do LLM: {e}. Usando tópicos padrão.")
+                topics = ["Estrutura do Plano", "Vesting", "Outorga"]
             
     plan = {"empresas": mentioned_companies, "topicos": topics}
     return {"status": "success", "plan": plan}
     
-def analyze_single_company(empresa: str, plan: dict, artifacts: dict, model, kb: dict) -> dict:
+def analyze_single_company(
+    empresa: str, 
+    plan: dict, 
+    artifacts: dict, 
+    model: SentenceTransformer, 
+    kb: dict,
+    execute_dynamic_plan_func: callable,
+    get_final_unified_answer_func: callable
+) -> dict:
     """
-    Executa o plano de análise para uma única empresa e retorna um DICIONÁRIO ESTRUTURADO com os resultados.
+    Executa o plano de análise para uma única empresa e retorna um dicionário estruturado.
+    Esta função é projetada para ser executada em um processo paralelo.
     """
+    # Cria um plano específico para esta empresa com os tópicos da comparação
     single_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
-    context, sources_list = execute_dynamic_plan(single_plan, artifacts, model, kb)
+    context, sources_list = execute_dynamic_plan_func(single_plan, artifacts, model, kb)
     
-    # Prepara um dicionário de resultado padrão
     result_data = {
         "empresa": empresa,
         "resumos_por_topico": {topico: "Informação não encontrada" for topico in plan['topicos']},
@@ -377,10 +381,9 @@ def analyze_single_company(empresa: str, plan: dict, artifacts: dict, model, kb:
     }
 
     if context:
-        # O prompt agora pede um JSON estruturado como resposta
         summary_prompt = f"""
         Com base no CONTEXTO abaixo sobre a empresa {empresa}, crie um resumo para cada um dos TÓPICOS solicitados.
-        Sua resposta deve ser APENAS um objeto JSON válido, sem nenhum texto adicional.
+        Sua resposta deve ser APENAS um objeto JSON válido, sem nenhum texto adicional antes ou depois.
         
         TÓPICOS PARA RESUMIR: {json.dumps(plan['topicos'])}
         
@@ -398,21 +401,16 @@ def analyze_single_company(empresa: str, plan: dict, artifacts: dict, model, kb:
         """
         
         try:
-            # Usamos get_final_unified_answer, mas o "query" é o nosso prompt detalhado
-            json_response_str = get_final_unified_answer(summary_prompt, context)
-            
-            # Limpa e extrai o JSON da resposta do LLM
+            json_response_str = get_final_unified_answer_func(summary_prompt, context)
             json_match = re.search(r'\{.*\}', json_response_str, re.DOTALL)
             if json_match:
                 parsed_json = json.loads(json_match.group())
-                # Atualiza o dicionário de resultados com os resumos obtidos
                 result_data["resumos_por_topico"] = parsed_json.get("resumos_por_topico", result_data["resumos_por_topico"])
             else:
-                 logger.warning(f"Não foi possível extrair JSON da resposta para a empresa {empresa}.")
+                logger.warning(f"Não foi possível extrair JSON da resposta para a empresa {empresa}.")
 
         except (json.JSONDecodeError, Exception) as e:
             logger.error(f"Erro ao processar o resumo JSON para {empresa}: {e}")
-            # Mantém os valores padrão "Informação não encontrada"
             
     return result_data
 
@@ -421,21 +419,17 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
         
-        # Se a criação do plano falhar (ex: nenhuma empresa encontrada), encerra.
         if plan_response['status'] != "success":
             st.error("❌ Não consegui identificar empresas na sua pergunta para realizar uma análise detalhada.")
             return "Análise abortada.", []
             
         plan = plan_response['plan']
         
-        # --- LÓGICA DE DETECÇÃO DE INTENÇÃO DE RESUMO ---
         summary_keywords = ['resumo', 'geral', 'completo', 'visão geral', 'como funciona o plano', 'detalhes do plano']
         is_summary_request = any(keyword in query.lower() for keyword in summary_keywords)
         
-        # Um plano de resumo é ativado se for um pedido de resumo e NENHUM tópico específico foi extraído da query
         specific_topics_in_query = list({canonical for alias, canonical in _create_flat_alias_map(kb).items() if re.search(r'\b' + re.escape(alias) + r'\b', query.lower())})
         is_summary_plan = is_summary_request and not specific_topics_in_query
-        # --- FIM DA LÓGICA ---
         
         if plan['empresas']:
             st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
@@ -457,8 +451,18 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
         
         with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
             with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
+                # Chamada corrigida para passar os 7 argumentos necessários
                 futures = [
-                    executor.submit(analyze_single_company, empresa, plan, artifacts, model, kb, execute_dynamic_plan, get_final_unified_answer) 
+                    executor.submit(
+                        analyze_single_company, 
+                        empresa, 
+                        plan, 
+                        artifacts, 
+                        model, 
+                        kb,
+                        execute_dynamic_plan,
+                        get_final_unified_answer
+                    ) 
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
@@ -475,10 +479,16 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
             comparison_prompt = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
             Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
-            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada.
+            O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada que compare os tópicos lado a lado para cada empresa.
 
             CONTEXTO (em formato JSON):
             {structured_context}
+
+            INSTRUÇÕES PARA O RELATÓRIO:
+            1.  **Análise Textual:** Escreva um ou dois parágrafos iniciais resumindo as principais semelhanças e diferenças entre os planos das empresas, com base nos dados.
+            2.  **Tabela Comparativa:** Crie uma tabela Markdown. A primeira coluna deve ser "Tópico". As colunas seguintes devem ser os nomes das empresas. As linhas devem corresponder a cada tópico analisado.
+            3.  Se um resumo para um tópico for "Informação não encontrada", coloque isso na célula correspondente da tabela.
+            4.  Seja preciso e atenha-se estritamente aos dados fornecidos no CONTEXTO JSON.
             """
             final_answer = get_final_unified_answer(comparison_prompt, structured_context)
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
@@ -486,7 +496,6 @@ def handle_rag_query(query, artifacts, model, kb, company_catalog_rich, summary_
     # --- Lógica para Empresa Única ou Busca Geral ---
     else:
         with st.status("2️⃣ Recuperando contexto relevante...", expanded=True) as status:
-            # Passa o novo parâmetro 'is_summary_plan' para a função de execução
             context, all_sources_structured = execute_dynamic_plan(plan, artifacts, model, kb, is_summary_plan=is_summary_plan)
             
             if not context:
