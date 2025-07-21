@@ -255,7 +255,7 @@ def execute_dynamic_plan(
     """
     candidate_chunks = {}
     TOP_K_INITIAL_RETRIEVAL = 25
-    TOP_K_SEARCH_FINAL = 10
+    TOP_K_SEARCH_FINAL = 10 
 
     plan_type = plan.get("plan_type", "default")
     empresas = plan.get("empresas", [])
@@ -265,33 +265,43 @@ def execute_dynamic_plan(
         """Função auxiliar para adicionar chunks únicos à lista de candidatos."""
         chunk_hash = hash(chunk_text)
         if chunk_hash not in candidate_chunks:
-            candidate_chunks[chunk_hash] = {"text": chunk_text, **source_info}
+            # Garante que as chaves essenciais existam no dicionário
+            source_info_clean = {
+                "text": chunk_text,
+                "company_name": source_info.get("company_name"),
+                "doc_type": source_info.get("doc_type"),
+                "source_url": source_info.get("source_url")
+            }
+            candidate_chunks[chunk_hash] = source_info_clean
 
     # --- ROTEAMENTO DE ESTRATÉGIA DE BUSCA ---
 
     # ROTA 1: Plano especial para buscar o Item 8.4 de uma empresa específica
-    if any(keyword in query_lower for keyword in thematic_keywords) and topics_to_search:
-        st.info(f"Intenção de análise temática detectada para {len(topics_to_search)} tópico(s).")
-    
-    # --- LÓGICA CORRIGIDA: Itera sobre cada tópico encontrado ---
-        final_reports = []
-        for topic_item in topics_to_search:
-            with st.spinner(f"Analisando em profundidade o tópico: '{topic_item}'... (Isso pode levar um minuto)"):
-                st.write(f"#### 🔎 Análise Temática para: **{topic_item}**")
+    if plan_type == "section_8_4" and empresas:
+        empresa_alvo = empresas[0]
+        logger.info(f"ROTA 1: Executando busca vetorial direcionada ao Item 8.4 da empresa: {empresa_alvo}")
+        
+        artifact_data = artifacts.get('item_8_4', {})
+        if artifact_data:
+            search_query = f"detalhes sobre os tópicos {', '.join(topicos)} do item 8.4 do formulário de referência da empresa {empresa_alvo}"
+            query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
             
-                # Chama a ferramenta de análise para CADA tópico individualmente
-                report_for_topic = analyze_topic_thematically(
-                    topic=topic_item,  # <-- CORREÇÃO: Passando um único tópico (string)
-                    query=user_query,
-                    artifacts=artifacts,
-                    model=embedding_model,
-                    cross_encoder_model=cross_encoder_model,
-                    kb=DICIONARIO_UNIFICADO_HIERARQUICO,
-                    execute_dynamic_plan_func=execute_dynamic_plan,
-                    get_final_unified_answer_func=get_final_unified_answer
-                )
-                st.markdown(report_for_topic)
-                st.markdown("---") # Adiciona um separador entre as análises
+            index = artifact_data.get('index')
+            chunks_map = artifact_data.get('chunks', {}).get('map', [])
+            all_chunks = artifact_data.get('chunks', {}).get('chunks', [])
+
+            if all([index, chunks_map, all_chunks]):
+                scores, indices = index.search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
+                for i, idx in enumerate(indices[0]):
+                    if idx != -1:
+                        chunk_map_item = chunks_map[idx]
+                        if empresa_alvo.lower() in chunk_map_item.get('company_name', '').lower():
+                            source_info = {
+                                "company_name": chunk_map_item.get("company_name"),
+                                "doc_type": 'item_8_4',
+                                "source_url": chunk_map_item.get("source_url")
+                            }
+                            add_candidate(all_chunks[idx], source_info)
 
     # ROTA 2: Plano especial para Resumo Geral de uma empresa
     elif plan_type == "general_summary" and empresas:
@@ -351,7 +361,7 @@ def execute_dynamic_plan(
         elif empresas and topicos:
             logger.info(f"ROTA 3.2: Executando busca híbrida para Empresas: {empresas} e Tópicos: {topicos}")
             for empresa in empresas:
-                # Parte 1: Busca por tags (mais rápida e precisa)
+                # Parte 1: Busca por tags
                 target_tags = set()
                 for topico in topicos:
                     target_tags.update(expand_search_terms(topico, kb))
@@ -360,7 +370,7 @@ def execute_dynamic_plan(
                 for chunk_info in tagged_chunks:
                     add_candidate(chunk_info['text'], chunk_info)
 
-                # Parte 2: Busca Vetorial (para capturar relevância semântica)
+                # Parte 2: Busca Vetorial
                 for topico in topicos:
                     search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa}"
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
