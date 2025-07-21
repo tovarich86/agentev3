@@ -241,22 +241,30 @@ def get_query_intent_with_llm(query: str) -> str:
 # Função modificada para lidar com buscas gerais (sem empresa)
 # Em app.py, substitua esta função
 def execute_dynamic_plan(
-    query: str, 
-    plan: dict, 
-    artifacts: dict, 
-    model: SentenceTransformer, 
-    cross_encoder_model: CrossEncoder, 
+    query: str,
+    plan: dict,
+    artifacts: dict,
+    model: SentenceTransformer,
+    cross_encoder_model: CrossEncoder,
     kb: dict
 ) -> tuple[str, list[dict]]:
     """
-    Versão definitiva e integrada do Executor de Planos.
-    Esta função central analisa o 'plano' e seleciona a melhor estratégia de busca 
-    de documentos, que podem ser direcionadas, amplas ou conceituais.
+    Versão definitiva e completa do Executor de Planos.
+    Esta função central analisa o 'plano' e seleciona a melhor estratégia de busca
+    de documentos, utilizando um nome de busca limpo para a busca vetorial e um
+    catálogo de empresas para a verificação final de correspondência.
     Todos os resultados são então re-ranqueados para máxima relevância.
     """
+    # Carrega recursos necessários do estado da sessão do Streamlit
+    company_catalog_rich = st.session_state.get("company_catalog_rich", [])
+    company_lookup_map = st.session_state.get("company_lookup_map", {})
+    if not company_lookup_map:
+        logger.error("O mapa de consulta de empresas (company_lookup_map) não foi encontrado no st.session_state.")
+        return "Erro de configuração interna: o mapa de empresas não foi carregado.", []
+
     candidate_chunks = {}
-    TOP_K_INITIAL_RETRIEVAL = 25
-    TOP_K_SEARCH_FINAL = 10 
+    TOP_K_INITIAL_RETRIEVAL = 30
+    TOP_K_SEARCH_FINAL = 10
 
     plan_type = plan.get("plan_type", "default")
     empresas = plan.get("empresas", [])
@@ -266,7 +274,6 @@ def execute_dynamic_plan(
         """Função auxiliar para adicionar chunks únicos à lista de candidatos."""
         chunk_hash = hash(chunk_text)
         if chunk_hash not in candidate_chunks:
-            # Garante que as chaves essenciais existam no dicionário
             source_info_clean = {
                 "text": chunk_text,
                 "company_name": source_info.get("company_name"),
@@ -275,60 +282,54 @@ def execute_dynamic_plan(
             }
             candidate_chunks[chunk_hash] = source_info_clean
 
-    # --- ROTEAMENTO DE ESTRATÉGIA DE BUSCA ---
+    # --- INÍCIO DO ROTEAMENTO DE ESTRATÉGIA DE BUSCA ---
 
-    # ROTA 1: Plano especial para buscar o Item 8.4 de uma empresa específica
-    if plan_type == "section_8_4" and empresas:
-        empresa_alvo = empresas[0]
-        logger.info(f"ROTA 1: Executando busca vetorial direcionada ao Item 8.4 da empresa: {empresa_alvo}")
+    canonical_name_from_plan = empresas[0] if empresas else None
+
+    # ROTA 1 e 2: Lógica unificada para planos especiais que dependem de uma empresa
+    if (plan_type == "section_8_4" or plan_type == "general_summary") and canonical_name_from_plan:
         
-        artifact_data = artifacts.get('item_8_4', {})
-        if artifact_data:
-            search_query = f"detalhes sobre os tópicos {', '.join(topicos)} do item 8.4 do formulário de referência da empresa {empresa_alvo}"
-            query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
-            
-            index = artifact_data.get('index')
-            chunks_map = artifact_data.get('chunks', {}).get('map', [])
-            all_chunks = artifact_data.get('chunks', {}).get('chunks', [])
+        # 1. Obter o melhor nome para a busca semântica
+        search_name = canonical_name_from_plan  # Fallback
+        for entry in company_catalog_rich:
+            if entry.get("canonical_name") == canonical_name_from_plan:
+                search_name = entry.get("search_alias", canonical_name_from_plan)
+                break
+        logger.info(f"ROTA {plan_type}: Usando nome de busca '{search_name}' para '{canonical_name_from_plan}'")
 
-            if all([index, chunks_map, all_chunks]):
-                scores, indices = index.search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
-                for i, idx in enumerate(indices[0]):
-                    if idx != -1:
-                        chunk_map_item = chunks_map[idx]
-                        if empresa_alvo.lower() in chunk_map_item.get('company_name', '').lower():
-                            source_info = {
-                                "company_name": chunk_map_item.get("company_name"),
-                                "doc_type": 'item_8_4',
-                                "source_url": chunk_map_item.get("source_url")
-                            }
-                            add_candidate(all_chunks[idx], source_info)
+        # 2. Construir a query de busca limpa
+        if plan_type == "section_8_4":
+            search_query = f"detalhes sobre os tópicos {', '.join(topicos)} do item 8.4 da empresa {search_name}"
+            artifacts_to_search = {'item_8_4': artifacts.get('item_8_4', {})}
+        else:  # general_summary
+            search_query = f"resumo completo do plano de incentivo da empresa {search_name}"
+            artifacts_to_search = artifacts
 
-    # ROTA 2: Plano especial para Resumo Geral de uma empresa
-    elif plan_type == "general_summary" and empresas:
-        empresa_alvo = empresas[0]
-        logger.info(f"ROTA 2: Executando busca ampla para Resumo Geral da empresa: {empresa_alvo}")
-        
-        search_query = f"resumo completo e detalhado do plano de incentivo de longo prazo da empresa {empresa_alvo}"
+        # 3. Executar a busca e filtrar com precisão
         query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
         
-        for doc_type, artifact_data in artifacts.items():
-            index = artifact_data.get('index')
-            chunks_map = artifact_data.get('chunks', {}).get('map', [])
-            all_chunks = artifact_data.get('chunks', {}).get('chunks', [])
+        for doc_type, artifact_data in artifacts_to_search.items():
+            if not artifact_data: continue
             
-            if not all([index, chunks_map, all_chunks]): continue
+            index = artifact_data.get('index')
+            chunks_map_data = artifact_data.get('chunks', {})
+            if not all([index, chunks_map_data]): continue
 
+            chunks_map = chunks_map_data.get('map', [])
+            all_chunks = chunks_map_data.get('chunks', [])
+            if not all([chunks_map, all_chunks]): continue
+            
             scores, indices = index.search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
-            for i, idx in enumerate(indices[0]):
+            for _, idx in enumerate(indices[0]):
                 if idx != -1:
                     chunk_map_item = chunks_map[idx]
-                    if empresa_alvo.lower() in chunk_map_item.get('company_name', '').lower():
-                        source_info = {
-                            "company_name": chunk_map_item.get("company_name"),
-                            "doc_type": doc_type,
-                            "source_url": chunk_map_item.get("source_url")
-                        }
+                    metadata_company_name = chunk_map_item.get('company_name', '')
+                    
+                    # Verificação precisa usando o catálogo
+                    canonical_name_from_chunk = company_lookup_map.get(metadata_company_name.lower())
+                    
+                    if canonical_name_from_chunk and canonical_name_from_chunk.lower() == canonical_name_from_plan.lower():
+                        source_info = {"company_name": canonical_name_from_plan, "doc_type": doc_type, "source_url": chunk_map_item.get("source_url")}
                         add_candidate(all_chunks[idx], source_info)
 
     # ROTA 3: Planos Padrão (Default)
@@ -341,14 +342,17 @@ def execute_dynamic_plan(
                     search_query = f"explicação detalhada sobre o conceito e funcionamento de {term}"
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                     for doc_type, artifact_data in artifacts.items():
+                        if not artifact_data: continue
                         index = artifact_data.get('index')
-                        chunks_map = artifact_data.get('chunks', {}).get('map', [])
-                        all_chunks = artifact_data.get('chunks', {}).get('chunks', [])
+                        chunks_map_data = artifact_data.get('chunks', {})
+                        if not all([index, chunks_map_data]): continue
 
-                        if not all([index, chunks_map, all_chunks]): continue
-
+                        chunks_map = chunks_map_data.get('map', [])
+                        all_chunks = chunks_map_data.get('chunks', [])
+                        if not all([chunks_map, all_chunks]): continue
+                        
                         scores, indices = index.search(query_embedding, TOP_K_SEARCH_FINAL)
-                        for i, idx in enumerate(indices[0]):
+                        for _, idx in enumerate(indices[0]):
                             if idx != -1:
                                 chunk_map_item = chunks_map[idx]
                                 source_info = {
@@ -361,37 +365,37 @@ def execute_dynamic_plan(
         # CASO 3.2: Busca padrão por empresa e tópicos
         elif empresas and topicos:
             logger.info(f"ROTA 3.2: Executando busca híbrida para Empresas: {empresas} e Tópicos: {topicos}")
-            for empresa in empresas:
+            for empresa_canonica in empresas:
                 # Parte 1: Busca por tags
-                target_tags = set()
-                for topico in topicos:
-                    target_tags.update(expand_search_terms(topico, kb))
-                
-                tagged_chunks = search_by_tags(artifacts, empresa, list(target_tags))
+                target_tags = set().union(*(expand_search_terms(t, kb) for t in topicos))
+                tagged_chunks = search_by_tags(artifacts, empresa_canonica, list(target_tags))
                 for chunk_info in tagged_chunks:
                     add_candidate(chunk_info['text'], chunk_info)
-
-                # Parte 2: Busca Vetorial
+                
+                # Parte 2: Busca Vetorial com verificação precisa
                 for topico in topicos:
-                    search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa}"
+                    search_query = f"informações detalhadas sobre {topico} no plano da empresa {empresa_canonica}"
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
                     for doc_type, artifact_data in artifacts.items():
+                        if not artifact_data: continue
                         index = artifact_data.get('index')
-                        chunks_map = artifact_data.get('chunks', {}).get('map', [])
-                        all_chunks = artifact_data.get('chunks', {}).get('chunks', [])
+                        chunks_map_data = artifact_data.get('chunks', {})
+                        if not all([index, chunks_map_data]): continue
 
-                        if not all([index, chunks_map, all_chunks]): continue
+                        chunks_map = chunks_map_data.get('map', [])
+                        all_chunks = chunks_map_data.get('chunks', [])
+                        if not all([chunks_map, all_chunks]): continue
                         
                         scores, indices = index.search(query_embedding, TOP_K_INITIAL_RETRIEVAL)
-                        for i, idx in enumerate(indices[0]):
+                        for _, idx in enumerate(indices[0]):
                             if idx != -1:
                                 chunk_map_item = chunks_map[idx]
-                                if empresa.lower() in chunk_map_item.get('company_name', '').lower():
-                                    source_info = {
-                                        "company_name": chunk_map_item.get("company_name"),
-                                        "doc_type": doc_type,
-                                        "source_url": chunk_map_item.get("source_url")
-                                    }
+                                metadata_name = chunk_map_item.get('company_name', '')
+                                
+                                # Verificação precisa usando o catálogo
+                                chunk_canonical_name = company_lookup_map.get(metadata_name.lower())
+                                if chunk_canonical_name and chunk_canonical_name.lower() == empresa_canonica.lower():
+                                    source_info = {"company_name": empresa_canonica, "doc_type": doc_type, "source_url": chunk_map_item.get("source_url")}
                                     add_candidate(all_chunks[idx], source_info)
 
     # --- ETAPA FINAL DE RE-RANKING E SÍNTESE (Comum a todas as rotas) ---
