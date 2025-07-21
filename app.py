@@ -432,7 +432,7 @@ def analyze_single_company(
     
     # --- CORREÇÃO APLICADA AQUI ---
     # Adicionado o argumento 'is_summary_plan=False' na chamada.
-    context, sources_list = execute_dynamic_plan_func(query, single_plan, artifacts, model, cross_encoder_model, kb, is_summary_plan=False)
+    context, sources_list = execute_dynamic_plan_func(query, single_plan, artifacts, embedding_model, cross_encoder_model, kb, is_summary_plan=False)
     
     result_data = {
         "empresa": empresa,
@@ -522,7 +522,7 @@ def handle_rag_query(
                 futures = [
                     executor.submit(
                         analyze_single_company, 
-                        empresa, plan, query, artifacts, model, cross_encoder_model, kb,
+                        empresa, plan, query, artifacts, embedding_model, cross_encoder_model, kb,
                         execute_dynamic_plan, get_final_unified_answer
                     )
                     for empresa in plan['empresas']
@@ -561,7 +561,7 @@ def handle_rag_query(
     else:
         with st.status("2️⃣ Recuperando e re-ranqueando contexto...", expanded=True) as status:
             context, all_sources_structured = execute_dynamic_plan(
-                query, plan, artifacts, model, cross_encoder_model, kb
+                query, plan, artifacts, embedding_model, cross_encoder_model, kb
             )     
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
