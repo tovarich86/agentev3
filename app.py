@@ -662,7 +662,7 @@ def main():
                         doc_type_raw = src.get('doc_type', '')
                         url = src.get('source_url', '') # Chave correta é 'source_url'
 
-                        if doc_type_raw == 'outros_documentos':
+                        if doc_type_raw == 'outros_documentos_':
                             display_doc_type = 'Plano de Remuneração'
                         else:
                             display_doc_type = doc_type_raw.replace('_', ' ')
