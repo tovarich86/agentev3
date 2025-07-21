@@ -74,6 +74,17 @@ def _find_companies_by_exact_tag(canonical_topic: str, artifacts: dict, kb: dict
                     found_companies.add(company_name)
     return found_companies
 
+def _get_all_canonical_topics_from_text(text: str, alias_map: dict) -> list[str]:
+    """
+    Encontra TODOS os tópicos canônicos que correspondem a aliases em um texto.
+    """
+    found_topics = set()
+    # Itera sobre todos os aliases para encontrar todas as correspondências possíveis
+    for alias, canonical_topic in alias_map.items():
+        if re.search(r'\b' + re.escape(alias) + r'\b', text.lower()):
+            found_topics.add(canonical_topic)
+    return sorted(list(found_topics))
+    
 # --- FERRAMENTA DE RE-RANKING ---
 
 def rerank_with_cross_encoder(query: str, chunks: list[dict], cross_encoder_model: CrossEncoder, top_n: int = 7) -> list[dict]:
