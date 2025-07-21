@@ -684,6 +684,8 @@ def main():
                         final_answer += "\n".join([f"- {company}" for company in sorted_companies])
                     else:
                         final_answer = "Nenhuma empresa encontrada nos documentos para os tópicos identificados."
+                
+                st.markdown(final_answer)
 
             # Rota 3: Fallback para o AnalyticalEngine
             else:
