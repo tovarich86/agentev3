@@ -663,16 +663,26 @@ def main():
             # Rota 2: Listagem de Empresas
             elif any(keyword in query_lower for keyword in listing_keywords) and topics_to_search:
                 with st.spinner(f"Usando ferramentas para encontrar empresas..."):
-                    st.write(f"**Tópico identificado para busca:** `{topics_to_search}`")
-                    companies_found = find_companies_by_topic(topic=topics_to_search, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO)
-                    if companies_found:
-                        st.markdown(f"#### Foram encontradas {len(companies_found)} empresas com o tópico '{topics_to_search}':")
-                        for company in companies_found: st.markdown(f"- {company}")
-                        df = pd.DataFrame(companies_found, columns=[f"Empresas com o tópico: {topics_to_search}"])
-                        with st.expander("Ver em formato de tabela"):
-                            st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.write(f"**Tópicos identificados para busca:** `{', '.join(topics_to_search)}`")
+        
+                    all_found_companies = set()
+        
+                    # CORREÇÃO: Itera sobre a lista e chama a ferramenta para CADA tópico.
+                    for topic_item in topics_to_search:
+                        companies = find_companies_by_topic(
+                            topic=topic_item,  # Passa um único tópico (string)
+                            artifacts=artifacts, 
+                            model=embedding_model, 
+                            kb=DICIONARIO_UNIFICADO_HIERARQUICO
+                        )
+                        all_found_companies.update(companies)
+
+                    if all_found_companies:
+                        sorted_companies = sorted(list(all_found_companies))
+                        final_answer = f"#### Foram encontradas {len(sorted_companies)} empresas para os tópicos relacionados:\n"
+                        final_answer += "\n".join([f"- {company}" for company in sorted_companies])
                     else:
-                        st.warning(f"Nenhuma empresa encontrada nos documentos para o tópico '{topics_to_search}'.")
+                        final_answer = "Nenhuma empresa encontrada nos documentos para os tópicos identificados."
 
             # Rota 3: Fallback para o AnalyticalEngine
             else:
