@@ -249,15 +249,18 @@ def execute_dynamic_plan(
     kb: dict
 ) -> tuple[str, list[dict]]:
     """
-    Versão definitiva com verificação de nome HÍBRIDA (Catálogo + Normalização).
-    Resolve inconsistências entre o nome canônico e variações no metadado.
+    Versão definitiva e completa do Executor de Planos.
+    Esta função central analisa o 'plano' e seleciona a melhor estratégia de busca
+    de documentos, utilizando um nome de busca limpo para a busca vetorial e uma
+    lógica de verificação híbrida (catálogo + normalização) para a validação final.
+    Todos os resultados são então re-ranqueados para máxima relevância.
     """
     # Carrega recursos necessários do estado da sessão do Streamlit
     company_catalog_rich = st.session_state.get("company_catalog_rich", [])
     company_lookup_map = st.session_state.get("company_lookup_map", {})
     if not company_lookup_map:
-        logger.error("O mapa de consulta de empresas (company_lookup_map) não foi encontrado.")
-        return "Erro de configuração: o mapa de empresas não foi carregado.", []
+        logger.error("O mapa de consulta de empresas (company_lookup_map) não foi encontrado no st.session_state.")
+        return "Erro de configuração interna: o mapa de empresas não foi carregado.", []
 
     candidate_chunks = {}
     TOP_K_INITIAL_RETRIEVAL = 30
@@ -277,8 +280,7 @@ def execute_dynamic_plan(
         if chunk_canonical_name and chunk_canonical_name.lower() == plan_canonical_name.lower():
             return True
             
-        # 2. Plano B: Se o catálogo falhou, usar normalização flexível (lógica de search_by_tags)
-        # Pega a primeira parte significativa do nome canônico (ex: "m.dias")
+        # 2. Plano B: Se o catálogo falhou, usar normalização flexível
         searchable_part = unicodedata.normalize('NFKD', plan_canonical_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
         
         return searchable_part in metadata_name.lower()
@@ -287,7 +289,12 @@ def execute_dynamic_plan(
         """Função auxiliar para adicionar chunks únicos à lista de candidatos."""
         chunk_hash = hash(chunk_text)
         if chunk_hash not in candidate_chunks:
-            source_info_clean = {"text": chunk_text, **source_info}
+            source_info_clean = {
+                "text": chunk_text,
+                "company_name": source_info.get("company_name"),
+                "doc_type": source_info.get("doc_type"),
+                "source_url": source_info.get("source_url")
+            }
             candidate_chunks[chunk_hash] = source_info_clean
 
     # --- INÍCIO DO ROTEAMENTO DE ESTRATÉGIA DE BUSCA ---
@@ -329,7 +336,27 @@ def execute_dynamic_plan(
             for topico in topicos:
                 for term in expand_search_terms(topico, kb)[:3]:
                     search_query = f"explicação detalhada sobre o conceito e funcionamento de {term}"
-                    # ... (resto da lógica de busca vetorial para este caso) ...
+                    query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
+                    for doc_type, artifact_data in artifacts.items():
+                        if not artifact_data: continue
+                        index = artifact_data.get('index')
+                        chunks_map_data = artifact_data.get('chunks', {})
+                        if not all([index, chunks_map_data]): continue
+
+                        chunks_map = chunks_map_data.get('map', [])
+                        all_chunks = chunks_map_data.get('chunks', [])
+                        if not all([chunks_map, all_chunks]): continue
+                        
+                        scores, indices = index.search(query_embedding, TOP_K_SEARCH_FINAL)
+                        for _, idx in enumerate(indices[0]):
+                            if idx != -1:
+                                chunk_map_item = chunks_map[idx]
+                                source_info = {
+                                    "company_name": chunk_map_item.get("company_name"),
+                                    "doc_type": doc_type,
+                                    "source_url": chunk_map_item.get("source_url")
+                                }
+                                add_candidate(all_chunks[idx], source_info)
         
         # CASO 2.2: Busca por empresa e tópicos (incluindo resumos)
         elif empresas and topicos:
@@ -349,7 +376,6 @@ def execute_dynamic_plan(
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
 
                     for doc_type, artifact_data in artifacts.items():
-                        #... (lógica de busca vetorial) ...
                         if not artifact_data: continue
                         index, chunks_map_data, all_chunks_data = (artifact_data.get(k) for k in ['index', 'chunks', 'chunks'])
                         if not all([index, chunks_map_data, all_chunks_data]): continue
@@ -454,9 +480,9 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
         plan["topicos"] = [
             "Elegibilidade",
             "TiposDePlano", # Será expandido para os tipos específicos
-            "Vesting",
-            "Outorga",
-            "CondicaoSaida"
+            "MecanicasCicloDeVi",
+            "IndicadoresPerformance",
+            "DividendosProvent"
         ]
         # O plan_type continua "default", para acionar a busca híbrida.
         return {"status": "success", "plan": plan}
