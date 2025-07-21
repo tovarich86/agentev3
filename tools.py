@@ -1,4 +1,4 @@
-# tools.py (Versão Final Completa com Re-ranker)
+# tools.py (Versão Final e Definitiva)
 
 """
 Módulo de ferramentas para o Agente de Análise de Planos de Incentivo.
@@ -39,14 +39,28 @@ def _create_alias_to_canonical_map(kb: dict) -> tuple[dict, dict]:
 
 def _get_all_canonical_topics_from_text(text: str, alias_map: dict) -> list[str]:
     """
-    Encontra TODOS os tópicos canônicos que correspondem a aliases em um texto.
+    Função aprimorada que encontra TODOS os tópicos canônicos relevantes.
+    Ela busca por aliases exatos e também por termos gerais contidos em nomes de tópicos mais longos.
     """
     found_topics = set()
+    text_lower = text.lower()
+
+    # 1. Busca por aliases exatos (mais precisa)
     for alias, canonical_topic in alias_map.items():
-        if re.search(r'\b' + re.escape(alias) + r'\b', text.lower()):
+        if re.search(r'\b' + re.escape(alias) + r'\b', text_lower):
             found_topics.add(canonical_topic)
+
+    # 2. Busca por termos curtos/genéricos dentro de outros tópicos (mais abrangente)
+    matched_aliases = {alias for alias in alias_map if re.search(r'\b' + re.escape(alias) + r'\b', text_lower)}
+    all_canonical_names = alias_map.values()
+
+    for alias in matched_aliases:
+        for canonical_name in all_canonical_names:
+            if alias in canonical_name.lower() and len(alias) < len(canonical_name):
+                found_topics.add(canonical_name)
+                
     return sorted(list(found_topics))
-    
+
 def _find_companies_by_exact_tag(canonical_topic: str, artifacts: dict, kb: dict) -> set[str]:
     """
     Busca empresas que possuem chunks com a tag de tópico exata.
@@ -65,26 +79,14 @@ def _find_companies_by_exact_tag(canonical_topic: str, artifacts: dict, kb: dict
 
     found_companies = set()
     for artifact_data in artifacts.values():
-        all_chunks_text = artifact_data.get('chunks', {}).get('chunks', [])
         chunk_map = artifact_data.get('chunks', {}).get('map', [])
-        for i, chunk_text in enumerate(all_chunks_text):
-            if f"topico:{topic_tag_name}" in chunk_text:
-                company_name = chunk_map[i].get("company_name")
+        for mapping in chunk_map:
+            if topic_tag_name in mapping.get("topics_in_doc", []):
+                company_name = mapping.get("company_name")
                 if company_name:
                     found_companies.add(company_name)
     return found_companies
 
-def _get_all_canonical_topics_from_text(text: str, alias_map: dict) -> list[str]:
-    """
-    Encontra TODOS os tópicos canônicos que correspondem a aliases em um texto.
-    """
-    found_topics = set()
-    # Itera sobre todos os aliases para encontrar todas as correspondências possíveis
-    for alias, canonical_topic in alias_map.items():
-        if re.search(r'\b' + re.escape(alias) + r'\b', text.lower()):
-            found_topics.add(canonical_topic)
-    return sorted(list(found_topics))
-    
 # --- FERRAMENTA DE RE-RANKING ---
 
 def rerank_with_cross_encoder(query: str, chunks: list[dict], cross_encoder_model: CrossEncoder, top_n: int = 7) -> list[dict]:
@@ -95,7 +97,7 @@ def rerank_with_cross_encoder(query: str, chunks: list[dict], cross_encoder_mode
         return []
     
     pairs = [[query, chunk.get('text', '')] for chunk in chunks]
-    scores = cross_encoder_model.predict(pairs)
+    scores = cross_encoder_model.predict(pairs, show_progress_bar=False)
     
     for i, chunk in enumerate(chunks):
         chunk['relevance_score'] = scores[i]
@@ -103,7 +105,6 @@ def rerank_with_cross_encoder(query: str, chunks: list[dict], cross_encoder_mode
     reranked_chunks = sorted(chunks, key=lambda x: x.get('relevance_score', 0.0), reverse=True)
     
     return reranked_chunks[:top_n]
-
 
 # --- FERRAMENTAS PRINCIPAIS ---
 
