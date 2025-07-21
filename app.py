@@ -25,6 +25,7 @@ from tools import (
     _create_alias_to_canonical_map, 
     _get_all_canonical_topics_from_text # <-- CORREÇÃO: Import adicionado
 )
+logger = logging.getLogger(__name__)
 
 # --- Módulos do Projeto (devem estar na mesma pasta) ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
@@ -427,12 +428,12 @@ def execute_dynamic_plan(
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     """
     Versão definitiva do planejador.
-    Combina a identificação robusta de empresas (com catálogo e fallback)
-    com a detecção de intenções especiais (item 8.4, resumo geral).
+    Combina a identificação robusta de empresas do código original (com catálogo, 
+    fallback e scoring) com a detecção de intenções especiais.
     """
     query_lower = query.lower().strip()
     
-    # --- PASSO 1: IDENTIFICAÇÃO ROBUSTA DE EMPRESA (Sua lógica superior) ---
+    # --- PASSO 1: IDENTIFICAÇÃO ROBUSTA DE EMPRESA (Sua Lógica Original e Superior) ---
     mentioned_companies = []
     
     # Estratégia 1.1: Busca prioritária no catálogo com scoring
@@ -442,7 +443,6 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             canonical_name = company_data.get("canonical_name")
             if not canonical_name: continue
             
-            # Inclui o nome canônico na lista de apelidos para busca
             all_aliases = company_data.get("aliases", []) + [canonical_name]
             
             for alias in all_aliases:
@@ -452,10 +452,9 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
                         companies_found_by_alias[canonical_name] = score
                         
         if companies_found_by_alias:
-            # Ordena pela pontuação para pegar o melhor match
             mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
 
-    # Estratégia 1.2: Fallback na base de resumos se nada for encontrado
+    # Estratégia 1.2: Fallback na base de resumos
     if not mentioned_companies:
         for empresa_nome in summary_data.keys():
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
@@ -463,8 +462,8 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     
     logger.info(f"Empresas identificadas pelo planejador: {mentioned_companies}")
 
-    # --- PASSO 2: DETECÇÃO DE INTENÇÕES ESPECIAIS (Nossa nova lógica) ---
-    summary_keywords = ['resumo geral', 'plano completo', 'como funciona o plano', 'descreva o plano']
+    # --- PASSO 2: DETECÇÃO DE INTENÇÕES ESPECIAIS (Nossa Lógica Recente) ---
+    summary_keywords = ['resumo geral', 'plano completo', 'como funciona o plano', 'descreva o plano', 'resumo do plano', 'detalhes do plano']
     section_8_4_keywords = ['item 8.4', 'seção 8.4', 'item 8-4', 'formulário de referência 8.4', '8.4 do fre']
 
     is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
@@ -473,13 +472,11 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     plan = {"empresas": mentioned_companies, "topicos": [], "plan_type": "default"}
 
     if mentioned_companies and is_section_8_4_request:
-        logger.info("PLANO: Intenção de busca pelo Item 8.4 detectada.")
         plan["plan_type"] = "section_8_4"
         plan["topicos"] = [v.replace('_', ' ') for v in DICIONARIO_UNIFICADO_HIERARQUICO["FormularioReferencia_Item_8_4"].keys()]
         return {"status": "success", "plan": plan}
         
     elif mentioned_companies and is_summary_request:
-        logger.info("PLANO: Intenção de Resumo Geral detectada.")
         plan["plan_type"] = "general_summary"
         return {"status": "success", "plan": plan}
 
@@ -488,7 +485,6 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     topics = _get_all_canonical_topics_from_text(query_lower, alias_map)
     plan["topicos"] = topics
     
-    # Validação final para evitar planos vazios
     if not mentioned_companies and not topics:
          logger.warning("Planejador não conseguiu identificar empresa ou tópico.")
          return {"status": "error"}
