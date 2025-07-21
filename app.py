@@ -410,19 +410,13 @@ def execute_dynamic_plan(
     return full_context, retrieved_sources_structured
 
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
+    """
+    Versão inteligente do planejador que detecta intenções especiais
+    como 'resumo geral' e busca por 'item 8.4'.
+    """
     query_lower = query.lower().strip()
     
-    # --- 1. Identificação de Tópicos e Intenção ---
-    alias_map, _ = _create_alias_to_canonical_map(kb)
-    topics = _get_all_canonical_topics_from_text(query_lower, alias_map)
-    
-    listing_keywords = ["quais empresas", "liste as empresas", "quais companhias"]
-    thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
-    
-    is_listing_request = any(keyword in query_lower for keyword in listing_keywords)
-    is_thematic_request = any(keyword in query_lower for keyword in thematic_keywords)
-
-    # --- 2. Identificação de Empresa ---
+    # --- PASSO 1: IDENTIFICAÇÃO DE EMPRESA ---
     mentioned_companies = []
     if company_catalog_rich:
         companies_found_by_alias = {}
@@ -440,19 +434,35 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
 
-    # --- 3. Lógica de Validação Aprimorada ---
-    # Se a intenção NÃO é de listagem ou temática, E nenhuma empresa foi encontrada, então é um erro.
-    if not is_listing_request and not is_thematic_request and not mentioned_companies:
-        logger.error("A pergunta parece ser sobre uma empresa específica, mas nenhuma foi identificada.")
-        return {"status": "error", "plan": {}}
+    # --- PASSO 2: DETECÇÃO DE INTENÇÕES ESPECIAIS ---
+    summary_keywords = ['resumo geral', 'plano completo', 'como funciona o plano', 'descreva o plano']
+    section_8_4_keywords = ['item 8.4', 'seção 8.4', 'item 8-4', 'formulário de referência 8.4', '8.4 do fre']
 
-    # Se nenhum tópico foi identificado, cai no fallback do LLM (exceto para listagem/temática que já deveriam ter um tópico)
-    if not topics and not is_listing_request and not is_thematic_request:
-        logger.info("Nenhum tópico específico encontrado, consultando LLM para planejamento...")
-        # ... (lógica de fallback com LLM, se desejar mantê-la)
-        pass # Por enquanto, vamos permitir um plano com tópicos vazios que será tratado depois
+    is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
+    is_section_8_4_request = any(keyword in query_lower for keyword in section_8_4_keywords)
 
-    plan = {"empresas": mentioned_companies, "topicos": topics}
+    plan = {"empresas": mentioned_companies, "topicos": [], "plan_type": "default"}
+
+    if mentioned_companies and is_section_8_4_request:
+        logger.info("PLANO: Intenção de busca pelo Item 8.4 detectada.")
+        plan["plan_type"] = "section_8_4"
+        # Preenche os tópicos com TODOS os itens da seção 8.4 para guiar a busca
+        plan["topicos"] = [v.replace('_', ' ') for v in DICIONARIO_UNIFICADO_HIERARQUICO["FormularioReferencia_Item_8_4"].keys()]
+        return {"status": "success", "plan": plan}
+        
+    elif mentioned_companies and is_summary_request:
+        logger.info("PLANO: Intenção de Resumo Geral detectada.")
+        plan["plan_type"] = "general_summary"
+        return {"status": "success", "plan": plan}
+
+    # --- PASSO 3: EXTRAÇÃO DE TÓPICOS (Lógica de fallback) ---
+    alias_map, _ = _create_alias_to_canonical_map(kb)
+    topics = _get_all_canonical_topics_from_text(query_lower, alias_map)
+    plan["topicos"] = topics
+    
+    if not mentioned_companies and not topics:
+         return {"status": "error"}
+         
     return {"status": "success", "plan": plan}
     
 def analyze_single_company(
