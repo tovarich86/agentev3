@@ -939,6 +939,36 @@ def main():
                         final_answer = "Nenhuma empresa encontrada nos documentos para os tópicos identificados."
                 
                 st.markdown(final_answer)
+                     # --- INÍCIO DA NOVA ROTA 2.5 ---
+            # Rota 2.5: Listagem de Empresas APENAS POR FILTRO
+            elif any(keyword in query_lower for keyword in listing_keywords) and active_filters and not topics_to_search:
+                with st.spinner("Listando empresas com base nos filtros selecionados..."):
+                    st.write("Nenhum tópico técnico identificado. Listando todas as empresas que correspondem aos filtros.")
+                    
+                    companies_from_filter = set()
+                    # Itera em todos os documentos para encontrar empresas que correspondem ao filtro
+                    for artifact_data in artifacts.values():
+                        chunk_map = artifact_data.get('chunks', {}).get('map', [])
+                        for metadata in chunk_map:
+                            # Verifica se o metadado da empresa corresponde aos filtros ativos
+                            setor_match = (not active_filters.get('setor') or 
+                                           metadata.get('setor', '').lower() == active_filters['setor'])
+                            controle_match = (not active_filters.get('controle_acionario') or 
+                                              metadata.get('controle_acionario', '').lower() == active_filters['controle_acionario'])
+                            
+                            if setor_match and controle_match:
+                                company_name = metadata.get('company_name')
+                                if company_name:
+                                    companies_from_filter.add(company_name)
+                    
+                    if companies_from_filter:
+                        sorted_companies = sorted(list(companies_from_filter))
+                        final_answer = f"#### Foram encontradas {len(sorted_companies)} empresas para os filtros selecionados:\n"
+                        final_answer += "\n".join([f"- {company}" for company in sorted_companies])
+                    else:
+                        final_answer = "Nenhuma empresa foi encontrada para a combinação de filtros selecionada."
+                    
+                    st.markdown(final_answer)
 
             # Rota 3: Fallback para o AnalyticalEngine
             else:
