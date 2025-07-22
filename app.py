@@ -97,32 +97,44 @@ def setup_and_load_data():
     except FileNotFoundError:
         st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado.")
         st.stop()
-        # --- INÍCIO DA NOVA LÓGICA DE EXTRAÇÃO ---
 
     setores = set()
     controles = set()
 
-    # Itera sobre todos os artefatos carregados
     for artifact_data in artifacts.values():
-        # Acessa o mapa de metadados dos chunks
         chunk_map = artifact_data.get('chunks', {}).get('map', [])
         for metadata in chunk_map:
-            # Adiciona o setor ao set (ignora se for nulo ou vazio)
-            if setor := metadata.get('setor'):
+            # Pega o valor do setor e trata se for nulo ou vazio
+            setor = metadata.get('setor')
+            if isinstance(setor, str) and setor.strip():
                 setores.add(setor.strip().capitalize())
-            # Adiciona o controle ao set (ignora se for nulo ou vazio)
-            if controle := metadata.get('controle_acionario'):
+            else:
+                setores.add("Não Informado") # <-- LÓGICA ADICIONADA
+
+            # Pega o valor do controle e trata se for nulo ou vazio
+            controle = metadata.get('controle_acionario')
+            if isinstance(controle, str) and controle.strip():
                 controles.add(controle.strip().capitalize())
-    
+            else:
+                controles.add("Não Informado") # <-- LÓGICA ADICIONADA
+
     # Converte os sets em listas ordenadas e adiciona "Todos" no início
-    all_setores = ["Todos"] + sorted(list(setores))
-    all_controles = ["Todos"] + sorted(list(controles))
+    # Garante que "Não Informado" não seja o primeiro da lista, se existir.
+    sorted_setores = sorted([s for s in setores if s != "Não Informado"])
+    if "Não Informado" in setores:
+        sorted_setores.append("Não Informado")
+
+    sorted_controles = sorted([c for c in controles if c != "Não Informado"])
+    if "Não Informado" in controles:
+        sorted_controles.append("Não Informado")
+
+    all_setores = ["Todos"] + sorted_setores
+    all_controles = ["Todos"] + sorted_controles
 
     logger.info(f"Filtros dinâmicos encontrados: {len(all_setores)-1} setores e {len(all_controles)-1} tipos de controle.")
 
-    # --- FIM DA NOVA LÓGICA DE EXTRAÇÃO ---
+    # --- FIM DA LÓGICA DE EXTRAÇÃO REFINADA ---
         
-    # ATENÇÃO: A instrução de retorno agora inclui as novas listas
     return embedding_model, cross_encoder_model, artifacts, summary_data, all_setores, all_controles
 
 
