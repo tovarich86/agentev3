@@ -113,7 +113,7 @@ class AnalyticalEngine:
                 # Passa os filtros corretos para a função de análise
                 return analysis_func(normalized_query, final_filters)
                 
-        return "Não consegui identificar uma intenção clara na sua pergunta.", Nonedef answer_query(self, query: str, filters: dict | None = None) -> tuple:
+        return "Não consegui identificar uma intenção clara na sua pergunta.", None
       
     # --- Funções de Análise Detalhadas (Lógica Completa Restaurada e Adaptada com Filtros) ---
 
