@@ -324,11 +324,11 @@ def get_summary_for_topic_at_company(
     model: SentenceTransformer,
     cross_encoder_model: CrossEncoder,
     kb: dict,
+    company_catalog_rich: list,
+    company_lookup_map: dict,
     execute_dynamic_plan_func: callable,
     get_final_unified_answer_func: callable,
-    filters: dict = None,
-    company_catalog_rich: list,
-    company_lookup_map: dict,    
+    filters: dict = None  # <-- Movido para o final
 ) -> str:
     """Ferramenta de Extração: Busca, re-ranqueia e resume um tópico para uma empresa específica."""
     plan = {"empresas": [company], "topicos": [topic], "filtros": filters or {}}
@@ -355,11 +355,11 @@ def analyze_topic_thematically(
     model: SentenceTransformer,
     cross_encoder_model: CrossEncoder,
     kb: dict,
-    execute_dynamic_plan_func: callable,
-    get_final_unified_answer_func: callable,
-    filters: dict = None,
     company_catalog_rich: list,
     company_lookup_map: dict,
+    execute_dynamic_plan_func: callable,
+    get_final_unified_answer_func: callable,
+    filters: dict = None  # <-- Movido para o final
 ) -> str:
     """Ferramenta de Orquestração: Realiza uma análise temática completa de um tópico usando a busca híbrida."""
     logger.info(f"Iniciando análise temática para '{topic}' com filtros: {filters}")
