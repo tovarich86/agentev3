@@ -99,8 +99,34 @@ def setup_and_load_data():
     except FileNotFoundError:
         st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado.")
         st.stop()
+        # --- INÍCIO DA NOVA LÓGICA DE EXTRAÇÃO ---
+
+    setores = set()
+    controles = set()
+
+    # Itera sobre todos os artefatos carregados
+    for artifact_data in artifacts.values():
+        # Acessa o mapa de metadados dos chunks
+        chunk_map = artifact_data.get('chunks', {}).get('map', [])
+        for metadata in chunk_map:
+            # Adiciona o setor ao set (ignora se for nulo ou vazio)
+            if setor := metadata.get('setor'):
+                setores.add(setor.strip().capitalize())
+            # Adiciona o controle ao set (ignora se for nulo ou vazio)
+            if controle := metadata.get('controle_acionario'):
+                controles.add(controle.strip().capitalize())
+    
+    # Converte os sets em listas ordenadas e adiciona "Todos" no início
+    all_setores = ["Todos"] + sorted(list(setores))
+    all_controles = ["Todos"] + sorted(list(controles))
+
+    logger.info(f"Filtros dinâmicos encontrados: {len(all_setores)-1} setores e {len(all_controles)-1} tipos de controle.")
+
+    # --- FIM DA NOVA LÓGICA DE EXTRAÇÃO ---
         
-    return embedding_model, cross_encoder_model, artifacts, summary_data
+    # ATENÇÃO: A instrução de retorno agora inclui as novas listas
+    return embedding_model, cross_encoder_model, artifacts, summary_data, all_setores, all_controles
+
 
 
 
@@ -407,7 +433,7 @@ def execute_dynamic_plan(
     logger.info(f"Contexto final construído a partir de {len(reranked_chunks)} chunks re-ranqueados.")
     return full_context, retrieved_sources
     
-def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
+def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters: dict):
     """
     Versão 3.0 (Unificada) do planejador dinâmico.
 
@@ -423,27 +449,11 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     plan = {
         "empresas": [],
         "topicos": [],
-        "filtros": {},
+        "filtros": filters.copy(),
         "plan_type": "default" # O tipo de plano default aciona a busca RAG padrão.
     }
 
-    # --- PASSO 1: Extração de Filtros de Metadados (Lógica da Nova Proposta) ---
-    FILTER_KEYWORDS = {
-        "setor": ["bancos", "varejo", "energia", "saude", "metalurgia", "siderurgia"],
-        "controle_acionario": ["privado", "privada", "estatal", "estatais", "público", "pública"]
-    }
-    CANONICAL_MAP = {
-        "privada": "Privado", "privados": "Privado", "privadas": "Privado",
-        "estatal": "Estatal", "estatais": "Estatal", "público": "Estatal", "pública": "Estatal"
-    }
-    
-    for filter_type, keywords in FILTER_KEYWORDS.items():
-        for keyword in keywords:
-            if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', query_lower):
-                canonical_term = CANONICAL_MAP.get(keyword, keyword.capitalize())
-                plan["filtros"][filter_type] = canonical_term
-                logger.info(f"Filtro de '{filter_type}' encontrado: '{canonical_term}'")
-                break
+
 
     # --- PASSO 2: Identificação Robusta de Empresas (Lógica Original Mantida) ---
     mentioned_companies = []
@@ -593,14 +603,15 @@ def handle_rag_query(
     cross_encoder_model: CrossEncoder,
     kb: dict, 
     company_catalog_rich: list, 
-    summary_data: dict
+    summary_data: dict,
+    filters: dict 
 ) -> tuple[str, list[dict]]:
     """
     Orquestra o pipeline de RAG para perguntas qualitativas, incluindo a geração do plano,
     a execução da busca (com re-ranking) e a síntese da resposta final.
     """
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
-        plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data)
+        plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters)
         
         if plan_response['status'] != "success":
             status.update(label="⚠️ Falha na identificação", state="error", expanded=True)
@@ -704,7 +715,7 @@ def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
 
-    embedding_model, cross_encoder_model, artifacts, summary_data = setup_and_load_data()
+    embedding_model, cross_encoder_model, artifacts, summary_data, setores_disponiveis, controles_disponiveis = setup_and_load_data()
         
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
@@ -728,6 +739,22 @@ def main():
         st.header("📊 Informações do Sistema")
         st.metric("Categorias de Documentos (RAG)", len(artifacts))
         st.metric("Empresas no Resumo", len(summary_data))
+                # --- MODIFICAÇÃO 2: Usar as listas dinâmicas ---
+        st.header("⚙️ Filtros da Análise")
+        st.caption("Filtre a base de dados antes de fazer sua pergunta.")
+        
+        selected_setor = st.selectbox(
+            label="Filtrar por Setor",
+            options=setores_disponiveis, # Usa a lista dinâmica
+            index=0
+        )
+        
+        selected_controle = st.selectbox(
+            label="Filtrar por Controle Acionário",
+            options=controles_disponiveis, # Usa a lista dinâmica
+            index=0
+        )
+        st.markdown("---") 
         with st.expander("Empresas com dados no resumo"):
             st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
         st.success("✅ Sistema pronto para análise")
@@ -798,7 +825,23 @@ def main():
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
             st.stop()
-        
+        active_filters = {}
+        if selected_setor != "Todos":
+            active_filters['setor'] = selected_setor.lower()
+        if selected_controle != "Todos":
+            # A chave 'controle_acionario' deve ser exatamente como nos metadados dos chunks.
+            active_filters['controle_acionario'] = selected_controle.lower()
+        if active_filters:
+            # Formata o dicionário para uma exibição amigável.
+            filter_text_parts = []
+            if 'setor' in active_filters:
+                filter_text_parts.append(f"**Setor**: {active_filters['setor'].capitalize()}")
+            if 'controle_acionario' in active_filters:
+                filter_text_parts.append(f"**Controle**: {active_filters['controle_acionario'].capitalize()}")
+
+            filter_text = " e ".join(filter_text_parts)
+            st.info(f"🔎 Análise sendo executada com os seguintes filtros: {filter_text}")
+
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
         
@@ -821,7 +864,7 @@ def main():
                     st.write(f"**Tópico identificado para análise temática:** `{topics_to_search}`")
                     final_report = analyze_topic_thematically(
                         topic=topics_to_search, query=user_query, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
-                        execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer
+                        execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer,filters=active_filters
                     )
                     st.markdown(final_report)
 
@@ -838,7 +881,8 @@ def main():
                             topic=topic_item,  # Passa um único tópico (string)
                             artifacts=artifacts, 
                             model=embedding_model, 
-                            kb=DICIONARIO_UNIFICADO_HIERARQUICO
+                            kb=DICIONARIO_UNIFICADO_HIERARQUICO,
+                            filters=active_filters
                         )
                         all_found_companies.update(companies)
 
@@ -855,7 +899,7 @@ def main():
             else:
                 st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
                 with st.spinner("Executando análise quantitativa rápida..."):
-                    report_text, data_result = engine.answer_query(user_query)
+                    report_text, data_result = engine.answer_query(user_query, filters=active_filters)
                     if report_text: st.markdown(report_text)
                     if data_result is not None:
                         if isinstance(data_result, pd.DataFrame):
@@ -876,7 +920,8 @@ def main():
                 cross_encoder_model, 
                 kb=DICIONARIO_UNIFICADO_HIERARQUICO,
                 company_catalog_rich=st.session_state.company_catalog_rich, 
-                summary_data=summary_data
+                summary_data=summary_data,
+                filters=active_filters
             )
             st.markdown(final_answer)
             
