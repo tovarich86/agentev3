@@ -608,14 +608,15 @@ def analyze_single_company(
 
 
 def handle_rag_query(
-    query: str, 
-    artifacts: dict, 
-    embedding_model: SentenceTransformer,  # <-- CORREÇÃO APLICADA AQUI
+    query: str,
+    artifacts: dict,
+    embedding_model: SentenceTransformer,
     cross_encoder_model: CrossEncoder,
-    kb: dict, 
-    company_catalog_rich: list, 
+    kb: dict,
+    company_catalog_rich: list,
+    company_lookup_map: dict,  # <-- ESTE É O PARÂMETRO QUE FALTAVA
     summary_data: dict,
-    filters: dict 
+    filters: dict
 ) -> tuple[str, list[dict]]:
     """
     Orquestra o pipeline de RAG para perguntas qualitativas, incluindo a geração do plano,
