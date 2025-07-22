@@ -856,9 +856,27 @@ def main():
 
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
+                # --- INÍCIO DA NOVA LÓGICA DE ROTEAMENTO HÍBRIDO ---
         
-        with st.spinner("Analisando a intenção da sua pergunta..."):
-            intent = get_query_intent_with_llm(user_query)
+        intent = None
+        query_lower = user_query.lower()
+        
+        # 1. Camada de Regras: Verifica palavras-chave quantitativas óbvias primeiro.
+        quantitative_keywords = [
+            'liste', 'quais empresas', 'quais companhias', 'quantas', 'média', 
+            'mediana', 'estatísticas', 'mais comuns', 'prevalência', 'contagem'
+        ]
+        
+        if any(keyword in query_lower for keyword in quantitative_keywords):
+            intent = "quantitativa"
+            logger.info("Intenção 'quantitativa' detectada por regras de palavras-chave.")
+        
+        # 2. Camada de LLM: Se nenhuma regra correspondeu, consulta o LLM.
+        if intent is None:
+            with st.spinner("Analisando a intenção da sua pergunta..."):
+                intent = get_query_intent_with_llm(user_query)
+
+        # --- FIM DA NOVA LÓGICA DE ROTEAMENTO HÍBRIDO ---
 
         if intent == "quantitativa":
             query_lower = user_query.lower()
