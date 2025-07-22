@@ -425,16 +425,44 @@ def execute_dynamic_plan(
     
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
     """
-    Versão definitiva do planejador.
-    Combina a identificação robusta de empresas do código original (com catálogo, 
-    fallback e scoring) com a detecção de intenções especiais.
+    Versão 3.0 (Unificada) do planejador dinâmico.
+
+    Esta versão combina o melhor de ambas as propostas:
+    1.  EXTRAI filtros de metadados (setor, controle acionário).
+    2.  EXTRAI tópicos hierárquicos completos.
+    3.  RESTAURA a detecção de intenção de "Resumo Geral" para perguntas abertas.
+    4.  MANTÉM a detecção da intenção especial "Item 8.4".
     """
+    logger.info(f"Gerando plano dinâmico v3.0 para a pergunta: '{query}'")
     query_lower = query.lower().strip()
     
-    # --- PASSO 1: IDENTIFICAÇÃO ROBUSTA DE EMPRESA (Sua Lógica Original e Superior) ---
-    mentioned_companies = []
+    plan = {
+        "empresas": [],
+        "topicos": [],
+        "filtros": {},
+        "plan_type": "default" # O tipo de plano default aciona a busca RAG padrão.
+    }
+
+    # --- PASSO 1: Extração de Filtros de Metadados (Lógica da Nova Proposta) ---
+    FILTER_KEYWORDS = {
+        "setor": ["bancos", "varejo", "energia", "saude", "metalurgia", "siderurgia"],
+        "controle_acionario": ["privado", "privada", "estatal", "estatais", "público", "pública"]
+    }
+    CANONICAL_MAP = {
+        "privada": "Privado", "privados": "Privado", "privadas": "Privado",
+        "estatal": "Estatal", "estatais": "Estatal", "público": "Estatal", "pública": "Estatal"
+    }
     
-    # Estratégia 1.1: Busca prioritária no catálogo com scoring
+    for filter_type, keywords in FILTER_KEYWORDS.items():
+        for keyword in keywords:
+            if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', query_lower):
+                canonical_term = CANONICAL_MAP.get(keyword, keyword.capitalize())
+                plan["filtros"][filter_type] = canonical_term
+                logger.info(f"Filtro de '{filter_type}' encontrado: '{canonical_term}'")
+                break
+
+    # --- PASSO 2: Identificação Robusta de Empresas (Lógica Original Mantida) ---
+    mentioned_companies = []
     if company_catalog_rich:
         companies_found_by_alias = {}
         for company_data in company_catalog_rich:
@@ -442,61 +470,75 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data):
             if not canonical_name: continue
             
             all_aliases = company_data.get("aliases", []) + [canonical_name]
-            
             for alias in all_aliases:
                 if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
                     score = len(alias.split())
                     if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
                         companies_found_by_alias[canonical_name] = score
-                        
         if companies_found_by_alias:
             mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
 
-    # Estratégia 1.2: Fallback na base de resumos
     if not mentioned_companies:
         for empresa_nome in summary_data.keys():
             if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
                 mentioned_companies.append(empresa_nome)
     
-    logger.info(f"Empresas identificadas pelo planejador: {mentioned_companies}")
+    plan["empresas"] = mentioned_companies
+    logger.info(f"Empresas identificadas: {plan['empresas']}")
 
-    # --- PASSO 2: DETECÇÃO DE INTENÇÕES ESPECIAIS (Nossa Lógica Recente) ---
+    # --- PASSO 3: Detecção de Intenções Especiais (LÓGICA UNIFICADA) ---
+    # Palavras-chave para as intenções especiais
     summary_keywords = ['resumo geral', 'plano completo', 'como funciona o plano', 'descreva o plano', 'resumo do plano', 'detalhes do plano']
-    section_8_4_keywords = ['item 8.4', 'seção 8.4', 'item 8-4', 'formulário de referência 8.4', '8.4 do fre']
-
+    section_8_4_keywords = ['item 8.4', 'seção 8.4', '8.4 do fre']
+    
     is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
     is_section_8_4_request = any(keyword in query_lower for keyword in section_8_4_keywords)
 
-    plan = {"empresas": mentioned_companies, "topicos": [], "plan_type": "default"}
-
-    if mentioned_companies and is_section_8_4_request:
+    if plan["empresas"] and is_section_8_4_request:
         plan["plan_type"] = "section_8_4"
-        plan["topicos"] = [v.replace('_', ' ') for v in DICIONARIO_UNIFICADO_HIERARQUICO["FormularioReferencia_Item_8_4"].keys()]
+        # O tópico é o caminho hierárquico para a seção inteira
+        plan["topicos"] = ["FormularioReferencia,Item_8_4"]
+        logger.info("Plano especial 'section_8_4' detectado.")
         return {"status": "success", "plan": plan}
-        
-    elif mentioned_companies and is_summary_request:
-        logger.info("PLANO: Intenção de Resumo Geral detectada. Montando plano com tópicos essenciais.")
-        # Em vez de um plano especial, definimos os tópicos essenciais para um resumo.
+    
+    # [LÓGICA RESTAURADA E ADAPTADA]
+    # Se for uma pergunta de resumo para uma empresa, define um conjunto de tópicos essenciais.
+    elif plan["empresas"] and is_summary_request:
+        plan["plan_type"] = "summary" # Um tipo especial para indicar um resumo completo
+        logger.info("Plano especial 'summary' detectado. Montando plano com tópicos essenciais.")
+        # Define os CAMINHOS HIERÁRQUICOS essenciais para um bom resumo.
         plan["topicos"] = [
-            "Elegibilidade",
-            "TiposDePlano", # Será expandido para os tipos específicos
-            "MecanicasCicloDeVida",
+            "TiposDePlano",
+            "ParticipantesCondicoes,Elegibilidade",
+            "Mecanicas,Vesting",
+            "Mecanicas,Lockup",
             "IndicadoresPerformance",
-            "DividendosProventos"
+            "GovernancaRisco,MalusClawback",
+            "EventosFinanceiros,DividendosProventos"
         ]
-        # O plan_type continua "default", para acionar a busca híbrida.
         return {"status": "success", "plan": plan}
 
-    # --- PASSO 3: EXTRAÇÃO DE TÓPICOS (Lógica de fallback) ---
-    alias_map, _ = _create_alias_to_canonical_map(kb)
-    topics = _get_all_canonical_topics_from_text(query_lower, alias_map)
-    plan["topicos"] = topics
+    # --- PASSO 4: Extração de Tópicos Hierárquicos (Se Nenhuma Intenção Especial Foi Ativada) ---
+    alias_map = create_hierarchical_alias_map(kb)
+    found_topics = set()
     
-    if not mentioned_companies and not topics:
-         logger.warning("Planejador não conseguiu identificar empresa ou tópico.")
-         return {"status": "error"}
-         
+    # Ordena os aliases por comprimento para encontrar o mais específico primeiro
+    for alias in sorted(alias_map.keys(), key=len, reverse=True):
+        # Usamos uma regex mais estrita para evitar matches parciais (ex: 'TSR' em 'TSR Relativo')
+        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
+            found_topics.add(alias_map[alias])
+    
+    plan["topicos"] = sorted(list(found_topics))
+    if plan["topicos"]:
+        logger.info(f"Caminhos de tópicos identificados: {plan['topicos']}")
+
+    # --- PASSO 5: Validação Final ---
+    if not plan["empresas"] and not plan["topicos"] and not plan["filtros"]:
+        logger.warning("Planejador não conseguiu identificar empresa, tópico ou filtro na pergunta.")
+        return {"status": "error", "message": "Não foi possível identificar uma intenção clara na sua pergunta. Tente ser mais específico."}
+        
     return {"status": "success", "plan": plan}
+
     
 def analyze_single_company(
     empresa: str, 
