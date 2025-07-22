@@ -87,15 +87,34 @@ class AnalyticalEngine:
         logging.info(f"{len(filtered_data)} empresas correspondem aos filtros aplicados.")
         return filtered_data
 
-    def answer_query(self, query: str) -> tuple:
+    def answer_query(self, query: str, filters: dict | None = None) -> tuple:
+        """
+        Responde a uma consulta quantitativa.
+        
+        Args:
+            query (str): A pergunta do usuário.
+            filters (dict | None, optional): Um dicionário de filtros pré-selecionados
+                                             (ex: da interface). Se for None, os filtros
+                                             serão extraídos do texto da query.
+        
+        Returns:
+            tuple: Uma tupla contendo o texto do relatório e um DataFrame/dicionário.
+        """
         normalized_query = self._normalize_text(query)
-        filters = self._extract_filters(normalized_query)
+        
+        # --- LÓGICA DE FILTRO CORRIGIDA ---
+        # Prioriza os filtros passados como argumento (da UI).
+        # Se nenhum for passado, usa a extração da query como fallback.
+        final_filters = filters if filters is not None else self._extract_filters(normalized_query)
+        
         for intent_checker_func, analysis_func in self.intent_rules:
             if intent_checker_func(normalized_query):
                 logging.info(f"Intenção detectada. Executando: {analysis_func.__name__}")
-                return analysis_func(normalized_query, filters)
-        return "Não consegui identificar uma intenção clara na sua pergunta.", None
-
+                # Passa os filtros corretos para a função de análise
+                return analysis_func(normalized_query, final_filters)
+                
+        return "Não consegui identificar uma intenção clara na sua pergunta.", Nonedef answer_query(self, query: str, filters: dict | None = None) -> tuple:
+      
     # --- Funções de Análise Detalhadas (Lógica Completa Restaurada e Adaptada com Filtros) ---
 
     def _analyze_strike_discount(self, normalized_query: str, filters: dict) -> tuple:
