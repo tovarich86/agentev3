@@ -109,14 +109,14 @@ def setup_and_load_data():
             if isinstance(setor, str) and setor.strip():
                 setores.add(setor.strip().capitalize())
             else:
-                setores.add("Não Informado") # <-- LÓGICA ADICIONADA
+                setores.add("Não idenficado") # <-- LÓGICA ADICIONADA
 
             # Pega o valor do controle e trata se for nulo ou vazio
             controle = metadata.get('controle_acionario')
             if isinstance(controle, str) and controle.strip():
                 controles.add(controle.strip().capitalize())
             else:
-                controles.add("Não Informado") # <-- LÓGICA ADICIONADA
+                controles.add("Não identificado") # <-- LÓGICA ADICIONADA
 
     # Converte os sets em listas ordenadas e adiciona "Todos" no início
     # Garante que "Não Informado" não seja o primeiro da lista, se existir.
