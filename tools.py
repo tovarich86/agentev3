@@ -327,10 +327,13 @@ def get_summary_for_topic_at_company(
     execute_dynamic_plan_func: callable,
     get_final_unified_answer_func: callable,
     filters: dict = None
-) -> str:
+    company_catalog_rich: list,
+    company_lookup_map: dict,
+    execute_dynamic_plan_func: callable,
+    get_final_unified_answer_func: callable) -> str:
     """Ferramenta de Extração: Busca, re-ranqueia e resume um tópico para uma empresa específica."""
     plan = {"empresas": [company], "topicos": [topic], "filtros": filters or {}}
-    context, _ = execute_dynamic_plan_func(query, plan, artifacts, model, cross_encoder_model, kb)
+    context, _ = execute_dynamic_plan_func(query, plan, artifacts, model, cross_encoder_model, kb, company_catalog_rich, company_lookup_map, search_by_tags, expand_search_terms)
     if not context:
         return "Não foi possível encontrar detalhes específicos sobre este tópico para esta empresa e filtros."
     
@@ -356,7 +359,8 @@ def analyze_topic_thematically(
     execute_dynamic_plan_func: callable,
     get_final_unified_answer_func: callable,
     filters: dict = None
-) -> str:
+    company_catalog_rich: list,
+    company_lookup_map: dict) -> str:
     """Ferramenta de Orquestração: Realiza uma análise temática completa de um tópico usando a busca híbrida."""
     logger.info(f"Iniciando análise temática para '{topic}' com filtros: {filters}")
     
@@ -381,7 +385,7 @@ def analyze_topic_thematically(
             executor.submit(
                 get_summary_for_topic_at_company,
                 company, topic, query, artifacts, model, cross_encoder_model,
-                kb, execute_dynamic_plan_func, get_final_unified_answer_func, filters
+                kb, company_catalog_rich, company_lookup_map, execute_dynamic_plan_func, get_final_unified_answer_func, filters
             ): company for company in companies_to_analyze
         }
         for future in futures:
