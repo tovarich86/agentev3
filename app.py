@@ -22,9 +22,7 @@ from tools import (
     analyze_topic_thematically, 
     get_summary_for_topic_at_company,
     rerank_with_cross_encoder,
-    _create_alias_to_canonical_map, 
-    _get_all_canonical_topics_from_text # <-- CORREÇÃO: Import adicionado
-)
+    )
 logger = logging.getLogger(__name__)
 
 # --- Módulos do Projeto (devem estar na mesma pasta) ---
