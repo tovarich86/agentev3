@@ -707,7 +707,7 @@ def handle_rag_query(
     else:
         with st.status("2️⃣ Recuperando e re-ranqueando contexto...", expanded=True) as status:
             context, all_sources_structured = execute_dynamic_plan(
-                query, plan, artifacts, embedding_model, cross_encoder_model, kb)
+                query, plan, artifacts, embedding_model, cross_encoder_model, kb,company_catalog_rich, company_lookup_map, search_by_tags, expand_search_terms)
             
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
@@ -875,7 +875,8 @@ def main():
                     st.write(f"**Tópico identificado para análise temática:** `{topics_to_search}`")
                     final_report = analyze_topic_thematically(
                         topic=topics_to_search, query=user_query, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
-                        execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer,filters=active_filters
+                        execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer,filters=active_filters,
+                        company_catalog_rich=st.session_state.company_catalog_rich, company_lookup_map=st.session_state.company_lookup_map,
                     )
                     st.markdown(final_report)
 
@@ -931,6 +932,7 @@ def main():
                 cross_encoder_model, 
                 kb=DICIONARIO_UNIFICADO_HIERARQUICO,
                 company_catalog_rich=st.session_state.company_catalog_rich, 
+                company_lookup_map=st.session_state.company_lookup_map, 
                 summary_data=summary_data,
                 filters=active_filters
             )
