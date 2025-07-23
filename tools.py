@@ -104,14 +104,29 @@ def _recursive_alias_mapper(sub_dict, path_so_far, flat_map):
 def create_hierarchical_alias_map(kb: dict) -> dict:
     """
     Cria um mapeamento plano de qualquer alias (em minúsculas) para seu
-    caminho hierárquico completo. Ex: {'ebitda': 'IndicadoresPerformance,Financeiros,EBITDA'}
+    caminho hierárquico completo.
+    AGORA SUPORTA ALIASES NA CATEGORIA PAI.
     """
     alias_map = {}
-    for section, topics in kb.items():
-        _recursive_alias_mapper(topics, [section], alias_map)
-    return alias_map
+    for section, data in kb.items():  # Ex: section="MecanicasCicloDeVida"
+        path_str = section
+        
+        # --- LÓGICA ADICIONADA ---
+        # 1. Mapeia os aliases da categoria principal (ex: "mecanicas")
+        for alias in data.get("aliases", []):
+            alias_map[alias.lower()] = path_str
+        
+        # 2. Mapeia o nome canônico da própria categoria
+        canonical_alias = section.replace('_', ' ').lower()
+        if canonical_alias not in alias_map:
+            alias_map[canonical_alias] = path_str
+        # --- FIM DA LÓGICA ADICIONADA ---
 
-# --- FUNÇÕES DE APOIO (COMBINAÇÃO DE AMBAS AS VERSÕES) ---
+        # 3. Continua a recursão para os sub-tópicos, se existirem
+        if "subtopicos" in data:
+            _recursive_alias_mapper(data["subtopicos"], [section], alias_map)
+            
+    return alias_map
 
 def _create_company_lookup_map(company_catalog_rich: list) -> dict:
     """
