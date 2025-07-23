@@ -93,7 +93,7 @@ DICIONARIO_UNIFICADO_HIERARQUICO = {
         }
     },
     "IndicadoresPerformance": {
-        "aliases": ["indicadores de performance", "metas de desempenho", "critérios de performance", "KPIs"],
+        "aliases": ["indicadores de performance", "metas de desempenho", "critérios de performance", "KPIs", "metas", "performance", "objetivos", "desempenho", "KPI"],
         "subtopicos": {
             "ConceitoGeral_Performance": {
                 "aliases": ["Plano de Desempenho", "Metas de Performance", "critérios de desempenho", "metas"],
