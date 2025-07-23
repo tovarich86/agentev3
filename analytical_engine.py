@@ -507,23 +507,35 @@ class AnalyticalEngine:
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         """
         Analisa e contabiliza os aliases de indicadores de performance mais comuns,
-        unificando redundâncias e categorizando-os.
+        unificando redundâncias e categorizando-os, garantindo que cada empresa
+        seja contada apenas uma vez por indicador canônico.
         Retorna um texto de relatório e um DataFrame com os resultados.
         """
         data_to_analyze = self._apply_filters_to_data(filters)
-        canonical_alias_counts = defaultdict(int)
+        
+        # Mapeamento para armazenar para CADA INDICADOR CANÔNICO, QUAIS EMPRESAS O MENCIONAM.
+        # Isso nos permite contar empresas únicas por indicador canônico.
+        canonical_indicator_companies = defaultdict(set) 
         
         # Coleta e unifica os aliases para os indicadores de performance
-        for details in data_to_analyze.values():
+        for company, details in data_to_analyze.items():
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
             if not performance_section:
                 continue
             company_leaf_aliases = []
             self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
 
+            # Para cada alias encontrado em UMA empresa, mapeia para seu canônico
+            # e adiciona a empresa ao SET correspondente.
             for alias in set(company_leaf_aliases):
                 canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias, alias)
-                canonical_alias_counts[canonical_alias] += 1
+                canonical_indicator_companies[canonical_alias].add(company) # Add company to the set
+
+        # Agora, conte o número de empresas únicas para cada indicador canônico
+        canonical_alias_counts = {
+            indicator: len(companies_set)
+            for indicator, companies_set in canonical_indicator_companies.items()
+        }
         
         if not canonical_alias_counts:
             return "Nenhum alias de indicador de performance encontrado para os filtros selecionados.", None
@@ -534,60 +546,73 @@ class AnalyticalEngine:
             if k not in ["Outros/Genéricos", "Grupos de Comparação"]
         }
         
-        if not filtered_counts:
-            return "Nenhum indicador de performance específico encontrado para os filtros selecionados.", None
+        # Separar os termos genéricos/contextuais que foram removidos, para apresentá-los à parte
+        generic_terms_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k in ["Outros/Genéricos"]
+        }
+        
+        # Separar os grupos de comparação que foram removidos, para apresentá-los à parte
+        comparison_groups_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k in ["Grupos de Comparação"]
+        }
+
+
+        if not filtered_counts and not generic_terms_counts and not comparison_groups_counts:
+            return "Nenhum indicador de performance específico ou termo relevante encontrado para os filtros selecionados.", None
 
         # Categoriza os indicadores para o relatório
         categorized_indicators = defaultdict(list)
         for indicator, count in filtered_counts.items():
-            found_category = "Outros/Genéricos" # Fallback category
+            found_category = None
             for category, indicators_list in self.INDICATOR_CATEGORIES.items():
                 if indicator in indicators_list:
                     found_category = category
                     break
-            categorized_indicators[found_category].append((indicator, count))
+            if found_category:
+                categorized_indicators[found_category].append((indicator, count))
+            else:
+                # Fallback para qualquer coisa que não foi explicitamente categorizada
+                categorized_indicators["Outros (Não Categorizados)"].append((indicator, count))
+
 
         report_text = "### Indicadores de Performance Mais Comuns\n\n"
         df_overall_data = []
 
         # Ordena as categorias para apresentação consistente
-        ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG", "Outros/Genéricos", "Grupos de Comparação"]
+        ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG", "Outros (Não Categorizados)"] # Updated categories
         
         for category in ordered_categories:
             if category in categorized_indicators:
                 sorted_indicators = sorted(categorized_indicators[category], key=lambda item: item[1], reverse=True)
                 
                 # Excluir a categoria "Outros/Genéricos" do título do relatório
-                if category != "Outros/Genéricos" and category != "Grupos de Comparação":
+                if category == "Outros (Não Categorizados)":
+                    report_text += f"#### **Termos Específicos (Não Categorizados)**\n"
+                else:
                     report_text += f"#### **{category}**\n"
-                elif category == "Grupos de Comparação":
-                    report_text += f"#### **{category} (Mencionados)**\n"
-
 
                 for indicator, count in sorted_indicators:
                     report_text += f"- **{indicator}:** {count} empresas\n"
                     df_overall_data.append({"Indicador": indicator, "Categoria": category, "Nº de Empresas": count})
                 report_text += "\n" # Adiciona uma linha em branco entre as categorias
         
-        # Adiciona os termos "metas", "Metas de Performance", "critérios de desempenho" etc.
-        # separadamente, se ainda existirem e não tiverem sido removidos pela categorização acima
-        generic_terms_counts = {
-            k: v for k, v in canonical_alias_counts.items()
-            if k in ["Outros/Genéricos"]
-        }
-        
+        # Adiciona os termos genéricos/contextuais que foram explicitamente separados
         if generic_terms_counts:
             report_text += "#### **Termos Genéricos/Contextuais (não indicadores específicos)**\n"
             for term, count in sorted(generic_terms_counts.items(), key=lambda item: item[1], reverse=True):
-                 # Mapeia de volta para o alias comum para exibição, se for o caso
-                original_term_display = ""
-                for k, v in self.INDICATOR_CANONICAL_MAP.items():
-                    if v == term:
-                        original_term_display = k
-                        break
-                if original_term_display:
-                    report_text += f"- **{original_term_display}:** {count} empresas\n"
-                    df_overall_data.append({"Indicador": original_term_display, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
+                report_text += f"- **{term}:** {count} empresas\n"
+                df_overall_data.append({"Indicador": term, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
+            report_text += "\n"
+        
+        # Adiciona os grupos de comparação que foram explicitamente separados
+        if comparison_groups_counts:
+            report_text += "#### **Grupos de Comparação (Mencionados)**\n"
+            for group, count in sorted(comparison_groups_counts.items(), key=lambda item: item[1], reverse=True):
+                report_text += f"- **{group}:** {count} empresas\n"
+                df_overall_data.append({"Indicador": group, "Categoria": "Grupos de Comparação", "Nº de Empresas": count})
+            report_text += "\n"
 
 
         df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
