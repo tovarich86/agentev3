@@ -652,7 +652,7 @@ def handle_rag_query(
             st.info("Para análises detalhadas, por favor, use o nome de uma das empresas listadas na barra lateral.")
             
             with st.spinner("Estou pensando em uma pergunta alternativa que eu possa responder..."):
-                alternative_query = suggest_alternative_query(query)
+                alternative_query = suggest_alternative_query(query, kb) # Passe o kb
             
             st.markdown("#### Que tal tentar uma pergunta mais geral?")
             st.markdown("Você pode copiar a sugestão abaixo ou reformular sua pergunta original.")
@@ -974,12 +974,16 @@ def main():
                     for artifact_data in artifacts.values():
                         chunk_map = artifact_data.get('chunks', {}).get('map', [])
                         for metadata in chunk_map:
-                            # Verifica se o metadado da empresa corresponde aos filtros ativos
+                            # --- INÍCIO DA CORREÇÃO ---
+                            setor_metadata = metadata.get('setor', '')
+                            controle_metadata = metadata.get('controle_acionario', '')
+
                             setor_match = (not active_filters.get('setor') or 
-                                           metadata.get('setor', '').lower() == active_filters['setor'])
+                                           (isinstance(setor_metadata, str) and setor_metadata.lower() == active_filters['setor']))
+                        
                             controle_match = (not active_filters.get('controle_acionario') or 
-                                              metadata.get('controle_acionario', '').lower() == active_filters['controle_acionario'])
-                            
+                                              (isinstance(controle_metadata, str) and controle_metadata.lower() == active_filters['controle_acionario']))
+                            # --- FIM DA CORREÇÃO ---
                             if setor_match and controle_match:
                                 company_name = metadata.get('company_name')
                                 if company_name:
