@@ -349,14 +349,34 @@ def execute_dynamic_plan(
             temp_embeddings = model.encode([c['text'] for c in chunks_to_search], normalize_embeddings=True).astype('float32')
             temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
             temp_index.add(temp_embeddings)
-            
-            search_query = f"detalhes sobre os tópicos {', '.join(topicos)} do item 8.4 da empresa {search_name}"
-            query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
-            
-            _, indices = temp_index.search(query_embedding, min(TOP_K_INITIAL_RETRIEVAL, len(chunks_to_search)))
-            for idx in indices[0]:
-                if idx != -1: add_candidate(chunks_to_search[idx])
+              # --- INÍCIO DA LÓGICA OTIMIZADA ---
+        
+            # Etapa 2: Preparar TODAS as queries de busca primeiro
+            all_search_queries = []
+            for topico in topicos:
+                for term in expand_search_terms(topico, kb)[:3]: # Pega até 3 expansões por tópico
+                    all_search_queries.append(f"explicação detalhada sobre o conceito e funcionamento de {term}")
 
+            if not all_search_queries:
+                 logger.warning("Nenhuma query de busca foi gerada a partir dos tópicos.")
+                 return "Não encontrei informações relevantes para esta combinação.", []
+        
+            logger.info(f"Codificando {len(all_search_queries)} variações de busca em lote...")
+        
+            # Etapa 3: Codificar TODAS as queries de uma só vez (muito mais rápido)
+            query_embeddings = model.encode(all_search_queries, normalize_embeddings=True).astype('float32')
+        
+            # Etapa 4: Executar a busca para todas as queries de uma vez
+            # k_per_query ajusta quantos resultados buscar por cada variação da query
+            k_per_query = max(1, TOP_K_FINAL // len(all_search_queries))
+            _, all_indices = temp_index.search(query_embeddings, k_per_query)
+        
+            # Etapa 5: Coletar todos os resultados únicos
+            for indices_row in all_indices:
+                for idx in indices_row:
+                    if idx != -1:
+                        add_candidate(chunks_to_search[idx])
+        # --- FIM DA LÓGICA OTIMIZADA ---
     # ROTA 2: Planos Padrão (Default, Summary)
     else:
         # CASO 2.1: Busca geral por tópico (sem empresa)
