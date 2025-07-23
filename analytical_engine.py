@@ -410,13 +410,30 @@ class AnalyticalEngine:
         data_to_analyze = self._apply_filters_to_data(filters)
         indicator_counts = defaultdict(int)
 
-        for details in data_to_analyze.values():
+        # --- CABEÇALHO DA DEPURAÇÃO ---
+        print("\n--- INICIANDO DEPURAÇÃO DE _analyze_common_goals ---")
+        print(f"Total de empresas para analisar: {len(data_to_analyze)}")
+
+        # Usamos enumerate para poder limitar a quantidade de prints
+        for i, (company_name, details) in enumerate(data_to_analyze.items()):
             # Pega a seção de performance de cada empresa
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
         
+            # --- LINHA DE DEPURAÇÃO PRINCIPAL ---
+            # Imprime os dados da seção para as 5 primeiras empresas para vermos a estrutura
+            if i < 5:
+                print(f"\nEmpresa {i+1}: '{company_name}'")
+                print(f"Conteúdo de 'performance_section': {performance_section}")
+            # --- FIM DA LINHA DE DEPURAÇÃO ---
+
             # Se a seção existir, inicia a contagem recursiva a partir dela.
             if performance_section:
                 self._recursive_count_indicators(performance_section, indicator_counts)
+    
+        # --- RODAPÉ DA DEPURAÇÃO ---
+        print("\n--- FIM DA DEPURAÇÃO ---")
+        print(f"Total de indicadores contados: {len(indicator_counts)}\n")
+
 
         # Se, após analisar todas as empresas, nada for contado, retorna a mensagem.
         if not indicator_counts:
