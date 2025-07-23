@@ -13,6 +13,7 @@ from collections import defaultdict
 from scipy import stats
 import unicodedata
 import logging
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
