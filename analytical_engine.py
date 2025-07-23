@@ -74,7 +74,10 @@ class AnalyticalEngine:
             (lambda q: 'conselho de administracao' in q and ('elegivel' in q or 'aprovador' in q), self._count_plans_for_board),
             
             # Metas/Indicadores: A regra original já era boa.
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q), self._analyze_common_goals),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q, self._analyze_common_goals),
+            
+            # Regra para tipos de plano (agora separada e com sua própria vírgula)
+            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
             
             # Tipos de Plano: A regra original já era boa.
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
