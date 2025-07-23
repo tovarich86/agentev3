@@ -383,7 +383,7 @@ def execute_dynamic_plan(
         if not empresas and topicos:
             logger.info(f"ROTA Default (Geral): Executando busca conceitual para os tópicos: {topicos}")
                     # --- OTIMIZAÇÃO AQUI ---
-            sample_size = 2000 # Pega uma amostra de 4000 chunks para a busca geral
+            sample_size = 100 # Pega uma amostra de 4000 chunks para a busca geral
             if len(pre_filtered_chunks) > sample_size:
                 logger.info(f"Base de chunks grande ({len(pre_filtered_chunks)}). Usando uma amostra de {sample_size} para a busca geral.")
                 chunks_to_search = random.sample(pre_filtered_chunks, sample_size)
