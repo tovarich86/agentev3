@@ -371,7 +371,7 @@ def execute_dynamic_plan(
                 chunks_to_search = pre_filtered_chunks
         # --- FIM DA OTIMIZAÇÃO ---
             # Constrói índice FAISS temporário com todos os chunks pré-filtrados
-             temp_embeddings = model.encode([c['text'] for c in chunks_to_search], normalize_embeddings=True).astype('float32')
+            temp_embeddings = model.encode([c['text'] for c in chunks_to_search], normalize_embeddings=True).astype('float32')
             temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
             temp_index.add(temp_embeddings)
             
