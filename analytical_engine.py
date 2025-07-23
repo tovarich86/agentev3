@@ -85,7 +85,6 @@ class AnalyticalEngine:
     def _recursive_flat_map_builder(self, sub_dict: dict, section: str, flat_map: dict):
         """Função auxiliar recursiva para construir o mapa plano de aliases."""
         for topic_name_raw, data in sub_dict.items():
-            # Pula se o item não for um dicionário (ex: uma lista de aliases antiga)
             if not isinstance(data, dict):
                 continue
             
@@ -99,8 +98,9 @@ class AnalyticalEngine:
                 flat_map[self._normalize_text(alias)] = details
             
             # Continua a recursão para os sub-tópicos
-            if "subtopicos" in data and data["subtopicos"]:
+            if "subtopicos" in data and data.get("subtopicos"):
                 self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
+
 
     
     def _normalize_text(self, text: str) -> str:
@@ -456,9 +456,22 @@ class AnalyticalEngine:
             return self._kb_flat_map_cache
         
         flat_map = {}
-        for section, data in self.kb.items():
-            # Se a seção tiver sub-tópicos, inicia a recursão
-            if "subtopicos" in data and data["subtopicos"]:
+        for section, data in self.kb.items(): # ex: section = "IndicadoresPerformance"
+            if not isinstance(data, dict):
+                continue
+
+            # Trata a própria seção principal como um tópico pesquisável
+            section_name_formatted = section.replace('_', ' ')
+            details = (section, section_name_formatted, section)
+            
+            # Adiciona o nome canônico da seção (ex: "indicadores performance")
+            flat_map[self._normalize_text(section_name_formatted)] = details
+            # Adiciona os aliases da seção (ex: "kpis", "metas")
+            for alias in data.get("aliases", []):
+                flat_map[self._normalize_text(alias)] = details
+
+            # Inicia a recursão para os sub-tópicos, se existirem
+            if "subtopicos" in data and data.get("subtopicos"):
                 self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
         
         self._kb_flat_map_cache = flat_map
