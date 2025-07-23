@@ -420,7 +420,7 @@ def execute_dynamic_plan(
                     docs_by_url[chunk.get('source_url')].append(chunk)
 
                 # 2. Se houver muitos documentos, seleciona os mais recentes
-                MAX_DOCS_PER_COMPANY = 2  # Analisa no máximo os 2 documentos mais recentes
+                MAX_DOCS_PER_COMPANY = 3  # Analisa no máximo os 3 documentos mais recentes
                 if len(docs_by_url) > MAX_DOCS_PER_COMPANY:
                     
                     # Tenta ordenar pela data ou protocolo na URL (mais novo primeiro)
