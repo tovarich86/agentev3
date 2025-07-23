@@ -409,23 +409,29 @@ class AnalyticalEngine:
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         indicator_counts = defaultdict(int)
+
         for details in data_to_analyze.values():
-            # Pega a seção de performance completa
+            # 1. Acessa a seção de performance da empresa
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-            if performance_section:
-                # Inicia a contagem recursiva a partir da seção principal
-                self._recursive_count_indicators(performance_section, indicator_counts)
-        for details in data_to_analyze.values():
-            performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-            for key in performance_section.keys():
-                indicator_counts[key.replace('_', ' ')] += 1
+        
+            # 2. Ponto crucial: vai direto para o dicionário de "subtopicos" antes de contar
+            if performance_section and "subtopicos" in performance_section:
+                sub_topics_to_analyze = performance_section.get("subtopicos", {})
+            
+                # 3. Inicia a contagem recursiva a partir do nível correto
+                if sub_topics_to_analyze:
+                    self._recursive_count_indicators(sub_topics_to_analyze, indicator_counts)
+
         if not indicator_counts:
             return "Nenhum indicador de performance encontrado para os filtros selecionados.", None
-        
+    
         report_text = "### Indicadores de Performance Mais Comuns\n"
+        # Ordena os dados para o relatório e para o DataFrame
         df_data = [{"Indicador": k, "Nº de Empresas": v} for k, v in sorted(indicator_counts.items(), key=lambda item: item[1], reverse=True)]
+    
         for item in df_data:
             report_text += f"- **{item['Indicador']}:** {item['Nº de Empresas']} empresas\n"
+        
         return report_text, pd.DataFrame(df_data)
 
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
