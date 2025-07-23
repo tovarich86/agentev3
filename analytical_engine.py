@@ -390,14 +390,19 @@ class AnalyticalEngine:
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         indicator_counts = defaultdict(int)
-
         for details in data_to_analyze.values():
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-        
-            # Coleta os indicadores usando a nova função iterativa
-            company_leaf_indicators = self._collect_leaf_indicators_iterative(performance_section)
-        
-            # Incrementa a contagem para cada indicador encontrado
+            if not performance_section:
+                continue
+
+        # --- Linhas Alteradas ---
+        # 1. Cria uma lista vazia para ser preenchida
+            company_leaf_indicators = [] 
+        # 2. Chama a função RECURSIVA que já existe no seu código
+            self._collect_leaf_indicators_recursive(performance_section, company_leaf_indicators)
+        # --- Fim das Alterações ---
+
+       
             for indicator in company_leaf_indicators:
                 indicator_counts[indicator] += 1
 
