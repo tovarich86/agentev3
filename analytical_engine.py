@@ -46,18 +46,41 @@ class AnalyticalEngine:
         
         # --- Roteador Declarativo (Completo e com todas as funções implementadas) ---
         self.intent_rules = [
+            # Vesting: Adicionado "carência", "tempo", "duração"
+            (lambda q: 'vesting' in q and ('periodo' in q or 'prazo' in q or 'medio' in q or 'media' in q or 'carencia' in q or 'tempo' in q or 'duracao' in q), self._analyze_vesting_period),
+            
+            # Lock-up: Adicionado "restrição de venda"
+            (lambda q: ('lockup' in q or 'lock-up' in q or 'restricao de venda' in q) and ('periodo' in q or 'prazo' in q or 'medio' in q or 'media' in q), self._analyze_lockup_period),
+
+            # Diluição: Adicionado "percentual", "estatisticas"
+            (lambda q: 'diluicao' in q and ('media' in q or 'percentual' in q or 'estatisticas' in q), self._analyze_dilution),
+
+            # Desconto/Strike: A regra original já era boa.
             (lambda q: 'desconto' in q and ('preco de exercicio' in q or 'strike' in q), self._analyze_strike_discount),
+            
+            # TSR: A regra original já era boa.
             (lambda q: 'tsr' in q, self._analyze_tsr),
-            (lambda q: 'vesting' in q and ('periodo' in q or 'prazo' in q or 'medio' in q), self._analyze_vesting_period),
-            (lambda q: 'lockup' in q or 'lock-up' in q, self._analyze_lockup_period),
-            (lambda q: 'diluicao' in q, self._analyze_dilution),
-            (lambda q: 'malus' in q or 'clawback' in q, self._analyze_malus_clawback),
-            (lambda q: 'dividendos' in q and 'carencia' in q, self._analyze_dividends_during_vesting),
+            
+            # Malus/Clawback: Adicionado "lista", "quais" para forçar listagem.
+            (lambda q: ('malus' in q or 'clawback' in q) and ('lista' in q or 'quais' in q), self._analyze_malus_clawback),
+            
+            # Dividendos: Adicionado "lista", "quais"
+            (lambda q: 'dividendos' in q and 'carencia' in q and ('lista' in q or 'quais' in q), self._analyze_dividends_during_vesting),
+            
+            # Elegibilidade/Membros: A regra original já era boa.
             (lambda q: 'membros do plano' in q or 'elegiveis' in q or 'quem sao os membros' in q, self._analyze_plan_members),
+            
+            # Conselho: A regra original já era boa.
             (lambda q: 'conselho de administracao' in q and ('elegivel' in q or 'aprovador' in q), self._count_plans_for_board),
+            
+            # Metas/Indicadores: A regra original já era boa.
             (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de performance' in q, self._analyze_common_goals),
+            
+            # Tipos de Plano: A regra original já era boa.
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
-            (lambda q: True, self._find_companies_by_general_topic), # Fallback robusto
+            
+            # Fallback (sempre por último)
+            (lambda q: True, self._find_companies_by_general_topic),
         ]
 
     def _normalize_text(self, text: str) -> str:
