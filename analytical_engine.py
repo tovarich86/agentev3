@@ -130,8 +130,13 @@ class AnalyticalEngine:
             return "Nenhuma empresa com desconto no preço de exercício foi encontrada para os filtros selecionados.", None
         
         discounts = np.array([item[1] for item in companies_and_discounts])
-        mode_result = stats.mode(discounts, keepdims=False)
+        mode_result = stats.mode(discounts, keepdims=True)
         modes = mode_result.mode
+         # Garante que 'modes' seja sempre uma lista/array iterável
+        if not isinstance(modes, (list, np.ndarray)):
+            modes = [modes]
+        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if len(modes) > 0 else "N/A"
+        
         mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.size > 0 else "N/A"
 
         report_text = "### Análise de Desconto no Preço de Exercício\n"
@@ -201,9 +206,13 @@ class AnalyticalEngine:
             return "Nenhuma informação de vesting encontrada para os filtros selecionados.", None
         
         vesting_values = np.array([item[1] for item in periods])
-        mode_result = stats.mode(vesting_values, keepdims=False)
+        mode_result = stats.mode(vesting_values, keepdims=True)
         modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.size > 0 else "N/A"
+        if not isinstance(modes, (list, np.ndarray)):
+            modes = [modes]
+        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if len(modes) > 0 else "N/A"
+    
+        
 
         report_text = "### Análise de Período de Vesting\n"
         report_text += f"- **Total de Empresas:** {len(vesting_values)}\n"
@@ -229,9 +238,11 @@ class AnalyticalEngine:
             return "Nenhuma informação de lock-up encontrada para os filtros selecionados.", None
 
         lockup_values = np.array([item[1] for item in periods])
-        mode_result = stats.mode(lockup_values, keepdims=False)
+        mode_result = stats.mode(vesting_values, keepdims=True)
         modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f} anos" for m in modes]) if modes.size > 0 else "N/A"
+        if not isinstance(modes, (list, np.ndarray)):
+            modes = [modes]
+        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if len(modes) > 0 else "N/A"
 
         report_text = "### Análise de Período de Lock-up\n"
         report_text += f"- **Total de Empresas:** {len(lockup_values)}\n"
@@ -257,9 +268,11 @@ class AnalyticalEngine:
 
         report_text = "### Análise de Diluição Máxima Percentual\n"
         percents = np.array([item[1] for item in diluicao_percentual])
-        mode_result = stats.mode(percents, keepdims=False)
+        mode_result = stats.mode(vesting_values, keepdims=True)
         modes = mode_result.mode
-        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.size > 0 else "N/A"
+        if not isinstance(modes, (list, np.ndarray)):
+            modes = [modes]
+        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if len(modes) > 0 else "N/A"
         report_text += f"- **Total de Empresas:** {len(percents)}\n"
         report_text += f"- **Média:** {np.mean(percents):.2f}%\n"
         report_text += f"- **Mediana:** {np.median(percents):.2f}%\n"
