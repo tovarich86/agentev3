@@ -588,6 +588,20 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     plan["topicos"] = sorted(list(found_topics))
     if plan["topicos"]:
         logger.info(f"Caminhos de tópicos identificados: {plan['topicos']}")
+    if plan["empresas"] and not plan["topicos"]:
+        logger.info("Nenhum tópico específico encontrado. Ativando modo de resumo/comparação geral.")
+        plan["plan_type"] = "summary"
+        # Define os CAMINHOS HIERÁRQUICOS essenciais para um bom resumo/comparação.
+        plan["topicos"] = [
+            "TiposDePlano",
+            "ParticipantesCondicoes,Elegibilidade",
+            "MecanicasCicloDeVida,Vesting",
+            "MecanicasCicloDeVida,Lockup",
+            "IndicadoresPerformance",
+            "GovernancaRisco,MalusClawback",
+            "EventosFinanceiros,DividendosProventos"
+        ]
+        logger.info(f"Tópicos de resumo geral adicionados ao plano: {plan['topicos']}")    
 
     # --- PASSO 5: Validação Final ---
     if not plan["empresas"] and not plan["topicos"] and not plan["filtros"]:
