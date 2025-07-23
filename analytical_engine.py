@@ -392,35 +392,31 @@ class AnalyticalEngine:
             if isinstance(value, dict) and "subtopicos" in value and value.get("subtopicos"):
                 self._recursive_count_indicators(value["subtopicos"], counts)
     # FUNÇÃO DE ANÁLISE USANDO A ABORDAGEM ITERATIVA
-    def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
+    def _analyze_common_goal_aliases(self, normalized_query: str, filters: dict) -> tuple:
+        """
+        Analisa e contabiliza os aliases de indicadores de performance mais comuns, com base nos filtros aplicados.
+        Retorna um texto de relatório e um DataFrame com os resultados.
+        """
         data_to_analyze = self._apply_filters_to_data(filters)
-        indicator_counts = defaultdict(int)
+        alias_counts = defaultdict(int)
         for details in data_to_analyze.values():
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
             if not performance_section:
                 continue
+            company_leaf_aliases = []
+            self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
 
-        # --- Linhas Alteradas ---
-        # 1. Cria uma lista vazia para ser preenchida
-            company_leaf_indicators = [] 
-        # 2. Chama a função RECURSIVA que já existe no seu código
-            self._collect_leaf_indicators_recursive(performance_section, company_leaf_indicators)
-        # --- Fim das Alterações ---
+            for alias in set(company_leaf_aliases):
+                alias_counts[alias] += 1
 
-       
-            for indicator in set(company_leaf_indicators):
-                indicator_counts[indicator] += 1
+        if not alias_counts:
+            return "Nenhum alias de indicador de performance encontrado para os filtros selecionados.", None
 
-        if not indicator_counts:
-            return "Nenhum indicador de performance específico encontrado para os filtros selecionados.", None
-    
-        report_text = "### Indicadores de Performance Mais Comuns\n"
-        # Você pode querer agrupar os resultados por categoria aqui para uma melhor visualização
-        df_data = [{"Indicador": k, "Nº de Empresas": v} for k, v in sorted(indicator_counts.items(), key=lambda item: item[1], reverse=True)]
-    
+        report_text = "### Aliases de indicadores de performance mais comuns\n"
+        df_data = [{"Alias": k, "Nº de Empresas": v}
+                   for k, v in sorted(alias_counts.items(), key=lambda item: item[1], reverse=True)]
         for item in df_data:
-            report_text += f"- **{item['Indicador'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
-        
+            report_text += f"- **{item['Alias']}:** {item['Nº de Empresas']} empresas\n"
         return report_text, pd.DataFrame(df_data)
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
