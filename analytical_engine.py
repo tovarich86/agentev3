@@ -89,24 +89,30 @@ class AnalyticalEngine:
   # SUBSTITUA a função antiga por esta, DENTRO da classe AnalyticalEngine:
 
     def _collect_leaf_indicators_recursive(self, node: dict, collected_indicators: list):
-        # O docstring e todo o código abaixo estão com 4 espaços de recuo
         """
-        CORRIGIDO: Navega pela árvore de tópicos e coleta os indicadores finais (folhas).
+        VERSÃO CORRIGIDA: Navega pela árvore de tópicos e coleta os indicadores finais.
         """
-        for key, value in node.items():
-            # Ignora chaves de metadados
-            if key in ['aliases', 'subtopicos']:
+        # Se o nó atual não for um dicionário, não há como processá-lo.
+        if not isinstance(node, dict):
+            return
+
+        # O ponto chave: a análise deve ocorrer dentro da chave 'subtopicos'
+        subtopics_dict = node.get("subtopicos", {})
+
+        for key, value in subtopics_dict.items():
+            # Garante que o item que estamos olhando é um dicionário
+            if not isinstance(value, dict):
                 continue
-
-            subtopics = value.get("subtopicos")
-    
-            # Se não há mais sub-tópicos, é um indicador final (folha).
-            if not subtopics:
+        
+            # Verifica se este item (ex: "Financeiro") tem seus próprios sub-tópicos
+            nested_subtopics = value.get("subtopicos")
+        
+            # Se não tiver (ou se estiver vazio), encontramos um indicador final.
+            if not nested_subtopics:
                 collected_indicators.append(key.replace('_', ' '))
-            # Se ainda há sub-tópicos, é uma categoria. Continua a busca recursivamente.
+                # Se tiver, é uma categoria. Chamamos a função de novo para analisar este item.
             else:
-                self._collect_leaf_indicators_recursive(subtopics, collected_indicators)
-
+                self._collect_leaf_indicators_recursive(value, collected_indicators)
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para minúsculas e remove acentos."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
