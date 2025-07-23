@@ -14,6 +14,7 @@ from pathlib import Path
 import zipfile
 import io
 import shutil
+import random
 from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
 from tools import (
     find_companies_by_topic,
