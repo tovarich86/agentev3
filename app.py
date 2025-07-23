@@ -759,6 +759,19 @@ def handle_rag_query(
                         all_sources_structured.append(src_dict)
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
+            clean_results = []
+            for company_result in results:
+                # Remove a chave 'sources' temporariamente para limpeza
+                sources = company_result.pop("sources", [])
+                clean_sources = []
+                for source_chunk in sources:
+                    # Remove a chave 'relevance_score' de cada chunk
+                    source_chunk.pop('relevance_score', None)
+                    clean_sources.append(source_chunk)
+                
+                # Adiciona as fontes limpas de volta
+                company_result["sources"] = clean_sources
+                clean_results.append(company_result)
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
             comparison_prompt = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
