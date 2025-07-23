@@ -598,13 +598,15 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
 
     
 def analyze_single_company(
-    empresa: str, 
-    plan: dict, 
-    query: str,  # Novo argumento
-    artifacts: dict, 
-    model: SentenceTransformer, 
-    cross_encoder_model: CrossEncoder, # Novo argumento
+    empresa: str,
+    plan: dict,
+    query: str,
+    artifacts: dict,
+    model: SentenceTransformer,
+    cross_encoder_model: CrossEncoder,
     kb: dict,
+    company_catalog_rich: list,
+    company_lookup_map: dict,
     execute_dynamic_plan_func: callable,
     get_final_unified_answer_func: callable
 ) -> dict:
@@ -616,7 +618,8 @@ def analyze_single_company(
     
     # --- CORREÇÃO APLICADA AQUI ---
     # Adicionado o argumento 'is_summary_plan=False' na chamada.
-    context, sources_list = execute_dynamic_plan_func(query, single_plan, artifacts, model, cross_encoder_model, kb)
+    context, sources_list = execute_dynamic_plan_func(query, single_plan, artifacts, model, cross_encoder_model, kb, company_catalog_rich,
+        company_lookup_map, search_by_tags, expand_search_terms)
     
     result_data = {
         "empresa": empresa,
@@ -724,10 +727,8 @@ def handle_rag_query(
             with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
                 futures = [
                     executor.submit(
-                        analyze_single_company, 
-                        empresa, plan, query, artifacts, embedding_model, cross_encoder_model, kb,
-                        execute_dynamic_plan, get_final_unified_answer
-                    ) 
+                        analyze_single_company, empresa, plan, query, artifacts, embedding_model, cross_encoder_model, 
+                        kb, company_catalog_rich, company_lookup_map, execute_dynamic_plan, get_final_unified_answer) 
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
