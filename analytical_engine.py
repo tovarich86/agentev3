@@ -88,25 +88,21 @@ class AnalyticalEngine:
         ]
   # SUBSTITUA a função antiga por esta, DENTRO da classe AnalyticalEngine:
 
-    def _collect_leaf_indicators_recursive(self, node: dict, collected_indicators: list):
+    def _collect_leaf_aliases_recursive(self, node: dict, collected_aliases: list):
         """
-        VERSÃO CORRIGIDA: Navega pela árvore de tópicos e coleta os indicadores finais.
+        Percorre recursivamente a árvore de tópicos e coleta os aliases das folhas finais.
         """
-        # Se o nó atual não for um dicionário, não há como processá-lo.
         if not isinstance(node, dict):
             return
+
         subtopics_dict = node.get("subtopicos", {})
-    # Se não houver subtopicos, é folha: coleta aliases (se houver)
         if not subtopics_dict:
-            # Coleta todos os aliases desta folha (se houver)
             aliases = node.get("aliases", [])
-            # Só adiciona se houver aliases
             if aliases:
                 collected_aliases.extend(aliases)
             return
 
         for key, value in subtopics_dict.items():
-            # Apenas processa se for dict
             if isinstance(value, dict):
                 self._collect_leaf_aliases_recursive(value, collected_aliases)
 
