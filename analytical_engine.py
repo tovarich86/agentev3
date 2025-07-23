@@ -85,6 +85,26 @@ class AnalyticalEngine:
             # Fallback (sempre por último)
             (lambda q: True, self._find_companies_by_general_topic),
         ]
+    # NOVA FUNÇÃO AUXILIAR (RECURSIVA)
+    def _collect_leaf_indicators_recursive(self, data: dict, collected_indicators: list):
+        """
+        Navega recursivamente pela estrutura de tópicos de uma empresa e coleta
+        apenas os indicadores finais (nós-folha).
+        """
+        # Se o dicionário de sub-tópicos estiver vazio ou não existir, o nó atual é um indicador final.
+        subtopics = data.get("subtopicos", {})
+        if not subtopics:
+            # Não faz nada aqui, pois o indicador que levou a este ponto já foi contado.
+            return
+
+        # Se houver sub-tópicos, continua a busca
+        for key, value in subtopics.items():
+            # Verifica se o próximo nível tem sub-tópicos
+            if not value.get("subtopicos"): # É um nó-folha!
+                indicator_name = key.replace('_', ' ')
+                collected_indicators.append(indicator_name)
+            else: # É uma categoria, continua a recursão
+                self._collect_leaf_indicators_recursive(value, collected_indicators)
 
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para minúsculas e remove acentos."""
@@ -365,26 +385,31 @@ class AnalyticalEngine:
             counts[key.replace('_', ' ')] += 1
             if isinstance(value, dict) and "subtopicos" in value and value.get("subtopicos"):
                 self._recursive_count_indicators(value["subtopicos"], counts)
-
+    # FUNÇÃO DE ANÁLISE USANDO A ABORDAGEM ITERATIVA
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
-        """Analisa e conta a frequência de todos os indicadores de performance."""
         data_to_analyze = self._apply_filters_to_data(filters)
         indicator_counts = defaultdict(int)
 
         for details in data_to_analyze.values():
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-            if performance_section:
-                self._recursive_count_indicators(performance_section, indicator_counts)
+        
+            # Coleta os indicadores usando a nova função iterativa
+            company_leaf_indicators = self._collect_leaf_indicators_iterative(performance_section)
+        
+            # Incrementa a contagem para cada indicador encontrado
+            for indicator in company_leaf_indicators:
+                indicator_counts[indicator] += 1
 
         if not indicator_counts:
-            return "Nenhum indicador de performance encontrado para os filtros selecionados.", None
-        
+            return "Nenhum indicador de performance específico encontrado para os filtros selecionados.", None
+    
         report_text = "### Indicadores de Performance Mais Comuns\n"
+        # Você pode querer agrupar os resultados por categoria aqui para uma melhor visualização
         df_data = [{"Indicador": k, "Nº de Empresas": v} for k, v in sorted(indicator_counts.items(), key=lambda item: item[1], reverse=True)]
-        
+    
         for item in df_data:
             report_text += f"- **{item['Indicador'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
-            
+        
         return report_text, pd.DataFrame(df_data)
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
