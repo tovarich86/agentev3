@@ -74,7 +74,7 @@ class AnalyticalEngine:
             (lambda q: 'conselho de administracao' in q and ('elegivel' in q or 'aprovador' in q), self._count_plans_for_board),
             
             # Metas/Indicadores: A regra original já era boa.
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de performance' in q, self._analyze_common_goals),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q), self._analyze_common_goals),
             
             # Tipos de Plano: A regra original já era boa.
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
@@ -82,7 +82,27 @@ class AnalyticalEngine:
             # Fallback (sempre por último)
             (lambda q: True, self._find_companies_by_general_topic),
         ]
+    def _recursive_flat_map_builder(self, sub_dict: dict, section: str, flat_map: dict):
+        """Função auxiliar recursiva para construir o mapa plano de aliases."""
+        for topic_name_raw, data in sub_dict.items():
+            # Pula se o item não for um dicionário (ex: uma lista de aliases antiga)
+            if not isinstance(data, dict):
+                continue
+            
+            topic_name_formatted = topic_name_raw.replace('_', ' ')
+            details = (section, topic_name_formatted, topic_name_raw)
 
+            # Mapeia o nome canônico do tópico
+            flat_map[self._normalize_text(topic_name_formatted)] = details
+            # Mapeia todos os aliases definidos
+            for alias in data.get("aliases", []):
+                flat_map[self._normalize_text(alias)] = details
+            
+            # Continua a recursão para os sub-tópicos
+            if "subtopicos" in data and data["subtopicos"]:
+                self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
+
+    
     def _normalize_text(self, text: str) -> str:
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
         return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
@@ -428,22 +448,18 @@ class AnalyticalEngine:
         return report_text, df
         
     def _kb_flat_map(self) -> dict:
-        if hasattr(self, '_kb_flat_map_cache'): return self._kb_flat_map_cache
+        """
+        Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)
+        compatível com a nova estrutura de dicionário hierárquico.
+        """
+        if hasattr(self, '_kb_flat_map_cache'):
+            return self._kb_flat_map_cache
+        
         flat_map = {}
-        for section, topics in self.kb.items():
-            if isinstance(topics, dict):
-                for topic_name_raw, data in topics.items():
-                    aliases = []
-                    # Suporta tanto o dicionário antigo (lista de strings) quanto o novo (dicionário com 'aliases')
-                    if isinstance(data, list):
-                        aliases = data
-                    elif isinstance(data, dict):
-                        aliases = data.get("aliases", [])
-                    
-                    topic_name_formatted = topic_name_raw.replace('_', ' ')
-                    details = (section, topic_name_formatted, topic_name_raw)
-                    flat_map[self._normalize_text(topic_name_formatted)] = details
-                    for alias in aliases:
-                        flat_map[self._normalize_text(alias)] = details
+        for section, data in self.kb.items():
+            # Se a seção tiver sub-tópicos, inicia a recursão
+            if "subtopicos" in data and data["subtopicos"]:
+                self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
+        
         self._kb_flat_map_cache = flat_map
         return flat_map
