@@ -89,23 +89,23 @@ class AnalyticalEngine:
   # SUBSTITUA a função antiga por esta, DENTRO da classe AnalyticalEngine:
 
     def _collect_leaf_indicators_recursive(self, node: dict, collected_indicators: list):
-    """
+        # O docstring e todo o código abaixo estão com 4 espaços de recuo
+        """
         CORRIGIDO: Navega pela árvore de tópicos e coleta os indicadores finais (folhas).
-    """
+        """
         for key, value in node.items():
             # Ignora chaves de metadados
             if key in ['aliases', 'subtopicos']:
                 continue
 
             subtopics = value.get("subtopicos")
-        
-        # Se não há mais sub-tópicos, é um indicador final (folha).
+    
+            # Se não há mais sub-tópicos, é um indicador final (folha).
             if not subtopics:
                 collected_indicators.append(key.replace('_', ' '))
-        # Se ainda há sub-tópicos, é uma categoria. Continua a busca recursivamente.
+            # Se ainda há sub-tópicos, é uma categoria. Continua a busca recursivamente.
             else:
                 self._collect_leaf_indicators_recursive(subtopics, collected_indicators)
-
 
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para minúsculas e remove acentos."""
