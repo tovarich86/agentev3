@@ -58,6 +58,110 @@ class AnalyticalEngine:
             "securitizacao de recebiveis": "Securitização de Recebíveis", "reflorestamento": "Reflorestamento",
             "arrendamento mercantil": "Arrendamento Mercantil"
         }
+
+        # --- Mapeamento Canônico de Indicadores e Categorias ---
+        # Isso centraliza a lógica de unificação e categorização para análise de indicadores
+        self.INDICATOR_CANONICAL_MAP = {
+            "TSR": "TSR (Retorno Total ao Acionista)",
+            "Total Shareholder Return": "TSR (Retorno Total ao Acionista)",
+            "Retorno Total ao Acionista": "TSR (Retorno Total ao Acionista)",
+            "TSR Absoluto": "TSR (Retorno Total ao Acionista)",
+            "TSR Relativo": "TSR (Retorno Total ao Acionista)",
+            "TSR versus": "TSR (Retorno Total ao Acionista)",
+            "TSR comparado a": "TSR (Retorno Total ao Acionista)",
+
+            "Lucro": "Lucro (Geral)",
+            "lucro líquido": "Lucro (Geral)",
+            "lucro operacional": "Lucro (Geral)",
+            "lucros por ação": "Lucro (Geral)",
+            "Earnings per Share": "Lucro (Geral)",
+            "EPS": "Lucro (Geral)",
+
+            "ROIC": "ROIC (Retorno sobre Capital Investido)",
+            "retorno sobre investimentos": "ROIC (Retorno sobre Capital Investido)",
+            "retorno sobre capital": "ROIC (Retorno sobre Capital Investido)",
+            "Return on Investment": "ROIC (Retorno sobre Capital Investido)",
+            "ROCE": "ROIC (Retorno sobre Capital Investido)",
+
+            "EBITDA": "EBITDA",
+            "fluxo de caixa": "Fluxo de Caixa / FCF",
+            "geração de caixa": "Fluxo de Caixa / FCF",
+            "Free Cash Flow": "Fluxo de Caixa / FCF",
+            "FCF": "Fluxo de Caixa / FCF",
+            "Receita Líquida": "Receita Líquida",
+            "vendas líquidas": "Receita Líquida",
+            "margem bruta": "Margem Bruta",
+            "margem operacional": "Margem Operacional",
+            "redução de dívida": "Redução de Dívida",
+            "Dívida Líquida / EBITDA": "Dívida Líquida / EBITDA",
+            "capital de giro": "Capital de Giro",
+            "valor econômico agregado": "Valor Econômico Agregado",
+            "CAGR": "CAGR (Taxa de Crescimento Anual Composta)",
+
+            "qualidade": "Qualidade (Operacional)",
+            "produtividade": "Produtividade (Operacional)",
+            "crescimento": "Crescimento (Operacional)",
+            "eficiência operacional": "Eficiência Operacional",
+            "desempenho de entrega": "Desempenho de Entrega",
+            "desempenho de segurança": "Desempenho de Segurança",
+            "satisfação do cliente": "Satisfação do Cliente",
+            "NPS": "NPS (Net Promoter Score)",
+            "conclusão de aquisições": "Conclusão de Aquisições (Operacional)",
+            "expansão comercial": "Expansão Comercial (Operacional)",
+
+            "IPCA": "IPCA (Inflação)",
+            "CDI": "CDI (Taxa Interbancária)",
+            "Selic": "Selic (Taxa Básica de Juros)",
+            "preço da ação": "Preço da Ação (Mercado)",
+            "cotação das ações": "Preço da Ação (Mercado)",
+            "participação de mercado": "Participação de Mercado",
+            "market share": "Participação de Mercado",
+
+            "Sustentabilidade": "ESG (Sustentabilidade)",
+            "inclusão": "ESG (Inclusão/Diversidade)",
+            "diversidade": "ESG (Inclusão/Diversidade)",
+            "Igualdade de Gênero": "ESG (Inclusão/Diversidade)",
+            "Neutralização de Emissões": "ESG (Meio Ambiente)",
+            "Redução de Emissões": "ESG (Meio Ambiente)",
+            "IAGEE": "ESG (Meio Ambiente)", # Assumindo um contexto de emissões ou energia
+            "ICMA": "ESG (Meio Ambiente)", # Assumindo um contexto de emissões ou energia
+            "objetivos de desenvolvimento sustentável": "ESG (Objetivos de Desenvolvimento Sustentável)",
+
+            # Termos que não são indicadores de performance e devem ser tratados separadamente ou ignorados em listagens diretas
+            "metas": "Outros/Genéricos",
+            "critérios de desempenho": "Outros/Genéricos",
+            "Metas de Performance": "Outros/Genéricos",
+            "Performance Shares": "Outros/Genéricos", # É um tipo de plano, não um indicador
+            "PSU": "Outros/Genéricos", # É um tipo de plano, não um indicador
+            "Peer Group": "Grupos de Comparação",
+            "Empresas Comparáveis": "Grupos de Comparação",
+            "Companhias Comparáveis": "Grupos de Comparação"
+        }
+
+        self.INDICATOR_CATEGORIES = {
+            "Financeiro": [
+                "Lucro (Geral)", "EBITDA", "Fluxo de Caixa / FCF", "ROIC (Retorno sobre Capital Investido)",
+                "CAGR (Taxa de Crescimento Anual Composta)", "Receita Líquida", "Margem Bruta",
+                "Margem Operacional", "Redução de Dívida", "Dívida Líquida / EBITDA",
+                "Capital de Giro", "Valor Econômico Agregado"
+            ],
+            "Mercado": [
+                "TSR (Retorno Total ao Acionista)", "IPCA (Inflação)", "CDI (Taxa Interbancária)",
+                "Selic (Taxa Básica de Juros)", "Preço da Ação (Mercado)", "Participação de Mercado"
+            ],
+            "Operacional": [
+                "Qualidade (Operacional)", "Produtividade (Operacional)", "Crescimento (Operacional)",
+                "Eficiência Operacional", "Desempenho de Entrega", "Desempenho de Segurança",
+                "Satisfação do Cliente", "NPS (Net Promoter Score)", "Conclusão de Aquisições (Operacional)",
+                "Expansão Comercial (Operacional)"
+            ],
+            "ESG": [
+                "ESG (Sustentabilidade)", "ESG (Inclusão/Diversidade)", "ESG (Meio Ambiente)",
+                "ESG (Objetivos de Desenvolvimento Sustentável)"
+            ],
+            "Outros/Genéricos": ["Outros/Genéricos"], # Para agrupar termos que não são indicadores específicos
+            "Grupos de Comparação": ["Grupos de Comparação"]
+        }
         
         # --- Roteador Declarativo (Completo e com todas as funções implementadas) ---
         self.intent_rules = [
@@ -402,11 +506,14 @@ class AnalyticalEngine:
 
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         """
-        Analisa e contabiliza os aliases de indicadores de performance mais comuns, com base nos filtros aplicados.
+        Analisa e contabiliza os aliases de indicadores de performance mais comuns,
+        unificando redundâncias e categorizando-os.
         Retorna um texto de relatório e um DataFrame com os resultados.
         """
         data_to_analyze = self._apply_filters_to_data(filters)
-        alias_counts = defaultdict(int)
+        canonical_alias_counts = defaultdict(int)
+        
+        # Coleta e unifica os aliases para os indicadores de performance
         for details in data_to_analyze.values():
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
             if not performance_section:
@@ -415,17 +522,76 @@ class AnalyticalEngine:
             self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
 
             for alias in set(company_leaf_aliases):
-                alias_counts[alias] += 1
-
-        if not alias_counts:
+                canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias, alias)
+                canonical_alias_counts[canonical_alias] += 1
+        
+        if not canonical_alias_counts:
             return "Nenhum alias de indicador de performance encontrado para os filtros selecionados.", None
 
-        report_text = "### Aliases de indicadores de performance mais comuns\n"
-        df_data = [{"Alias": k, "Nº de Empresas": v}
-                   for k, v in sorted(alias_counts.items(), key=lambda item: item[1], reverse=True)]
-        for item in df_data:
-            report_text += f"- **{item['Alias']}:** {item['Nº de Empresas']} empresas\n"
-        return report_text, pd.DataFrame(df_data)
+        # Remove termos genéricos ou que não são indicadores
+        filtered_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k not in ["Outros/Genéricos", "Grupos de Comparação"]
+        }
+        
+        if not filtered_counts:
+            return "Nenhum indicador de performance específico encontrado para os filtros selecionados.", None
+
+        # Categoriza os indicadores para o relatório
+        categorized_indicators = defaultdict(list)
+        for indicator, count in filtered_counts.items():
+            found_category = "Outros/Genéricos" # Fallback category
+            for category, indicators_list in self.INDICATOR_CATEGORIES.items():
+                if indicator in indicators_list:
+                    found_category = category
+                    break
+            categorized_indicators[found_category].append((indicator, count))
+
+        report_text = "### Indicadores de Performance Mais Comuns\n\n"
+        df_overall_data = []
+
+        # Ordena as categorias para apresentação consistente
+        ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG", "Outros/Genéricos", "Grupos de Comparação"]
+        
+        for category in ordered_categories:
+            if category in categorized_indicators:
+                sorted_indicators = sorted(categorized_indicators[category], key=lambda item: item[1], reverse=True)
+                
+                # Excluir a categoria "Outros/Genéricos" do título do relatório
+                if category != "Outros/Genéricos" and category != "Grupos de Comparação":
+                    report_text += f"#### **{category}**\n"
+                elif category == "Grupos de Comparação":
+                    report_text += f"#### **{category} (Mencionados)**\n"
+
+
+                for indicator, count in sorted_indicators:
+                    report_text += f"- **{indicator}:** {count} empresas\n"
+                    df_overall_data.append({"Indicador": indicator, "Categoria": category, "Nº de Empresas": count})
+                report_text += "\n" # Adiciona uma linha em branco entre as categorias
+        
+        # Adiciona os termos "metas", "Metas de Performance", "critérios de desempenho" etc.
+        # separadamente, se ainda existirem e não tiverem sido removidos pela categorização acima
+        generic_terms_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k in ["Outros/Genéricos"]
+        }
+        
+        if generic_terms_counts:
+            report_text += "#### **Termos Genéricos/Contextuais (não indicadores específicos)**\n"
+            for term, count in sorted(generic_terms_counts.items(), key=lambda item: item[1], reverse=True):
+                 # Mapeia de volta para o alias comum para exibição, se for o caso
+                original_term_display = ""
+                for k, v in self.INDICATOR_CANONICAL_MAP.items():
+                    if v == term:
+                        original_term_display = k
+                        break
+                if original_term_display:
+                    report_text += f"- **{original_term_display}:** {count} empresas\n"
+                    df_overall_data.append({"Indicador": original_term_display, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
+
+
+        df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
+        return report_text, df
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
@@ -523,13 +689,15 @@ class AnalyticalEngine:
                             if isinstance(v, dict) and 'subtopicos' in v and v['subtopicos']:
                                 queue.append(v['subtopicos'])
                             elif isinstance(v, list):
-                                if topic_name_raw in v: # Check if the raw topic name is directly in a list of aliases/values
+                                if topic_name_raw in current_node: # Check if the raw topic name is directly in a list
                                     found_in_company = True
                                     break
-                    elif isinstance(current_node, list):
-                        if topic_name_raw in current_node: # Check if the raw topic name is directly in a list
+                    elif isinstance(current_node, list): # Added this check for lists not under a specific key
+                        if topic_name_raw in current_node:
                             found_in_company = True
                             break
+                    if found_in_company:
+                        break # Exit inner loop once found in this company
                 if found_in_company:
                     companies.append(name)
 
