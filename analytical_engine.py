@@ -16,6 +16,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+
 class AnalyticalEngine:
     """
     Motor de análise que opera sobre dados de resumo para responder perguntas
@@ -103,7 +105,19 @@ class AnalyticalEngine:
                 self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
 
 
-    
+    def _recursive_count_indicators(self, data: dict, counts: defaultdict):
+        """
+        Função auxiliar recursiva para contar todos os indicadores e categorias aninhados,
+        navegando pela estrutura de 'subtopicos'.
+        """
+        for key, value in data.items():
+            # Conta o indicador ou categoria atual
+            counts[key.replace('_', ' ')] += 1
+            
+            # Se o valor for um dicionário e contiver 'subtopicos', continua a recursão
+            if isinstance(value, dict) and "subtopicos" in value and value["subtopicos"]:
+                self._recursive_count_indicators(value["subtopicos"], counts)
+                
     def _normalize_text(self, text: str) -> str:
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
         return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
@@ -395,6 +409,12 @@ class AnalyticalEngine:
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         indicator_counts = defaultdict(int)
+        for details in data_to_analyze.values():
+            # Pega a seção de performance completa
+            performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
+            if performance_section:
+                # Inicia a contagem recursiva a partir da seção principal
+                self._recursive_count_indicators(performance_section, indicator_counts)
         for details in data_to_analyze.values():
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
             for key in performance_section.keys():
