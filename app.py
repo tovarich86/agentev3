@@ -15,6 +15,7 @@ import zipfile
 import io
 import shutil
 import random
+from models import get_embedding_model, get_cross_encoder_model
 from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
 from tools import (
     find_companies_by_topic,
@@ -137,7 +138,7 @@ def setup_and_load_data():
 
     # --- FIM DA LÓGICA DE EXTRAÇÃO REFINADA ---
         
-    return embedding_model, cross_encoder_model, artifacts, summary_data, all_setores, all_controles
+    return artifacts, summary_data, all_setores, all_controles
 
 
 
@@ -747,6 +748,7 @@ def main():
     st.markdown("---")
 
     embedding_model, cross_encoder_model, artifacts, summary_data, setores_disponiveis, controles_disponiveis = setup_and_load_data()
+    artifacts, summary_data, setores_disponiveis, controles_disponiveis = setup_and_load_data()
         
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
