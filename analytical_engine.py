@@ -90,22 +90,24 @@ class AnalyticalEngine:
 
     def _collect_leaf_aliases_recursive(self, node: dict, collected_aliases: list):
         """
-        Percorre recursivamente a árvore de tópicos e coleta os aliases das folhas finais.
+        Percorre qualquer estrutura baseada no modelo dado e retorna uma lista com todos os aliases que encontrar,
+        seja em folhas (listas de strings) ou em campos '_aliases'.
         """
-        if not isinstance(node, dict):
-            return
-
-        subtopics_dict = node.get("subtopicos", {})
-        if not subtopics_dict:
-            aliases = node.get("aliases", [])
-            if aliases:
-                collected_aliases.extend(aliases)
-            return
-
-        for key, value in subtopics_dict.items():
-            if isinstance(value, dict):
-                self._collect_leaf_aliases_recursive(value, collected_aliases)
-
+        aliases = []
+        if isinstance(node, list):
+            # folha final, lista de aliases
+            for item in node:
+                if isinstance(item, str):
+                    aliases.append(item)
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                if k == "_aliases":
+                    # sempre é uma lista
+                    aliases.extend(collect_all_leaf_aliases(v))
+                else:
+                    aliases.extend(collect_all_leaf_aliases(v))
+        # qualquer outra coisa, ignora
+        return aliases
 
     
     def _normalize_text(self, text: str) -> str:
