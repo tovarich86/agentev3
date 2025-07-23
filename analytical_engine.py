@@ -406,48 +406,32 @@ class AnalyticalEngine:
         df = pd.DataFrame(sorted(companies), columns=["Empresas com Menção ao Conselho de Administração"])
         return report_text, df
 
+ # APAGUE a sua função _analyze_common_goals e SUBSTITUA por esta.
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         indicator_counts = defaultdict(int)
 
-        # --- CABEÇALHO DA DEPURAÇÃO ---
-        print("\n--- INICIANDO DEPURAÇÃO DE _analyze_common_goals ---")
-        print(f"Total de empresas para analisar: {len(data_to_analyze)}")
-
-        # Usamos enumerate para poder limitar a quantidade de prints
-        for i, (company_name, details) in enumerate(data_to_analyze.items()):
+        for details in data_to_analyze.values():
             # Pega a seção de performance de cada empresa
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-        
-            # --- LINHA DE DEPURAÇÃO PRINCIPAL ---
-            # Imprime os dados da seção para as 5 primeiras empresas para vermos a estrutura
-            if i < 5:
-                print(f"\nEmpresa {i+1}: '{company_name}'")
-                print(f"Conteúdo de 'performance_section': {performance_section}")
-            # --- FIM DA LINHA DE DEPURAÇÃO ---
-
-            # Se a seção existir, inicia a contagem recursiva a partir dela.
+            
+            # Inicia a contagem recursiva. Esta é a única lógica de contagem necessária.
             if performance_section:
                 self._recursive_count_indicators(performance_section, indicator_counts)
-    
-        # --- RODAPÉ DA DEPURAÇÃO ---
-        print("\n--- FIM DA DEPURAÇÃO ---")
-        print(f"Total de indicadores contados: {len(indicator_counts)}\n")
 
-
-        # Se, após analisar todas as empresas, nada for contado, retorna a mensagem.
+        # Se, após a análise, a lista de contagem estiver vazia, retorna a mensagem.
         if not indicator_counts:
             return "Nenhum indicador de performance encontrado para os filtros selecionados.", None
-    
+        
         # Gera o relatório de texto e o DataFrame com os resultados.
         report_text = "### Indicadores de Performance Mais Comuns\n"
         df_data = [{"Indicador": k, "Nº de Empresas": v} for k, v in sorted(indicator_counts.items(), key=lambda item: item[1], reverse=True)]
-    
+        
         for item in df_data:
             report_text += f"- **{item['Indicador']}:** {item['Nº de Empresas']} empresas\n"
-        
+            
         return report_text, pd.DataFrame(df_data)
-
+        
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         plan_type_counts = defaultdict(int)
