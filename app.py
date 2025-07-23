@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import faiss
 from sentence_transformers import SentenceTransformer, CrossEncoder
+from collections import defaultdict
 import requests
 import re
 import unicodedata
