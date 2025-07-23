@@ -160,8 +160,7 @@ class AnalyticalEngine:
             modes = [modes]
         mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if len(modes) > 0 else "N/A"
         
-        mode_str = ", ".join([f"{m:.2f}%" for m in modes]) if modes.size > 0 else "N/A"
-
+   
         report_text = "### Análise de Desconto no Preço de Exercício\n"
         report_text += f"- **Total de Empresas com Desconto:** {len(discounts)}\n"
         report_text += f"- **Desconto Médio:** {np.mean(discounts):.2f}%\n"
@@ -261,7 +260,7 @@ class AnalyticalEngine:
             return "Nenhuma informação de lock-up encontrada para os filtros selecionados.", None
 
         lockup_values = np.array([item[1] for item in periods])
-        mode_result = stats.mode(vesting_values, keepdims=True)
+        mode_result = stats.mode(lockup_values, keepdims=True)
         modes = mode_result.mode
         if not isinstance(modes, (list, np.ndarray)):
             modes = [modes]
@@ -291,7 +290,7 @@ class AnalyticalEngine:
 
         report_text = "### Análise de Diluição Máxima Percentual\n"
         percents = np.array([item[1] for item in diluicao_percentual])
-        mode_result = stats.mode(vesting_values, keepdims=True)
+        mode_result = stats.mode(percents, keepdims=True)
         modes = mode_result.mode
         if not isinstance(modes, (list, np.ndarray)):
             modes = [modes]
