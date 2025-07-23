@@ -166,32 +166,22 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
     return list(expanded_terms)
 
 # Em app.py, substitua esta função
-def search_by_tags(artifacts: dict, company_name: str, target_tags: list) -> list:
+def search_by_tags(chunks_to_search: list[dict], target_tags: list[str]) -> list[dict]:
+    """Busca chunks que contenham tags de tópicos específicos."""
     results = []
-    searchable_company_name = unicodedata.normalize('NFKD', company_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
     target_tags_lower = {tag.lower() for tag in target_tags}
-    
-    for index_name, artifact_data in artifacts.items():
-        chunk_map = artifact_data.get('chunks', {}).get('map', [])
-        all_chunks_text = artifact_data.get('chunks', {}).get('chunks', [])
-        for i, mapping in enumerate(chunk_map):
-            if searchable_company_name in mapping.get("company_name", "").lower():
-                chunk_text = all_chunks_text[i]
-                found_topics_in_chunk = re.findall(r'\[topico:([^\]]+)\]', chunk_text)
-                if found_topics_in_chunk:
-                    topics_in_chunk_set = {t.lower() for t in found_topics_in_chunk[0].split(',')}
-                    intersection = target_tags_lower.intersection(topics_in_chunk_set)
-                    if intersection:
-                        # --- CORREÇÃO APLICADA AQUI ---
-                        # Padroniza o dicionário de saída para usar as chaves corretas
-                        result_item = {
-                            "text": all_chunks_text[i],
-                            "company_name": mapping.get("company_name"),
-                            "source_url": mapping.get("source_url", "N/A"),
-                            # Mantém informações úteis para a função que a chama
-                            "doc_type": index_name 
-                        }
-                        results.append(result_item)
+
+    for i, chunk_info in enumerate(chunks_to_search):
+        chunk_text = chunk_info.get("text", "")
+        found_topics_in_chunk = re.findall(r'\[topico:([^\]]+)\]', chunk_text)
+
+        if found_topics_in_chunk:
+            # O tópico pode ser uma lista, ex: [topico:Vesting,Aceleracao]
+            topics_in_chunk_set = {t.strip().lower() for t in found_topics_in_chunk[0].split(',')}
+
+            # Se houver qualquer sobreposição entre as tags procuradas e as encontradas
+            if not target_tags_lower.isdisjoint(topics_in_chunk_set):
+                results.append(chunk_info)
     return results
 
 def get_final_unified_answer(query: str, context: str) -> str:
@@ -371,6 +361,14 @@ def execute_dynamic_plan(
         # CASO 2.1: Busca geral por tópico (sem empresa)
         if not empresas and topicos:
             logger.info(f"ROTA Default (Geral): Executando busca conceitual para os tópicos: {topicos}")
+                    # --- OTIMIZAÇÃO AQUI ---
+            sample_size = 4000 # Pega uma amostra de 4000 chunks para a busca geral
+            if len(pre_filtered_chunks) > sample_size:
+                logger.info(f"Base de chunks grande ({len(pre_filtered_chunks)}). Usando uma amostra de {sample_size} para a busca geral.")
+                chunks_to_search = random.sample(pre_filtered_chunks, sample_size)
+            else:
+                chunks_to_search = pre_filtered_chunks
+        # --- FIM DA OTIMIZAÇÃO ---
             # Constrói índice FAISS temporário com todos os chunks pré-filtrados
             temp_embeddings = model.encode([c['text'] for c in pre_filtered_chunks], normalize_embeddings=True).astype('float32')
             temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
