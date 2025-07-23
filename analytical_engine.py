@@ -86,26 +86,26 @@ class AnalyticalEngine:
             # Fallback (sempre por último)
             (lambda q: True, self._find_companies_by_general_topic),
         ]
-    # NOVA FUNÇÃO AUXILIAR (RECURSIVA)
-    def _collect_leaf_indicators_recursive(self, data: dict, collected_indicators: list):
-        """
-        Navega recursivamente pela estrutura de tópicos de uma empresa e coleta
-        apenas os indicadores finais (nós-folha).
-        """
-        # Se o dicionário de sub-tópicos estiver vazio ou não existir, o nó atual é um indicador final.
-        subtopics = data.get("subtopicos", {})
-        if not subtopics:
-            # Não faz nada aqui, pois o indicador que levou a este ponto já foi contado.
-            return
+  # SUBSTITUA a função antiga por esta, DENTRO da classe AnalyticalEngine:
 
-        # Se houver sub-tópicos, continua a busca
-        for key, value in subtopics.items():
-            # Verifica se o próximo nível tem sub-tópicos
-            if not value.get("subtopicos"): # É um nó-folha!
-                indicator_name = key.replace('_', ' ')
-                collected_indicators.append(indicator_name)
-            else: # É uma categoria, continua a recursão
-                self._collect_leaf_indicators_recursive(value, collected_indicators)
+    def _collect_leaf_indicators_recursive(self, node: dict, collected_indicators: list):
+    """
+        CORRIGIDO: Navega pela árvore de tópicos e coleta os indicadores finais (folhas).
+    """
+        for key, value in node.items():
+            # Ignora chaves de metadados
+            if key in ['aliases', 'subtopicos']:
+                continue
+
+            subtopics = value.get("subtopicos")
+        
+        # Se não há mais sub-tópicos, é um indicador final (folha).
+            if not subtopics:
+                collected_indicators.append(key.replace('_', ' '))
+        # Se ainda há sub-tópicos, é uma categoria. Continua a busca recursivamente.
+            else:
+                self._collect_leaf_indicators_recursive(subtopics, collected_indicators)
+
 
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para minúsculas e remove acentos."""
@@ -403,7 +403,7 @@ class AnalyticalEngine:
         # --- Fim das Alterações ---
 
        
-            for indicator in company_leaf_indicators:
+            for indicator in set(company_leaf_indicators):
                 indicator_counts[indicator] += 1
 
         if not indicator_counts:
