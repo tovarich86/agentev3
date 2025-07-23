@@ -411,6 +411,37 @@ def execute_dynamic_plan(
                 # Filtra os chunks para a empresa atual
                 chunks_for_company = [c for c in pre_filtered_chunks if _is_company_match(empresa_canonica, c.get('company_name', ''))]
                 if not chunks_for_company: continue
+                                # --- INÍCIO DA LÓGICA DE DEDUPLICAÇÃO INTELIGENTE ---
+                
+                # 1. Agrupa os chunks por documento de origem (source_url)
+                docs_by_url = defaultdict(list)
+                for chunk in chunks_for_company:
+                    docs_by_url[chunk.get('source_url')].append(chunk)
+
+                # 2. Se houver muitos documentos, seleciona os mais recentes
+                MAX_DOCS_PER_COMPANY = 2  # Analisa no máximo os 2 documentos mais recentes
+                if len(docs_by_url) > MAX_DOCS_PER_COMPANY:
+                    
+                    # Tenta ordenar pela data ou protocolo na URL (mais novo primeiro)
+                    def get_sort_key(url):
+                        match = re.search(r'(?:NumeroProtocoloEntrega=|rada-cvm/|/id/)\d{4,}(\d+)', str(url))
+                        return int(match.group(1)) if match else 0
+
+                    sorted_urls = sorted(docs_by_url.keys(), key=get_sort_key, reverse=True)
+                    
+                    # Seleciona as URLs dos documentos mais recentes
+                    latest_urls = sorted_urls[:MAX_DOCS_PER_COMPANY]
+                    
+                    # Remonta a lista de chunks usando apenas os documentos mais recentes
+                    final_chunks_for_company = []
+                    for url in latest_urls:
+                        final_chunks_for_company.extend(docs_by_url[url])
+                    
+                    logger.info(
+                        f"Para '{empresa_canonica}', reduzindo {len(chunks_for_company)} chunks de {len(docs_by_url)} documentos "
+                        f"para {len(final_chunks_for_company)} chunks dos {MAX_DOCS_PER_COMPANY} documentos mais recentes."
+                    )
+                    chunks_for_company = final_chunks_for_company
 
                 # Parte 1: Busca por Tags (Alta Precisão)
                 target_tags = set().union(*(expand_search_terms(t, kb) for t in topicos))
