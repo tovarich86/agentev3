@@ -392,7 +392,7 @@ class AnalyticalEngine:
             if isinstance(value, dict) and "subtopicos" in value and value.get("subtopicos"):
                 self._recursive_count_indicators(value["subtopicos"], counts)
     # FUNÇÃO DE ANÁLISE USANDO A ABORDAGEM ITERATIVA
-    def _analyze_common_goal_aliases(self, normalized_query: str, filters: dict) -> tuple:
+    def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         """
         Analisa e contabiliza os aliases de indicadores de performance mais comuns, com base nos filtros aplicados.
         Retorna um texto de relatório e um DataFrame com os resultados.
