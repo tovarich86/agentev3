@@ -95,24 +95,23 @@ class AnalyticalEngine:
         # Se o nó atual não for um dicionário, não há como processá-lo.
         if not isinstance(node, dict):
             return
-
-        # O ponto chave: a análise deve ocorrer dentro da chave 'subtopicos'
         subtopics_dict = node.get("subtopicos", {})
+    # Se não houver subtopicos, é folha: coleta aliases (se houver)
+        if not subtopics_dict:
+            # Coleta todos os aliases desta folha (se houver)
+            aliases = node.get("aliases", [])
+            # Só adiciona se houver aliases
+            if aliases:
+                collected_aliases.extend(aliases)
+            return
 
         for key, value in subtopics_dict.items():
-            # Garante que o item que estamos olhando é um dicionário
-            if not isinstance(value, dict):
-                continue
-        
-            # Verifica se este item (ex: "Financeiro") tem seus próprios sub-tópicos
-            nested_subtopics = value.get("subtopicos")
-        
-            # Se não tiver (ou se estiver vazio), encontramos um indicador final.
-            if not nested_subtopics:
-                collected_indicators.append(key.replace('_', ' '))
-                # Se tiver, é uma categoria. Chamamos a função de novo para analisar este item.
-            else:
-                self._collect_leaf_indicators_recursive(value, collected_indicators)
+            # Apenas processa se for dict
+            if isinstance(value, dict):
+                self._collect_leaf_aliases_recursive(value, collected_aliases)
+
+
+    
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para minúsculas e remove acentos."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
