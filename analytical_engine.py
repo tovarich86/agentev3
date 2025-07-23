@@ -1,11 +1,3 @@
-# analytical_engine_v3.0.py (Versão Completa e Definitiva)
-#
-# DESCRIÇÃO:
-# Esta é a versão completa e sem omissões do motor de análise quantitativa.
-# Ela combina a profundidade estatística e a lógica robusta da versão original
-# com a capacidade de filtragem por metadados e análise hierárquica da v2.0.
-# Todas as funções de análise estão totalmente implementadas.
-
 import numpy as np
 import pandas as pd
 import re
@@ -33,16 +25,38 @@ class AnalyticalEngine:
         self.FILTER_KEYWORDS = {
             "setor": [
                 "bancos", "varejo", "energia", "saude", "metalurgia", "siderurgia",
-                "educacao", "transporte", "logistica", "tecnologia"
+                "educacao", "transporte", "logistica", "tecnologia", "alimentos",
+                "farmaceutico e higiene", "construcao civil", "telecomunicacoes",
+                "intermediacao financeira", "seguradoras e corretoras",
+                "extracaomineral", "textil e vestuario", "embalagens", "brinquedos e lazer",
+                "hospedagem e turismo", "saneamento", "servicos agua e gas",
+                "maquinas, equipamentos, veiculos e pecas", "petroleo e gas", "papel e celulose",
+                "securitizacao de recebiveis", "reflorestamento", "arrendamento mercantil"
             ],
             "controle_acionario": [
                 "privado", "privada", "privados", "privadas",
-                "estatal", "estatais", "publico", "publica"
+                "estatal", "estatais", "publico", "publica", "estrangeiro"
             ]
         }
         self.CANONICAL_MAP = {
             "privada": "Privado", "privados": "Privado", "privadas": "Privado",
-            "estatais": "Estatal", "publico": "Estatal", "publica": "Estatal"
+            "estatais": "Estatal", "publico": "Estatal", "publica": "Estatal",
+            "bancos": "Bancos", "varejo": "Comércio (Atacado e Varejo)", 
+            "energia": "Energia Elétrica", "saude": "Serviços médicos", 
+            "metalurgia": "Metalurgia e Siderurgia", "siderurgia": "Metalurgia e Siderurgia",
+            "educacao": "Educação", "transporte": "Serviços Transporte e Logística",
+            "logistica": "Serviços Transporte e Logística", "tecnologia": "Comunicação e Informática",
+            "alimentos": "Alimentos", "farmaceutico e higiene": "Farmacêutico e Higiene",
+            "construcao civil": "Construção Civil, Mat. Constr. e Decoração", "telecomunicacoes": "Telecomunicações",
+            "intermediacao financeira": "Intermediação Financeira", "seguradoras e corretoras": "Seguradoras e Corretoras",
+            "extracaomineral": "Extração Mineral", "textil e vestuario": "Têxtil e Vestuário", 
+            "embalagens": "Embalagens", "brinquedos e lazer": "Brinquedos e Lazer",
+            "hospedagem e turismo": "Hospedagem e Turismo", "saneamento": "Saneamento, Serv. Água e Gás",
+            "servicos agua e gas": "Saneamento, Serv. Água e Gás",
+            "maquinas, equipamentos, veiculos e pecas": "Máquinas, Equipamentos, Veículos e Peças",
+            "petroleo e gas": "Petróleo e Gás", "papel e celulose": "Papel e Celulose",
+            "securitizacao de recebiveis": "Securitização de Recebíveis", "reflorestamento": "Reflorestamento",
+            "arrendamento mercantil": "Arrendamento Mercantil"
         }
         
         # --- Roteador Declarativo (Completo e com todas as funções implementadas) ---
@@ -75,41 +89,40 @@ class AnalyticalEngine:
             (lambda q: 'conselho de administracao' in q and ('elegivel' in q or 'aprovador' in q), self._count_plans_for_board),
             
             # Metas/Indicadores: A regra original já era boa.
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q, self._analyze_common_goals),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q or 'quais os indicadores mais comuns' in q, self._analyze_common_goals),
             
             # Regra para tipos de plano (agora separada e com sua própria vírgula)
-            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
-            
-            # Tipos de Plano: A regra original já era boa.
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
             
             # Fallback (sempre por último)
             (lambda q: True, self._find_companies_by_general_topic),
         ]
-  # SUBSTITUA a função antiga por esta, DENTRO da classe AnalyticalEngine:
 
-    def _collect_leaf_aliases_recursive(self, node: dict, collected_aliases: list):
+    def _collect_leaf_aliases_recursive(self, node: dict or list, collected_aliases: list):
         """
-        Percorre qualquer estrutura baseada no modelo dado e retorna uma lista com todos os aliases que encontrar,
-        seja em folhas (listas de strings) ou em campos '_aliases'.
+        Percorre qualquer estrutura baseada no modelo dado e coleta todos os aliases.
+        Se 'node' for uma lista, ela itera sobre seus elementos.
+        Se 'node' for um dicionário, ela verifica as chaves '_aliases' e 'subtopicos'
+        para continuar a recursão ou adicionar aliases.
         """
-        aliases = []
         if isinstance(node, list):
-            # folha final, lista de aliases
             for item in node:
                 if isinstance(item, str):
-                    aliases.append(item)
+                    collected_aliases.append(item)
+                elif isinstance(item, (dict, list)):
+                    self._collect_leaf_aliases_recursive(item, collected_aliases)
         elif isinstance(node, dict):
+            if "_aliases" in node and isinstance(node["_aliases"], list):
+                collected_aliases.extend(node["_aliases"])
             for k, v in node.items():
-                if k == "_aliases":
-                    # sempre é uma lista
-                    aliases.extend(collect_all_leaf_aliases(v))
-                else:
-                    aliases.extend(collect_all_leaf_aliases(v))
-        # qualquer outra coisa, ignora
-        return aliases
+                if k != "_aliases" and isinstance(v, (dict, list)):
+                    self._collect_leaf_aliases_recursive(v, collected_aliases)
+                elif isinstance(v, list) and k != "_aliases": # Handle lists that are not _aliases but contain values
+                    for item in v:
+                        if isinstance(item, str):
+                            collected_aliases.append(item)
 
-    
+
     def _normalize_text(self, text: str) -> str:
         """Normaliza o texto para minúsculas e remove acentos."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
@@ -147,8 +160,8 @@ class AnalyticalEngine:
         Args:
             query (str): A pergunta do usuário.
             filters (dict | None, optional): Um dicionário de filtros pré-selecionados
-                                             (ex: da interface). Se for None, os filtros
-                                             serão extraídos do texto da query.
+                                            (ex: da interface). Se for None, os filtros
+                                            serão extraídos do texto da query.
         
         Returns:
             tuple: Uma tupla contendo o texto do relatório e um DataFrame/dicionário.
@@ -346,12 +359,14 @@ class AnalyticalEngine:
         member_role_counts = defaultdict(int)
         company_member_details = []
         for company, details in data_to_analyze.items():
-            facts = details.get("fatos_extraidos", {})
-            if 'elegiveis_ao_plano' in facts and facts['elegiveis_ao_plano'].get('presente', False):
-                roles = facts['elegiveis_ao_plano'].get('funcoes', [])
-                company_member_details.append({"Empresa": company, "Funções Elegíveis": ", ".join(roles) if roles else "Não especificado"})
-                for role in roles:
+            topics = details.get("topicos_encontrados", {})
+            elegibility_section = topics.get("ParticipantesCondicoes", {}).get("Elegibilidade", [])
+            
+            if elegibility_section: # Check if elegibility_section exists and is not empty
+                company_member_details.append({"Empresa": company, "Funções Elegíveis": ", ".join(elegibility_section)})
+                for role in elegibility_section:
                     member_role_counts[role] += 1
+        
         if not member_role_counts:
             return "Nenhuma informação sobre membros elegíveis foi encontrada para os filtros selecionados.", None
         
@@ -359,7 +374,7 @@ class AnalyticalEngine:
         df_counts_data = []
         for role, count in sorted(member_role_counts.items(), key=lambda item: item[1], reverse=True):
             report_text += f"- **{role}:** {count} empresas\n"
-            df_counts_data.append({"Tipo de Membro Elegível": role, "Número de Empresas": count})
+            df_counts_data.append({"Tipo de Membro Elegível": role, "Nº de Empresas": count})
         
         dfs_to_return = {
             'Contagem por Tipo de Membro': pd.DataFrame(df_counts_data),
@@ -371,9 +386,13 @@ class AnalyticalEngine:
         data_to_analyze = self._apply_filters_to_data(filters)
         companies = []
         for company, details in data_to_analyze.items():
-            facts = details.get("fatos_extraidos", {})
-            if 'conselho_administracao_elegivel_ou_aprovador' in facts and facts['conselho_administracao_elegivel_ou_aprovador'].get('presente', False):
-                companies.append(company)
+            topics = details.get("topicos_encontrados", {})
+            governance_section = topics.get("GovernancaRisco", {})
+            if "OrgaoDeliberativo" in governance_section:
+                deliberative_organs = governance_section["OrgaoDeliberativo"]
+                normalized_deliberative_organs = [self._normalize_text(org) for org in deliberative_organs]
+                if "conselho de administracao" in normalized_deliberative_organs:
+                    companies.append(company)
         if not companies:
             return "Nenhuma empresa com menção ao Conselho de Administração como elegível/aprovador foi encontrada para os filtros selecionados.", None
         
@@ -381,15 +400,6 @@ class AnalyticalEngine:
         df = pd.DataFrame(sorted(companies), columns=["Empresas com Menção ao Conselho de Administração"])
         return report_text, df
 
-    def _recursive_count_indicators(self, data: dict, counts: defaultdict):
-        """Função auxiliar recursiva para contar todos os indicadores e categorias aninhados."""
-        for key, value in data.items():
-            if key == 'aliases' or key == 'subtopicos':
-                continue
-            counts[key.replace('_', ' ')] += 1
-            if isinstance(value, dict) and "subtopicos" in value and value.get("subtopicos"):
-                self._recursive_count_indicators(value["subtopicos"], counts)
-    # FUNÇÃO DE ANÁLISE USANDO A ABORDAGEM ITERATIVA
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         """
         Analisa e contabiliza os aliases de indicadores de performance mais comuns, com base nos filtros aplicados.
@@ -422,9 +432,14 @@ class AnalyticalEngine:
         plan_type_counts = defaultdict(int)
         for details in data_to_analyze.values():
             plan_topics = details.get("topicos_encontrados", {}).get("TiposDePlano", {})
-            for key in plan_topics.keys():
-                if key not in ['aliases', 'subtopicos']:
-                    plan_type_counts[key.replace('_', ' ')] += 1
+            
+            # This part needs to correctly extract the *keys* from TiposDePlano,
+            # which represent the plan types (e.g., AcoesRestritas, OpcoesDeCompra)
+            # and count them.
+            for plan_type_raw in plan_topics.keys():
+                if plan_type_raw not in ['_aliases', 'subtopicos']: # Exclude metadata keys
+                    plan_type_counts[plan_type_raw.replace('_', ' ')] += 1
+
         if not plan_type_counts:
             return "Nenhum tipo de plano encontrado para os filtros selecionados.", None
             
@@ -495,17 +510,27 @@ class AnalyticalEngine:
         companies = []
         for name, details in data_to_analyze.items():
             if section in details.get("topicos_encontrados", {}):
-                # Função interna para buscar recursivamente no dicionário de tópicos da empresa
-                def find_topic_recursively(data_dict):
-                    if topic_name_raw in data_dict:
-                        return True
-                    for k, v in data_dict.items():
-                        if isinstance(v, dict) and 'subtopicos' in v and v['subtopicos']:
-                            if find_topic_recursively(v['subtopicos']):
-                                return True
-                    return False
-                
-                if find_topic_recursively(details["topicos_encontrados"][section]):
+                # Using deque for a BFS-like traversal
+                queue = deque([details["topicos_encontrados"][section]])
+                found_in_company = False
+                while queue:
+                    current_node = queue.popleft()
+                    if isinstance(current_node, dict):
+                        for k, v in current_node.items():
+                            if k == topic_name_raw:
+                                found_in_company = True
+                                break
+                            if isinstance(v, dict) and 'subtopicos' in v and v['subtopicos']:
+                                queue.append(v['subtopicos'])
+                            elif isinstance(v, list):
+                                if topic_name_raw in v: # Check if the raw topic name is directly in a list of aliases/values
+                                    found_in_company = True
+                                    break
+                    elif isinstance(current_node, list):
+                        if topic_name_raw in current_node: # Check if the raw topic name is directly in a list
+                            found_in_company = True
+                            break
+                if found_in_company:
                     companies.append(name)
 
         if not companies:
