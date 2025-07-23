@@ -411,22 +411,19 @@ class AnalyticalEngine:
         indicator_counts = defaultdict(int)
 
         for details in data_to_analyze.values():
-            # 1. Acessa a seção de performance da empresa
+            # Pega a seção de performance de cada empresa
             performance_section = details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
         
-            # 2. Ponto crucial: vai direto para o dicionário de "subtopicos" antes de contar
-            if performance_section and "subtopicos" in performance_section:
-                sub_topics_to_analyze = performance_section.get("subtopicos", {})
-            
-                # 3. Inicia a contagem recursiva a partir do nível correto
-                if sub_topics_to_analyze:
-                    self._recursive_count_indicators(sub_topics_to_analyze, indicator_counts)
+            # Se a seção existir, inicia a contagem recursiva a partir dela.
+            if performance_section:
+                self._recursive_count_indicators(performance_section, indicator_counts)
 
+        # Se, após analisar todas as empresas, nada for contado, retorna a mensagem.
         if not indicator_counts:
             return "Nenhum indicador de performance encontrado para os filtros selecionados.", None
     
+        # Gera o relatório de texto e o DataFrame com os resultados.
         report_text = "### Indicadores de Performance Mais Comuns\n"
-        # Ordena os dados para o relatório e para o DataFrame
         df_data = [{"Indicador": k, "Nº de Empresas": v} for k, v in sorted(indicator_counts.items(), key=lambda item: item[1], reverse=True)]
     
         for item in df_data:
