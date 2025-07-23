@@ -747,7 +747,10 @@ def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
 
-    embedding_model, cross_encoder_model, artifacts, summary_data, setores_disponiveis, controles_disponiveis = setup_and_load_data()
+    embedding_model = get_embedding_model()
+    cross_encoder_model = get_cross_encoder_model()
+
+    # 2. Carregue os dados (a função agora só retorna 4 valores)
     artifacts, summary_data, setores_disponiveis, controles_disponiveis = setup_and_load_data()
         
     if not summary_data or not artifacts:
