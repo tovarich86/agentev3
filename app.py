@@ -292,6 +292,9 @@ def execute_dynamic_plan(
     Esta versão unifica a lógica de carregamento e filtragem de chunks.
     """
     logger.info(f"Executando plano v4.0 (Definitivo) para query: '{query}'")
+    plan_type = plan.get("plan_type", "default")
+    empresas = plan.get("empresas", [])
+    topicos = plan.get("topicos", [])
     
     # --- Passo 1: Coletar todos os chunks em uma única lista ---
     all_chunks = []
