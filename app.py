@@ -57,6 +57,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # --- CARREGADOR DE DADOS ---
+# --- CARREGADOR DE DADOS ---
 @st.cache_resource(show_spinner="Configurando o ambiente e baixando dados...")
 def setup_and_load_data():
     CACHE_DIR.mkdir(exist_ok=True)
@@ -87,11 +88,13 @@ def setup_and_load_data():
         category = index_file.stem.replace('_faiss_index_final', '')
         chunks_file = CACHE_DIR / f"{category}_chunks_map_final.json"
         try:
-            # O carregamento agora é mais simples
+            # CORREÇÃO APLICADA: Ler a lista de chunks diretamente da chave 'chunks'
+            with open(chunks_file, 'r', encoding='utf-8') as f:
+                list_of_chunks = json.load(f)
+                
             artifacts[category] = {
                 'index': faiss.read_index(str(index_file)),
-                # A chave 'chunks' do artefato agora aponta diretamente para a lista de metadados
-                'chunks': json.load(open(chunks_file, 'r', encoding='utf-8'))
+                'chunks': list_of_chunks
             }
         except Exception as e:
             st.error(f"Falha ao carregar artefatos para a categoria '{category}': {e}")
@@ -109,24 +112,24 @@ def setup_and_load_data():
     controles = set()
 
     for artifact_data in artifacts.values():
-        chunk_map = artifact_data.get('chunks', {}).get('map', [])
+        # CORREÇÃO APLICADA: Acessar a lista de chunks diretamente
+        chunk_map = artifact_data.get('chunks', [])
         for metadata in chunk_map:
             # Pega o valor do setor e trata se for nulo ou vazio
             setor = metadata.get('setor')
             if isinstance(setor, str) and setor.strip():
                 setores.add(setor.strip().capitalize())
             else:
-                setores.add("Não idenficado") # <-- LÓGICA ADICIONADA
+                setores.add("Não idenficado")
 
             # Pega o valor do controle e trata se for nulo ou vazio
             controle = metadata.get('controle_acionario')
             if isinstance(controle, str) and controle.strip():
                 controles.add(controle.strip().capitalize())
             else:
-                controles.add("Não identificado") # <-- LÓGICA ADICIONADA
+                controles.add("Não identificado")
 
     # Converte os sets em listas ordenadas e adiciona "Todos" no início
-    # Garante que "Não Informado" não seja o primeiro da lista, se existir.
     sorted_setores = sorted([s for s in setores if s != "Não Informado"])
     if "Não Informado" in setores:
         sorted_setores.append("Não Informado")
@@ -139,11 +142,8 @@ def setup_and_load_data():
     all_controles = ["Todos"] + sorted_controles
 
     logger.info(f"Filtros dinâmicos encontrados: {len(all_setores)-1} setores e {len(all_controles)-1} tipos de controle.")
-
-    # --- FIM DA LÓGICA DE EXTRAÇÃO REFINADA ---
-        
+    
     return artifacts, summary_data, all_setores, all_controles
-
 
 
 
@@ -1107,6 +1107,8 @@ def main():
         # --- BLOCO CORRIGIDO ---
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
                         company_name = src.get('company_name', 'N/A')
+                        # Recupere a data do documento dos metadados
+                        doc_date = src.get('document_date', 'N/A')
                         doc_type_raw = src.get('doc_type', '')
                         url = src.get('source_url', '')
 
@@ -1114,8 +1116,11 @@ def main():
                             display_doc_type = 'Plano de Remuneração'
                         else:
                             display_doc_type = doc_type_raw.replace('_', ' ')
+    
+                        # Adicione a data do documento ao texto de exibição
+                        display_text = f"{company_name} - {display_doc_type} - (Data: **{doc_date}**)"
             
-                        display_text = f"{company_name} - {display_doc_type}"
+                       
             
                         # A lógica de exibição agora está corretamente separada por tipo de documento
                         if "frmExibirArquivoIPEExterno" in url:
