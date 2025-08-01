@@ -25,7 +25,8 @@ from tools import (
     analyze_topic_thematically, 
     get_summary_for_topic_at_company,
     rerank_with_cross_encoder,
-    create_hierarchical_alias_map
+    create_hierarchical_alias_map,
+    rerank_by_recency
     )
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,10 @@ def setup_and_load_data():
         category = index_file.stem.replace('_faiss_index_final', '')
         chunks_file = CACHE_DIR / f"{category}_chunks_map_final.json"
         try:
+            # O carregamento agora é mais simples
             artifacts[category] = {
                 'index': faiss.read_index(str(index_file)),
+                # A chave 'chunks' do artefato agora aponta diretamente para a lista de metadados
                 'chunks': json.load(open(chunks_file, 'r', encoding='utf-8'))
             }
         except Exception as e:
@@ -169,23 +172,24 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
     return list(expanded_terms)
 
 # Em app.py, substitua esta função
-def search_by_tags(chunks_to_search: list[dict], target_tags: list[str]) -> list[dict]:
-    """Busca chunks que contenham tags de tópicos específicos."""
-    results = []
-    target_tags_lower = {tag.lower() for tag in target_tags}
-
-    for i, chunk_info in enumerate(chunks_to_search):
-        chunk_text = chunk_info.get("text", "")
-        found_topics_in_chunk = re.findall(r'\[topico:([^\]]+)\]', chunk_text)
-
-        if found_topics_in_chunk:
-            # O tópico pode ser uma lista, ex: [topico:Vesting,Aceleracao]
-            topics_in_chunk_set = {t.strip().lower() for t in found_topics_in_chunk[0].split(',')}
-
-            # Se houver qualquer sobreposição entre as tags procuradas e as encontradas
-            if not target_tags_lower.isdisjoint(topics_in_chunk_set):
-                results.append(chunk_info)
-    return results
+def search_by_tags(query: str, kb: dict) -> list[str]:
+    """
+    Versão melhorada que busca por palavras-chave na query e retorna as tags correspondentes.
+    Evita o uso de expressões regulares complexas para cada chunk.
+    """
+    found_tags = set()
+    # Converte a query para minúsculas e remove pontuação para uma busca mais limpa
+    clean_query = query.lower().strip()
+    
+    # Itera sobre todas as tags e seus sinônimos no dicionário de conhecimento
+    for tag, details in kb.items():
+        search_terms = [tag.lower()] + [s.lower() for s in details.get("sinonimos", [])]
+        
+        # Se qualquer um dos termos de busca estiver na query, adiciona a tag
+        if any(term in clean_query for term in search_terms):
+            found_tags.add(tag)
+            
+    return list(found_tags)
 
 def get_final_unified_answer(query: str, context: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
@@ -279,62 +283,56 @@ def execute_dynamic_plan(
     kb: dict,
     company_catalog_rich: list,
     company_lookup_map: dict,
-    # Funções auxiliares como dependências explícitas
     search_by_tags: callable,
-    expand_search_terms: callable
+    expand_search_terms: callable,
+    prioritize_recency: bool = True,
 ) -> tuple[str, list[dict]]:
     """
     Versão 4.0 (Definitiva e Completa) do Executor de Planos.
-
-    Esta função implementa uma pipeline de 3 estágios sem omissões ou simplificações:
-    1. PRÉ-FILTRA chunks por metadados (setor, controle) para eficiência.
-    2. ROTEIA a execução com base no tipo de plano, usando a lógica completa da versão original.
-    3. EXECUTA buscas híbridas (tags + vetorial) no conjunto de dados pré-filtrado.
-    4. RE-RANQUEIA os resultados finais para máxima precisão.
+    Esta versão unifica a lógica de carregamento e filtragem de chunks.
     """
     logger.info(f"Executando plano v4.0 (Definitivo) para query: '{query}'")
-
-    # --- ESTÁGIO 0: CONFIGURAÇÃO E FUNÇÕES AUXILIARES ---
-    candidate_chunks_dict = {}
-    TOP_K_INITIAL_RETRIEVAL = 30
-    TOP_K_FINAL = 10
-
-    plan_type = plan.get("plan_type", "default")
-    empresas = plan.get("empresas", [])
-    topicos = plan.get("topicos", [])
-    filtros = plan.get("filtros", {})
-
-    def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
-        if not plan_canonical_name or not metadata_name: return False
-        chunk_canonical_name = company_lookup_map.get(metadata_name.lower())
-        if chunk_canonical_name and chunk_canonical_name.lower() == plan_canonical_name.lower():
-            return True
-        searchable_part = unicodedata.normalize('NFKD', plan_canonical_name.lower()).encode('ascii', 'ignore').decode('utf-8').split(' ')[0]
-        return searchable_part in metadata_name.lower()
-
-    def add_candidate(chunk_info: dict):
-        chunk_hash = hash(chunk_info.get("text", ""))
-        if chunk_hash not in candidate_chunks_dict:
-            candidate_chunks_dict[chunk_hash] = chunk_info
-
-    # --- ESTÁGIO 1: PRÉ-FILTRAGEM GLOBAL ---
-    pre_filtered_chunks = []
-    for artifact_name, artifact_data in artifacts.items():
-        chunk_map = artifact_data.get('chunks', {}).get('map', [])
-        all_text_chunks = artifact_data.get('chunks', {}).get('chunks', [])
-        if not chunk_map or not all_text_chunks or len(chunk_map) != len(all_text_chunks): continue
-        for i, chunk_meta in enumerate(chunk_map):
-            # Enriquece o metadado com o texto e o tipo de documento
-            chunk_meta['text'] = all_text_chunks[i]
-            chunk_meta['doc_type'] = artifact_name
-            pre_filtered_chunks.append(chunk_meta)
     
+    # --- Passo 1: Coletar todos os chunks em uma única lista ---
+    all_chunks = []
+    for artifact_name, artifact_data in artifacts.items():
+        list_of_chunks = artifact_data.get('chunks', [])
+
+        if not isinstance(list_of_chunks, list):
+            logger.warning(f"Formato inesperado para chunks em '{artifact_name}'. Esperava uma lista.")
+            continue
+
+        for chunk_meta in list_of_chunks:
+            # Garante que o campo de texto tenha o nome 'text'
+            if 'chunk_text' in chunk_meta and 'text' not in chunk_meta:
+                chunk_meta['text'] = chunk_meta.pop('chunk_text')
+            
+            chunk_meta['doc_type'] = artifact_name
+            all_chunks.append(chunk_meta)
+    
+    # --- Passo 2: Aplicar filtros sobre a lista já populada ---
+    filtros = plan.get("filtros", {})
+    pre_filtered_chunks = all_chunks
     if filtros.get('setor'):
         pre_filtered_chunks = [c for c in pre_filtered_chunks if c.get('setor', '').lower() == filtros['setor'].lower()]
+    
     if filtros.get('controle_acionario'):
         pre_filtered_chunks = [c for c in pre_filtered_chunks if c.get('controle_acionario', '').lower() == filtros['controle_acionario'].lower()]
 
     logger.info(f"Após pré-filtragem por metadados, {len(pre_filtered_chunks)} chunks são candidatos iniciais.")
+    # --- Passo 1: Busca de Tags e Expansão da Query (NOVO) ---
+    logger.info("Executando busca por tags...")
+    tags = search_by_tags(query, kb)
+    logger.info(f"Tags encontradas: {tags}")
+
+    # Se a busca por tags retornou resultados, expandimos a query
+    if tags:
+        expanded_query = expand_search_terms(query, tags, kb)
+        logger.info(f"Query expandida: {expanded_query}")
+        query_to_search = expanded_query
+    else:
+        logger.info("Nenhuma tag relevante encontrada. Usando query original.")
+        query_to_search = query
 
     # --- ESTÁGIO 2: ROTEAMENTO E BUSCA HÍBRIDA DETALHADA ---
     
@@ -471,7 +469,11 @@ def execute_dynamic_plan(
         return "Não encontrei informações relevantes para esta combinação específica de consulta e filtros.", []
     
     candidate_list = list(candidate_chunks_dict.values())
-    logger.info(f"Total de {len(candidate_list)} chunks candidatos únicos encontrados. Re-ranqueando...")
+    if prioritize_recency:
+        logger.info("Re-ranking por recência ativado.")
+        # Chame a nova função aqui, antes do cross-encoder
+        current_time = datetime.now()
+        candidate_list = rerank_by_recency(candidate_list, current_time)
     
     reranked_chunks = rerank_with_cross_encoder(query, candidate_list, cross_encoder_model, top_n=TOP_K_FINAL)
     
@@ -683,9 +685,10 @@ def handle_rag_query(
     cross_encoder_model: CrossEncoder,
     kb: dict,
     company_catalog_rich: list,
-    company_lookup_map: dict,  # <-- ESTE É O PARÂMETRO QUE FALTAVA
+    company_lookup_map: dict,
     summary_data: dict,
-    filters: dict
+    filters: dict,
+    prioritize_recency: bool = False
 ) -> tuple[str, list[dict]]:
     """
     Orquestra o pipeline de RAG para perguntas qualitativas, incluindo a geração do plano,
@@ -834,6 +837,13 @@ def main():
     with st.sidebar:
         st.header("📊 Informações do Sistema")
         st.metric("Categorias de Documentos (RAG)", len(artifacts))
+        st.markdown("---")
+
+        # Adicione o checkbox para re-ranking por recência
+        prioritize_recency = st.checkbox(
+            "Priorizar documentos mais recentes",
+            value=True, # Deixe ativado por padrão
+            help="Dá um bônus de relevância para os documentos mais novos.")
         st.metric("Empresas no Resumo", len(summary_data))
                 # --- MODIFICAÇÃO 2: Usar as listas dinâmicas ---
         st.header("⚙️ Filtros da Análise")
@@ -1085,7 +1095,8 @@ def main():
                 company_catalog_rich=st.session_state.company_catalog_rich, 
                 company_lookup_map=st.session_state.company_lookup_map, 
                 summary_data=summary_data,
-                filters=active_filters
+                filters=active_filters,
+                prioritize_recency=prioritize_recency
             )
             st.markdown(final_answer)
             
