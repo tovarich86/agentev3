@@ -44,10 +44,10 @@ GEMINI_MODEL = "gemini-2.0-flash-lite"
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 FILES_TO_DOWNLOAD = {
-    "item_8_4_chunks_map_final.json": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/item_8_4_chunks_map_final.json",
-    "item_8_4_faiss_index_final.bin": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/item_8_4_faiss_index_final.bin",
-    "outros_documentos_chunks_map_final.json": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/outros_documentos_chunks_map_final.json",
-    "outros_documentos_faiss_index_final.bin": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/outros_documentos_faiss_index_final.bin",
+    "item_8_4_chunks_map_final.json": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/item_8_4_chunks_map.json",
+    "item_8_4_faiss_index_final.bin": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/item_8_4_faiss_index.bin",
+    "outros_documentos_chunks_map_final.json": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/outros_documentos_chunks_map.json",
+    "outros_documentos_faiss_index_final.bin": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/outros_documentos_faiss_index.bin",
     "resumo_fatos_e_topicos_final_enriquecido.json": "https://github.com/tovarich86/agentev3/releases/download/V2.0-DATA/resumo_fatos_e_topicos_v4_por_data.json"
 }
 CACHE_DIR = Path("data_cache")
