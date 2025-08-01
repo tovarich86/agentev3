@@ -25,6 +25,7 @@ import streamlit as st
 import requests
 import logging
 import random
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,33 @@ QUESTION_TEMPLATES = {
 }
 
 # --- NOVAS FUNÇÕES DE MAPEAMENTO HIERÁRQUICO (DA v2.1) ---
+def rerank_by_recency(chunks_to_rerank: list[dict], current_query_date: datetime) -> list[dict]:
+    """Dá um bônus de relevância a chunks mais recentes."""
+    # Define uma data base para cálculo do score
+    if not isinstance(current_query_date, datetime):
+        current_query_date = datetime.now()
+
+    def get_recency_score(chunk):
+        date_str = chunk.get("document_date", "N/A")
+        if date_str and date_str != "N/A":
+            try:
+                # Converte a string 'AAAA-MM-DD' para um objeto de data real
+                doc_date = datetime.fromisoformat(date_str)
+                # Calcula a diferença de dias. Um score maior para datas mais próximas.
+                days_diff = (current_query_date - doc_date).days
+                # Adiciona um score de relevância. Ex: 10 pontos para 0 dias de diferença.
+                return max(0, 10 - (days_diff / 365))
+            except (ValueError, TypeError):
+                return 0
+        return 0
+
+    for chunk in chunks_to_rerank:
+        recency_score = get_recency_score(chunk)
+        # Adiciona o score de recência ao score de relevância existente
+        chunk['relevance_score'] = chunk.get('relevance_score', 0) + recency_score
+
+    # Re-ordena a lista com base no novo score
+    return sorted(chunks_to_rerank, key=lambda x: x.get('relevance_score', 0), reverse=True)
 
 def _recursive_alias_mapper(sub_dict, path_so_far, flat_map):
     """Função auxiliar recursiva para criar o mapa de aliases."""
