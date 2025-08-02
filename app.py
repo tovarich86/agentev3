@@ -464,19 +464,15 @@ def execute_dynamic_plan(
                     docs_by_url[chunk.get('source_url')].append(chunk)
                 MAX_DOCS_PER_COMPANY = 3
                 if len(docs_by_url) > MAX_DOCS_PER_COMPANY:
-                    def get_sort_key(url):
-                        match = re.search(r'(?:NumeroProtocoloEntrega=|rada-cvm/|/id/)\d{4,}(\d+)', str(url))
-                        return int(match.group(1)) if match else 0
                     sorted_urls = sorted(
                         docs_by_url.keys(),
-                        key=get_sort_key,
+                        key=lambda url: docs_by_url[url][0].get('document_date', '0000-00-00'),
                         reverse=True
                     )
+    
                     latest_urls = sorted_urls[:MAX_DOCS_PER_COMPANY]
-                    chunks_for_company = [
-                        chunk for url in latest_urls for chunk in docs_by_url[url]
-                    ]
-                    logger.info(f"Para '{empresa_canonica}', reduzindo docs para os {MAX_DOCS_PER_COMPANY} mais recentes.")
+                    chunks_for_company = [chunk for url in latest_urls for chunk in docs_by_url[url]]
+                    logger.info(f"Para '{empresa_canonica}', selecionando os {MAX_DOCS_PER_COMPANY} documentos mais recentes pela DATA REAL.")
 
                 # Etapa 1: Busca por tags (precisão)
                 logger.info(f"[{empresa_canonica}] Etapa 1: Busca por tags nos metadados...")
@@ -872,11 +868,8 @@ def main():
     st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
     st.markdown("---")
 
-    embedding_model = get_embedding_model()
-    cross_encoder_model = get_cross_encoder_model()
-
     # 2. Carregue os dados (a função agora só retorna 4 valores)
-    artifacts, summary_data, setores_disponiveis, controles_disponiveis = setup_and_load_data()
+    artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
         
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
