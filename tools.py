@@ -179,7 +179,7 @@ def _create_company_lookup_map(company_catalog_rich: list) -> dict:
 def get_final_unified_answer(query: str, context: str) -> str:
     """Chama a API do LLM para gerar uma resposta final sintetizada."""
     GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-    GEMINI_MODEL = "gemini-1.5-flash-latest" # Mantém o modelo mais recente
+    GEMINI_MODEL = "gemini-2.0-flash-lite" # Mantém o modelo mais recente
     if not GEMINI_API_KEY: return "Erro: A chave da API do Gemini não foi configurada."
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     structure_instruction = "Organize a resposta de forma lógica e clara usando Markdown."
