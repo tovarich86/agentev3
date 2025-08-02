@@ -145,7 +145,7 @@ def setup_and_load_data():
 
     logger.info(f"Filtros dinâmicos encontrados: {len(all_setores)-1} setores e {len(all_controles)-1} tipos de controle.")
     
-    return artifacts, summary_data, all_setores, all_controles
+    return artifacts, summary_data, all_setores, all_controles, embedding_model, cross_encoder_model
 
 
 
