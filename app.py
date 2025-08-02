@@ -301,9 +301,6 @@ def execute_dynamic_plan(
     from datetime import datetime
     import faiss
 
-    # Definições (ou traga de configs globais)
-    TOP_K_FINAL = 10 if "TOP_K_FINAL" not in globals() else TOP_K_FINAL
-    TOP_K_INITIAL_RETRIEVAL = 10 if "TOP_K_INITIAL_RETRIEVAL" not in globals() else TOP_K_INITIAL_RETRIEVAL
 
     # -------------- HELPERS --------------
     def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
