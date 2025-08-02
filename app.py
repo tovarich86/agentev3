@@ -42,7 +42,7 @@ TOP_K_SEARCH = 7
 TOP_K_INITIAL_RETRIEVAL = 30
 TOP_K_FINAL = 15             # Número final de chunks a usar no contexto
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash-lite-001"
+GEMINI_MODEL = "gemini-2.5-flash"
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 FILES_TO_DOWNLOAD = {
