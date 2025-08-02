@@ -355,15 +355,19 @@ for chunk in all_chunks:
         logger.info(f"ROTA section_8_4: Usando nome de busca '{search_name}' para '{canonical_name_from_plan}'")
         chunks_to_search = [c for c in pre_filtered_chunks if c.get('doc_type') == 'item_8_4' and _is_company_match(canonical_name_from_plan, c.get('company_name', ''))]
         if chunks_to_search:
-            temp_embeddings = model.encode([c['text'] for c in chunks_to_search], normalize_embeddings=True).astype('float32')
+            temp_embeddings = model.encode([c.get('text','') for c in chunks_to_search], normalize_embeddings=True).astype('float32')
             temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
             temp_index.add(temp_embeddings)
             all_search_queries = []
             for topico in topicos:
                 for term in expand_search_terms(topico, kb)[:3]:
                     all_search_queries.append(f"explicação detalhada sobre o conceito e funcionamento de {term}")
+
+            # --- VERIFIQUE A INDENTAÇÃO AQUI ---
             if not all_search_queries:
+                # Esta linha PRECISA ter um recuo para estar dentro do "if"
                 return "Não encontrei informações relevantes para esta combinação.", []
+            
             logger.info(f"Codificando {len(all_search_queries)} variações de busca em lote...")
             query_embeddings = model.encode(all_search_queries, normalize_embeddings=True).astype('float32')
             k_per_query = max(1, TOP_K_FINAL // len(all_search_queries))
