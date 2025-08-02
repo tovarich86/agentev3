@@ -365,7 +365,8 @@ for chunk in all_chunks:
 
             # --- VERIFIQUE A INDENTAÇÃO AQUI ---
             if not all_search_queries:
-                return "Não encontrei informações relevantes para esta combinação.", []
+                return "Não encontrei informações relevantes para esta
+    combinação.", []
             
             logger.info(f"Codificando {len(all_search_queries)} variações de busca em lote...")
             query_embeddings = model.encode(all_search_queries, normalize_embeddings=True).astype('float32')
