@@ -39,6 +39,8 @@ st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layou
 
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 TOP_K_SEARCH = 7
+TOP_K_INITIAL_RETRIEVAL = 30
+TOP_K_FINAL = 15             # Número final de chunks a usar no contexto
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.0-flash-lite"
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
