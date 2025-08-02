@@ -304,7 +304,7 @@ def find_companies_by_topic(
     # --- Parte 1: Busca por Metadados (como na v2.1, mas com filtros) ---
     companies_from_metadata = set()
     for artifact_name, artifact_data in artifacts.items():
-        chunk_map = artifact_data.get('chunks', {}).get('map', [])
+        chunk_map = artifact_data.get('chunks', [])
         if not chunk_map: continue
 
         # Aplica filtros, se existirem
@@ -330,7 +330,7 @@ def find_companies_by_topic(
 
     for artifact_name, artifact_data in artifacts.items():
         index = artifact_data.get('index')
-        chunk_map = artifact_data.get('chunks', {}).get('map', [])
+        chunk_map = artifact_data.get('chunks', [])
         if not index or not chunk_map: continue
 
         _, indices = index.search(query_embedding, top_k)
