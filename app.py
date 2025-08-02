@@ -271,18 +271,7 @@ def get_query_intent_with_llm(query: str) -> str:
         logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
         return "qualitativa"
 
-def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
-    if not plan_canonical_name or not metadata_name:  
-        return False
-    plan_lower = plan_canonical_name.lower()
-    meta_lower = metadata_name.lower()
-    if plan_lower in meta_lower:
-        return True
-    return False
 
-# <<< MELHORIA 2 APLICADA >>>
-# Função modificada para lidar com buscas gerais (sem empresa)
-# Em app.py, substitua esta função
 def execute_dynamic_plan(
     query: str,
     plan: dict,
@@ -300,11 +289,21 @@ def execute_dynamic_plan(
     Versão 4.0 (Definitiva e Completa) do Executor de Planos.
     Esta versão unifica a lógica de carregamento e filtragem de chunks.
     """
+    # --- CORREÇÃO APLICADA: Mover a função para o escopo local ---
+    def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
+        if not plan_canonical_name or not metadata_name:
+            return False
+        plan_lower = plan_canonical_name.lower()
+        meta_lower = metadata_name.lower()
+        if plan_lower in meta_lower:
+            return True
+        return False
+
     logger.info(f"Executando plano v4.0 (Definitivo) para query: '{query}'")
     plan_type = plan.get("plan_type", "default")
     empresas = plan.get("empresas", [])
     topicos = plan.get("topicos", [])
-    
+
     # --- Passo 1: Coletar todos os chunks em uma única lista ---
     all_chunks = []
     for artifact_name, artifact_data in artifacts.items():
@@ -318,16 +317,16 @@ def execute_dynamic_plan(
             # Garante que o campo de texto tenha o nome 'text'
             if 'chunk_text' in chunk_meta and 'text' not in chunk_meta:
                 chunk_meta['text'] = chunk_meta.pop('chunk_text')
-            
+
             chunk_meta['doc_type'] = artifact_name
             all_chunks.append(chunk_meta)
-    
+
     # --- Passo 2: Aplicar filtros sobre a lista já populada ---
     filtros = plan.get("filtros", {})
     pre_filtered_chunks = all_chunks
     if filtros.get('setor'):
         pre_filtered_chunks = [c for c in pre_filtered_chunks if c.get('setor', '').lower() == filtros['setor'].lower()]
-    
+
     if filtros.get('controle_acionario'):
         pre_filtered_chunks = [c for c in pre_filtered_chunks if c.get('controle_acionario', '').lower() == filtros['controle_acionario'].lower()]
 
@@ -347,13 +346,13 @@ def execute_dynamic_plan(
         query_to_search = query
 
     # --- ESTÁGIO 2: ROTEAMENTO E BUSCA HÍBRIDA DETALHADA ---
-    
+
     # ROTA 1: Plano especial para buscar o Item 8.4
     if plan_type == "section_8_4" and empresas:
         canonical_name_from_plan = empresas[0]
         search_name = next((e.get("search_alias", canonical_name_from_plan) for e in company_catalog_rich if e.get("canonical_name") == canonical_name_from_plan), canonical_name_from_plan)
         logger.info(f"ROTA section_8_4: Usando nome de busca '{search_name}' para '{canonical_name_from_plan}'")
-        
+
         # Filtra ainda mais os chunks para o documento e empresa específicos
         chunks_to_search = [c for c in pre_filtered_chunks if c.get('doc_type') == 'item_8_4' and _is_company_match(canonical_name_from_plan, c.get('company_name', ''))]
         if chunks_to_search:
@@ -361,8 +360,8 @@ def execute_dynamic_plan(
             temp_embeddings = model.encode([c['text'] for c in chunks_to_search], normalize_embeddings=True).astype('float32')
             temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
             temp_index.add(temp_embeddings)
-              # --- INÍCIO DA LÓGICA OTIMIZADA ---
-        
+            # --- INÍCIO DA LÓGICA OTIMIZADA ---
+
             # Etapa 2: Preparar TODAS as queries de busca primeiro
             all_search_queries = []
             for topico in topicos:
@@ -370,43 +369,43 @@ def execute_dynamic_plan(
                     all_search_queries.append(f"explicação detalhada sobre o conceito e funcionamento de {term}")
 
             if not all_search_queries:
-                 logger.warning("Nenhuma query de busca foi gerada a partir dos tópicos.")
-                 return "Não encontrei informações relevantes para esta combinação.", []
-        
+                logger.warning("Nenhuma query de busca foi gerada a partir dos tópicos.")
+                return "Não encontrei informações relevantes para esta combinação.", []
+
             logger.info(f"Codificando {len(all_search_queries)} variações de busca em lote...")
-        
+
             # Etapa 3: Codificar TODAS as queries de uma só vez (muito mais rápido)
             query_embeddings = model.encode(all_search_queries, normalize_embeddings=True).astype('float32')
-        
+
             # Etapa 4: Executar a busca para todas as queries de uma vez
             # k_per_query ajusta quantos resultados buscar por cada variação da query
             k_per_query = max(1, TOP_K_FINAL // len(all_search_queries))
             _, all_indices = temp_index.search(query_embeddings, k_per_query)
-        
+
             # Etapa 5: Coletar todos os resultados únicos
             for indices_row in all_indices:
                 for idx in indices_row:
                     if idx != -1:
                         add_candidate(chunks_to_search[idx])
-        # --- FIM DA LÓGICA OTIMIZADA ---
+    # --- FIM DA LÓGICA OTIMIZADA ---
     # ROTA 2: Planos Padrão (Default, Summary)
     else:
         # CASO 2.1: Busca geral por tópico (sem empresa)
         if not empresas and topicos:
             logger.info(f"ROTA Default (Geral): Executando busca conceitual para os tópicos: {topicos}")
-                    # --- OTIMIZAÇÃO AQUI ---
+            # --- OTIMIZAÇÃO AQUI ---
             sample_size = 100 # Pega uma amostra de 4000 chunks para a busca geral
             if len(pre_filtered_chunks) > sample_size:
                 logger.info(f"Base de chunks grande ({len(pre_filtered_chunks)}). Usando uma amostra de {sample_size} para a busca geral.")
                 chunks_to_search = random.sample(pre_filtered_chunks, sample_size)
             else:
                 chunks_to_search = pre_filtered_chunks
-        # --- FIM DA OTIMIZAÇÃO ---
+    # --- FIM DA OTIMIZAÇÃO ---
             # Constrói índice FAISS temporário com todos os chunks pré-filtrados
             temp_embeddings = model.encode([c['text'] for c in chunks_to_search], normalize_embeddings=True).astype('float32')
             temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
             temp_index.add(temp_embeddings)
-            
+
             for topico in topicos:
                 for term in expand_search_terms(topico, kb)[:3]:
                     search_query = f"explicação detalhada sobre o conceito e funcionamento de {term}"
@@ -422,8 +421,8 @@ def execute_dynamic_plan(
                 # Filtra os chunks para a empresa atual
                 chunks_for_company = [c for c in pre_filtered_chunks if _is_company_match(empresa_canonica, c.get('company_name', ''))]
                 if not chunks_for_company: continue
-                                # --- INÍCIO DA LÓGICA DE DEDUPLICAÇÃO INTELIGENTE ---
-                
+                # --- INÍCIO DA LÓGICA DE DEDUPLICAÇÃO INTELIGENTE ---
+
                 # 1. Agrupa os chunks por documento de origem (source_url)
                 docs_by_url = defaultdict(list)
                 for chunk in chunks_for_company:
@@ -432,22 +431,22 @@ def execute_dynamic_plan(
                 # 2. Se houver muitos documentos, seleciona os mais recentes
                 MAX_DOCS_PER_COMPANY = 3  # Analisa no máximo os 3 documentos mais recentes
                 if len(docs_by_url) > MAX_DOCS_PER_COMPANY:
-                    
+
                     # Tenta ordenar pela data ou protocolo na URL (mais novo primeiro)
                     def get_sort_key(url):
                         match = re.search(r'(?:NumeroProtocoloEntrega=|rada-cvm/|/id/)\d{4,}(\d+)', str(url))
                         return int(match.group(1)) if match else 0
 
                     sorted_urls = sorted(docs_by_url.keys(), key=get_sort_key, reverse=True)
-                    
+
                     # Seleciona as URLs dos documentos mais recentes
                     latest_urls = sorted_urls[:MAX_DOCS_PER_COMPANY]
-                    
+
                     # Remonta a lista de chunks usando apenas os documentos mais recentes
                     final_chunks_for_company = []
                     for url in latest_urls:
                         final_chunks_for_company.extend(docs_by_url[url])
-                    
+
                     logger.info(
                         f"Para '{empresa_canonica}', reduzindo {len(chunks_for_company)} chunks de {len(docs_by_url)} documentos "
                         f"para {len(final_chunks_for_company)} chunks dos {MAX_DOCS_PER_COMPANY} documentos mais recentes."
@@ -460,14 +459,14 @@ def execute_dynamic_plan(
                 tagged_chunks = search_by_tags(chunks_for_company, list(target_tags))
                 for chunk_info in tagged_chunks:
                     add_candidate(chunk_info)
-                
+
                 # Parte 2: Busca Vetorial (Alta Revocação Semântica)
                 temp_embeddings = model.encode([c['text'] for c in chunks_for_company], normalize_embeddings=True).astype('float32')
                 temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
                 temp_index.add(temp_embeddings)
-                
+
                 search_name = next((e.get("search_alias", empresa_canonica) for e in company_catalog_rich if e.get("canonical_name") == empresa_canonica), empresa_canonica)
-                
+
                 for topico in topicos:
                     search_query = f"informações detalhadas sobre {topico} no plano da empresa {search_name}"
                     query_embedding = model.encode([search_query], normalize_embeddings=True).astype('float32')
@@ -479,16 +478,16 @@ def execute_dynamic_plan(
     if not candidate_chunks_dict:
         logger.warning(f"Nenhum chunk candidato encontrado para a query: '{query}' com os filtros aplicados.")
         return "Não encontrei informações relevantes para esta combinação específica de consulta e filtros.", []
-    
+
     candidate_list = list(candidate_chunks_dict.values())
     if prioritize_recency:
         logger.info("Re-ranking por recência ativado.")
         # Chame a nova função aqui, antes do cross-encoder
         current_time = datetime.now()
         candidate_list = rerank_by_recency(candidate_list, current_time)
-    
+
     reranked_chunks = rerank_with_cross_encoder(query, candidate_list, cross_encoder_model, top_n=TOP_K_FINAL)
-    
+
     # Construção do Contexto Final
     full_context = ""
     retrieved_sources = []
@@ -497,16 +496,16 @@ def execute_dynamic_plan(
     for chunk in reranked_chunks:
         company_name = chunk.get('company_name', 'N/A')
         source_url = chunk.get('source_url', 'N/A')
-        
+
         source_header = f"(Empresa: {company_name}, Setor: {chunk.get('setor', 'N/A')}, Documento: {chunk.get('doc_type', 'N/A')})"
         clean_text = re.sub(r'\[.*?\]', '', chunk.get('text', '')).strip()
         full_context += f"--- CONTEÚDO RELEVANTE {source_header} ---\n{clean_text}\n\n"
-        
+
         source_tuple = (company_name, source_url)
         if source_tuple not in seen_sources:
             seen_sources.add(source_tuple)
             retrieved_sources.append(chunk)
-            
+
     logger.info(f"Contexto final construído a partir de {len(reranked_chunks)} chunks re-ranqueados.")
     return full_context, retrieved_sources
     
