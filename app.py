@@ -365,7 +365,6 @@ for chunk in all_chunks:
 
             # --- VERIFIQUE A INDENTAÇÃO AQUI ---
             if not all_search_queries:
-                # Esta linha PRECISA ter um recuo para estar dentro do "if"
                 return "Não encontrei informações relevantes para esta combinação.", []
             
             logger.info(f"Codificando {len(all_search_queries)} variações de busca em lote...")
