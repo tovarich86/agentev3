@@ -271,6 +271,15 @@ def get_query_intent_with_llm(query: str) -> str:
         logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
         return "qualitativa"
 
+def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
+    if not plan_canonical_name or not metadata_name:  
+        return False
+    plan_lower = plan_canonical_name.lower()
+    meta_lower = metadata_name.lower()
+    if plan_lower in meta_lower:
+        return True
+    return False
+
 # <<< MELHORIA 2 APLICADA >>>
 # Função modificada para lidar com buscas gerais (sem empresa)
 # Em app.py, substitua esta função
