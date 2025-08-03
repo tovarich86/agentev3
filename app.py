@@ -259,7 +259,7 @@ def get_query__with_llm(query: str) -> str:
         
         response_text = response.json()['candidates'][0]['content']['parts'][0]['text']
         _json = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group())
-         = _json.get("", "qualitativa").lower()
+        = _json.get("", "qualitativa").lower()
         
         logger.info(f"Intenção detectada pelo LLM: '{}' para a pergunta: '{query}'")
         
