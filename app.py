@@ -1031,18 +1031,18 @@ def main():
             listing_keywords = ["quais empresas", "liste as empresas", "quais companhias"]
             thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
                 # --- INÍCIO DA LÓGICA CORRIGIDA E FINAL ---
-            
+    
             # 1. Usa a nova função para criar o mapa hierárquico
             alias_map = create_hierarchical_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO)
             found_topics = set()
-            
+    
             # 2. Itera nos aliases para encontrar os tópicos mencionados na query
             for alias in sorted(alias_map.keys(), key=len, reverse=True):
                 if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
                     full_path = alias_map[alias]
                     topic_leaf = full_path.split(',')[-1].replace('_', ' ')
                     found_topics.add(topic_leaf)
-            
+    
             topics_to_search = list(found_topics)
             # Remove palavras-chave genéricas da lista de tópicos
             topics_to_search = [t for t in topics_to_search if t.lower() not in listing_keywords and t.lower() not in thematic_keywords]
