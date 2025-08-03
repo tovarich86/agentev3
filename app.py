@@ -373,7 +373,9 @@ def execute_dynamic_plan(
         query_to_search = query
 
     # -------------- ROTEAMENTO PRINCIPAL --------------
+    # -------------- ROTEAMENTO PRINCIPAL --------------
     if plan_type == "section_8_4" and empresas:
+        # ROTA CORRIGIDA para "descreva item 8.4 vivara"
         canonical_name_from_plan = empresas[0]
         search_name = next(
             (
@@ -384,40 +386,26 @@ def execute_dynamic_plan(
             canonical_name_from_plan,
         )
         logger.info(f"ROTA ESPECIAL section_8_4: Usando nome de busca '{search_name}'.")
+
+        # 1. Filtra para obter todos os chunks do item 8.4 da empresa.
         chunks_to_search = [
             c for c in pre_filtered_chunks
             if c.get('doc_type') == 'item_8_4' and _is_company_match(canonical_name_from_plan, c.get('company_name', ''))
         ]
+
+        # 2. SE chunks foram encontrados, adiciona TODOS eles diretamente aos candidatos.
+        #    A busca vetorial secundária que existia aqui foi removida, pois era a causa do erro.
         if chunks_to_search:
-            if plan_type == "section_8_4" and empresas:
-            canonical_name_from_plan = empresas[0]
-            search_name = next(
-                (
-                    e.get("search_alias", canonical_name_from_plan)
-                    for e in company_catalog_rich
-                    if e.get("canonical_name") == canonical_name_from_plan
-                ),
-                canonical_name_from_plan,
-            )
-            logger.info(f"ROTA ESPECIAL section_8_4: Usando nome de busca '{search_name}'.")
-    
-            # 1. Filtra para obter todos os chunks do item 8.4 da empresa.
-            chunks_to_search = [
-                c for c in pre_filtered_chunks
-                if c.get('doc_type') == 'item_8_4' and _is_company_match(canonical_name_from_plan, c.get('company_name', ''))
-            ]
-    
-            # 2. SE chunks foram encontrados, adiciona TODOS eles diretamente aos candidatos.
-            if chunks_to_search:
-                logger.info(f"Rota 'section_8_4': {len(chunks_to_search)} chunks encontrados para '{canonical_name_from_plan}'. Adicionando todos ao contexto.")
-                for chunk in chunks_to_search:
-                    add_candidate(chunk)
-            else:
-                logger.warning(f"Rota 'section_8_4': Nenhum chunk do tipo 'item_8_4' foi encontrado para a empresa '{canonical_name_from_plan}'.")
+            logger.info(f"Rota 'section_8_4': {len(chunks_to_search)} chunks encontrados para '{canonical_name_from_plan}'. Adicionando todos ao contexto.")
+            for chunk in chunks_to_search:
+                add_candidate(chunk)
+        else:
+            logger.warning(f"Rota 'section_8_4': Nenhum chunk do tipo 'item_8_4' foi encontrado para a empresa '{canonical_name_from_plan}'.")
 
     else:
+        # As outras rotas (busca geral, busca híbrida) permanecem 100% INTACTAS aqui.
         if not empresas and topicos:
-            # Busca conceitual em todos os docs, amostra randomizada p/ eficiência
+            # ROTA GERAL: Lógica original preservada.
             logger.info(f"ROTA Default (Geral): busca conceitual para tópicos: {topicos}")
             sample_size = 100
             chunks_to_search = random.sample(
@@ -444,7 +432,7 @@ def execute_dynamic_plan(
                                 add_candidate(chunks_to_search[idx])
 
         elif empresas and topicos:
-            # Busca híbrida empresa+tópico: selecione docs por empresa e combine busca por tag/semântica
+            # ROTA HÍBRIDA: Lógica original e robusta preservada.
             logger.info(f"ROTA HÍBRIDA: Empresas: {empresas}, Tópicos: {topicos}")
             target_topic_paths = plan.get("topicos", [])
 
@@ -467,7 +455,6 @@ def execute_dynamic_plan(
                         key=lambda url: docs_by_url[url][0].get('document_date', '0000-00-00'),
                         reverse=True
                     )
-    
                     latest_urls = sorted_urls[:MAX_DOCS_PER_COMPANY]
                     chunks_for_company = [chunk for url in latest_urls for chunk in docs_by_url[url]]
                     logger.info(f"Para '{empresa_canonica}', selecionando os {MAX_DOCS_PER_COMPANY} documentos mais recentes pela DATA REAL.")
@@ -482,7 +469,7 @@ def execute_dynamic_plan(
                     ):
                         add_candidate(chunk)
 
-                # Etapa 2: Busca vetorial semântica
+                # Etapa 2: Busca vetorial semântica (abrangência)
                 logger.info(f"[{empresa_canonica}] Etapa 2: Busca por similaridade semântica...")
                 if chunks_for_company:
                     temp_embeddings = model.encode(
@@ -511,7 +498,6 @@ def execute_dynamic_plan(
                     for idx in indices[0]:
                         if idx != -1:
                             add_candidate(chunks_for_company[idx])
-
     # -------------------- RE-RANKING FINAL ----------------------------
     if not candidate_chunks_dict:
         logger.warning(
