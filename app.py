@@ -304,9 +304,24 @@ def execute_dynamic_plan(
 
     # -------------- HELPERS --------------
     def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
-        if not plan_canonical_name or not metadata_name:
-            return False
-        return plan_canonical_name.lower() in metadata_name.lower()
+    if not plan_canonical_name or not metadata_name:
+        return False
+
+        # Função auxiliar para remover acentos e caracteres especiais
+        def normalize_text(text: str) -> str:
+            import unicodedata
+            import re
+            # Remove acentos (diacríticos)
+            nfkd_form = unicodedata.normalize('NFKD', text.lower())
+            only_ascii = nfkd_form.encode('ASCII', 'ignore').decode('utf-8')
+            # Remove pontuações e excesso de espaços
+            only_ascii = re.sub(r'[^\w\s]', '', only_ascii)
+            return ' '.join(only_ascii.split())
+
+        normalized_plan_name = normalize_text(plan_canonical_name)
+        normalized_metadata_name = normalize_text(metadata_name)
+
+        return normalized_plan_name in normalized_metadata_name
 
     candidate_chunks_dict = {}
 
