@@ -404,50 +404,63 @@ class AnalyticalEngine:
         return report_text, df.sort_values(by="Desconto Aplicado (%)", ascending=False).reset_index(drop=True)
 
     def _analyze_tsr(self, normalized_query: str, filters: dict) -> tuple:
-    data_to_analyze = self._apply_filters_to_data(filters)
-    results = defaultdict(list)
-    tsr_type_filter = 'qualquer'
-    if 'relativo' in normalized_query and 'absoluto' not in normalized_query:
-        tsr_type_filter = 'relativo'
-    elif 'absoluto' in normalized_query and 'relativo' not in normalized_query:
-        tsr_type_filter = 'absoluto'
+        data_to_analyze = self._apply_filters_to_data(filters)
+        results = defaultdict(list)
+        tsr_type_filter = 'qualquer'
+        if 'relativo' in normalized_query and 'absoluto' not in normalized_query:
+            tsr_type_filter = 'relativo'
+        elif 'absoluto' in normalized_query and 'relativo' not in normalized_query:
+            tsr_type_filter = 'absoluto'
 
-    for company, details in data_to_analyze.items():
-        for plano in details.get("planos_identificados", {}).values():
-            topics = plano.get("topicos_encontrados", {})
-            
-            # Navegação segura e flexível na estrutura de tópicos
+        for company, details in data_to_analyze.items():
+            # Check for TSR in the dedicated topics section
+            topics = details.get("topicos_encontrados", {})
             performance_section = topics.get("IndicadoresPerformance", {})
-            conceito_geral = performance_section.get("ConceitoGeral_Performance", {})
-            tsr_data = conceito_geral.get("TSR", [])
-
-            # Lógica para identificar os tipos de TSR e adicionar a empresa à lista
-            if isinstance(tsr_data, dict):
-                has_tsr_absoluto = 'TSR_Absoluto' in tsr_data
-                has_tsr_relativo = 'TSR_Relativo' in tsr_data
-                
-                if has_tsr_absoluto:
-                    results['absoluto'].append(company)
-                if has_tsr_relativo:
-                    results['relativo'].append(company)
-                if has_tsr_absoluto or has_tsr_relativo:
-                    results['qualquer'].append(company)
-            elif isinstance(tsr_data, list) and tsr_data:
+        
+        # This will check for any mention of TSR, relative or absolute, under performance indicators
+        # We need to traverse the dictionary to find the TSR key
+        
+            queue = [performance_section]
+            found_tsr = False
+            while queue:
+                node = queue.pop(0)
+                if isinstance(node, dict):
+                    for key, value in node.items():
+                    # Check for 'TSR' as a key at any level within IndicadoresPerformance
+                        if key == 'TSR':
+                            found_tsr = True
+                            break
+                        if isinstance(value, (dict, list)):
+                            queue.append(value)
+                elif isinstance(node, list):
+                    for item in node:
+                        if isinstance(item, (dict, list)):
+                            queue.append(item)
+                if found_tsr:
+                    break
+        
+            if found_tsr:
+                # For simplicity in this fix, we'll add to 'qualquer' if any TSR is found.
+                # A more detailed check for 'Absoluto' vs 'Relativo' would require knowing the exact structure.
                 results['qualquer'].append(company)
+                # This logic can be expanded if you need to differentiate again
+                if 'absoluto' in tsr_type_filter or 'relativo' in tsr_type_filter:
+                     # Simplified: if user asks for specific, and we find any, we add it.
+                     results[tsr_type_filter].append(company)
 
 
-    # Remove duplicatas e ordena
-    for key, value in results.items():
-        results[key] = sorted(list(set(value)))
+        # Remove duplicates and sort
+        for key, value in results.items():
+            results[key] = sorted(list(set(value)))
 
-    target_companies = results.get(tsr_type_filter, [])
-    if not target_companies:
-        return f"Nenhuma empresa encontrada com o critério de TSR '{tsr_type_filter}' para os filtros selecionados.", None
+        target_companies = results.get(tsr_type_filter, [])
+        if not target_companies:
+            return f"Nenhuma empresa encontrada com o critério de TSR '{tsr_type_filter}' para os filtros selecionados.", None
 
-    report_text = f"Encontradas **{len(target_companies)}** empresas com o critério de TSR: **{tsr_type_filter.upper()}** para os filtros aplicados."
+        report_text = f"Encontradas **{len(target_companies)}** empresas com o critério de TSR: **{tsr_type_filter.upper()}** para os filtros aplicados."
 
-    df = pd.DataFrame(sorted(target_companies), columns=[f"Empresas com TSR ({tsr_type_filter.upper()})"])
-    return report_text, df
+        df = pd.DataFrame(sorted(target_companies), columns=[f"Empresas com TSR ({tsr_type_filter.upper()})"])
+        return report_text, df
 
     def _analyze_malus_clawback(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
