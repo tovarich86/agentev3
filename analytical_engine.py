@@ -404,79 +404,54 @@ class AnalyticalEngine:
         return report_text, df.sort_values(by="Desconto Aplicado (%)", ascending=False).reset_index(drop=True)
 
     def _analyze_tsr(self, normalized_query: str, filters: dict) -> tuple:
+        """
+        Analisa a presença de TSR (Total Shareholder Return), lidando com
+        múltiplas estruturas de dados aninhadas de forma recursiva.
+        """
+    
+        def find_tsr_recursively(node: dict or list) -> bool:
+            """
+            Função auxiliar recursiva que busca a chave 'TSR' em um nó (dicionário ou lista).
+            Retorna True assim que a primeira ocorrência é encontrada.
+            """
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == 'TSR':
+                        return True
+                    # Continua a busca recursiva nos valores se forem dicionários ou listas
+                    if isinstance(value, (dict, list)) and find_tsr_recursively(value):
+                        return True
+            elif isinstance(node, list):
+                for item in node:
+                    # Continua a busca recursiva nos itens da lista
+                    if isinstance(item, (dict, list)) and find_tsr_recursively(item):
+                        return True
+            return False
+
         data_to_analyze = self._apply_filters_to_data(filters)
-        results = defaultdict(list)
-        tsr_type_filter = 'qualquer'
-
-        # Determina se o usuário fez uma pergunta específica sobre TSR relativo ou absoluto
-        is_relative_query = 'relativo' in normalized_query
-        is_absolute_query = 'absoluto' in normalized_query
-
-        if is_relative_query and not is_absolute_query:
-            tsr_type_filter = 'relativo'
-        elif is_absolute_query and not is_relative_query:
-            tsr_type_filter = 'absoluto'
+        companies_with_tsr = []
 
         # Itera sobre cada empresa nos dados filtrados
         for company, details in data_to_analyze.items():
-            found_tsr_for_company = False
-        
-            # 1. A CORREÇÃO PRINCIPAL: Itera sobre cada PLANO dentro de "planos_identificados"
+            # Itera sobre cada plano identificado para a empresa
             for plan_details in details.get("planos_identificados", {}).values():
+                performance_section = plan_details.get("topicos_encontrados", {}).get("IndicadoresPerformance")
             
-                # 2. Acessa os tópicos para o plano específico
-                topicos = plan_details.get("topicos_encontrados", {})
-                performance_section = topicos.get("IndicadoresPerformance", {})
+                if performance_section and find_tsr_recursively(performance_section):
+                    companies_with_tsr.append(company)
+                    # Otimização: Se já encontrou TSR em um plano, não precisa checar os outros da mesma empresa.
+                    break 
+    
+        if not companies_with_tsr:
+            return "Nenhuma empresa encontrada com o critério de TSR para os filtros selecionados.", None
 
-                # 3. Usa uma busca em largura (fila) para encontrar "TSR" em qualquer nível
-                queue = [performance_section]
-            
-                while queue:
-                    node = queue.pop(0)
-                    if isinstance(node, dict):
-                        if 'TSR' in node:
-                        # Encontrou TSR para esta empresa, pode parar de procurar
-                            found_tsr_for_company = True
-                            break 
-                    
-                    # Adiciona os sub-níveis à fila para continuar a busca
-                        for value in node.values():
-                            if isinstance(value, (dict, list)):
-                                queue.append(value)
+        # Remove duplicatas e ordena a lista final
+        unique_companies = sorted(list(set(companies_with_tsr)))
 
-            # Se encontrou TSR em qualquer um dos planos, pode passar para a próxima empresa
-                if found_tsr_for_company:
-                    break
-        
-            # Adiciona a empresa à lista de resultados se o TSR foi encontrado
-            if found_tsr_for_company:
-                results['qualquer'].append(company)
-
-    # Remove duplicatas e ordena a lista final
-        unique_companies = sorted(list(set(results.get(tsr_type_filter, []))))
-
-        if not unique_companies:
-            return f"Nenhuma empresa encontrada com o critério de TSR '{tsr_type_filter}' para os filtros selecionados.", None
-
-        report_text = f"Encontradas **{len(unique_companies)}** empresas com o critério de TSR: **{tsr_type_filter.upper()}** para os filtros aplicados."
-        df = pd.DataFrame(unique_companies, columns=[f"Empresas com TSR ({tsr_type_filter.upper()})"])
+        report_text = f"Encontradas **{len(unique_companies)}** empresas com o critério de TSR para os filtros aplicados."
+        df = pd.DataFrame(unique_companies, columns=["Empresas com TSR"])
     
         return report_text, df
-
-    def _analyze_malus_clawback(self, normalized_query: str, filters: dict) -> tuple:
-        data_to_analyze = self._apply_filters_to_data(filters)
-        companies = []
-        for company, details in data_to_analyze.items():
-            facts = details.get("fatos_extraidos", {})
-            if 'malus_clawback_presente' in facts and facts['malus_clawback_presente'].get('presente', False):
-                companies.append(company)
-        if not companies:
-            return "Nenhuma empresa com cláusulas de Malus ou Clawback foi encontrada para os filtros selecionados.", None
-        
-        report_text = f"Encontradas **{len(companies)}** empresas com cláusulas de **Malus ou Clawback** para os filtros aplicados."
-        df = pd.DataFrame(sorted(companies), columns=["Empresas com Malus/Clawback"])
-        return report_text, df
-
     def _analyze_dividends_during_vesting(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         companies = []
