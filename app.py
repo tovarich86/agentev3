@@ -304,8 +304,8 @@ def execute_dynamic_plan(
 
     # -------------- HELPERS --------------
     def _is_company_match(plan_canonical_name: str, metadata_name: str) -> bool:
-    if not plan_canonical_name or not metadata_name:
-        return False
+        if not plan_canonical_name or not metadata_name:
+            return False
 
         # Função auxiliar para remover acentos e caracteres especiais
         def normalize_text(text: str) -> str:
