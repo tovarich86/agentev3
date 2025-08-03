@@ -258,16 +258,24 @@ def get_query__with_llm(query: str) -> str:
         response.raise_for_status()
         
         response_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-        _json = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group())
-        = _json.get("", "qualitativa").lower()
+        # Corrigido: renomeado para intent_json para clareza
+        intent_json = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group())
+        # Corrigido: Adicionada a variável 'intent' e a chave correta 'intent' no .get()
+        intent = intent_json.get("intent", "qualitativa").lower()
         
-        logger.info(f"Intenção detectada pelo LLM: '{}' para a pergunta: '{query}'")
+        # Corrigido: Adicionada a variável 'intent' ao log
+        logger.info(f"Intenção detectada pelo LLM: '{intent}' para a pergunta: '{query}'")
         
-        if  in ["quantitativa", "qualitativa"]:
+        # Corrigido: Adicionada a variável 'intent' na condição
+        if intent in ["quantitativa", "qualitativa"]:
             return intent
         else:
             logger.warning(f"Intenção não reconhecida '{intent}'. Usando 'qualitativa' como padrão.")
             return "qualitativa"
+
+    except Exception as e:
+        logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
+        return "qualitativa"
 
     except Exception as e:
         logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
