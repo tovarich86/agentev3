@@ -389,33 +389,31 @@ def execute_dynamic_plan(
             if c.get('doc_type') == 'item_8_4' and _is_company_match(canonical_name_from_plan, c.get('company_name', ''))
         ]
         if chunks_to_search:
-            temp_embeddings = model.encode(
-                [c.get('text', '') for c in chunks_to_search],
-                normalize_embeddings=True
-            ).astype('float32')
-            temp_index = faiss.IndexFlatIP(temp_embeddings.shape[1])
-            temp_index.add(temp_embeddings)
-
-            all_search_queries = []
-            for topico in topicos:
-                for term in expand_search_terms(topico, kb)[:3]:
-                    all_search_queries.append(f"explicação detalhada sobre o conceito e funcionamento de {term}")
-
-            if not all_search_queries:
-                return "Não encontrei informações relevantes para esta combinação.", []
-
-            logger.info(f"Codificando {len(all_search_queries)} variações de busca...")
-            k_per_query = max(1, TOP_K_FINAL // len(all_search_queries))
-            query_embeddings = model.encode(
-                all_search_queries,
-                normalize_embeddings=True
-            ).astype('float32')
-            _, all_indices = temp_index.search(query_embeddings, k_per_query)
-
-            for indices_row in all_indices:
-                for idx in indices_row:
-                    if idx != -1:
-                        add_candidate(chunks_to_search[idx])
+            if plan_type == "section_8_4" and empresas:
+            canonical_name_from_plan = empresas[0]
+            search_name = next(
+                (
+                    e.get("search_alias", canonical_name_from_plan)
+                    for e in company_catalog_rich
+                    if e.get("canonical_name") == canonical_name_from_plan
+                ),
+                canonical_name_from_plan,
+            )
+            logger.info(f"ROTA ESPECIAL section_8_4: Usando nome de busca '{search_name}'.")
+    
+            # 1. Filtra para obter todos os chunks do item 8.4 da empresa.
+            chunks_to_search = [
+                c for c in pre_filtered_chunks
+                if c.get('doc_type') == 'item_8_4' and _is_company_match(canonical_name_from_plan, c.get('company_name', ''))
+            ]
+    
+            # 2. SE chunks foram encontrados, adiciona TODOS eles diretamente aos candidatos.
+            if chunks_to_search:
+                logger.info(f"Rota 'section_8_4': {len(chunks_to_search)} chunks encontrados para '{canonical_name_from_plan}'. Adicionando todos ao contexto.")
+                for chunk in chunks_to_search:
+                    add_candidate(chunk)
+            else:
+                logger.warning(f"Rota 'section_8_4': Nenhum chunk do tipo 'item_8_4' foi encontrado para a empresa '{canonical_name_from_plan}'.")
 
     else:
         if not empresas and topicos:
