@@ -452,6 +452,25 @@ class AnalyticalEngine:
         df = pd.DataFrame(unique_companies, columns=["Empresas com TSR"])
     
         return report_text, df
+
+    def _analyze_malus_clawback(self, normalized_query: str, filters: dict) -> tuple:
+        """
+        Identifica e lista as empresas que possuem cláusulas de Malus ou Clawback.
+        """
+        data_to_analyze = self._apply_filters_to_data(filters)
+        companies = []
+        for company, details in data_to_analyze.items():
+            # A lógica original busca em "fatos_extraidos", que é uma fonte rápida e confiável para este item
+            facts = details.get("fatos_extraidos", {})
+            if 'malus_clawback_presente' in facts and facts['malus_clawback_presente'].get('presente', False):
+                companies.append(company)
+        
+        if not companies:
+            return "Nenhuma empresa com cláusulas de Malus ou Clawback foi encontrada para os filtros selecionados.", None
+        
+        report_text = f"Encontradas **{len(companies)}** empresas com cláusulas de **Malus ou Clawback** para os filtros aplicados."
+        df = pd.DataFrame(sorted(companies), columns=["Empresas com Malus/Clawback"])
+        return report_text, df
     def _analyze_dividends_during_vesting(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         companies = []
