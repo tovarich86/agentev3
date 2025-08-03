@@ -223,7 +223,7 @@ def get_final_unified_answer(query: str, context: str) -> str:
         return f"Ocorreu um erro ao contatar o modelo de linguagem. Detalhes: {str(e)}"
 
 # <<< MELHORIA 1 ADICIONADA >>>
-def get_query_intent_with_llm(query: str) -> str:
+def get_query__with_llm(query: str) -> str:
     """
     Usa um LLM para classificar a intenção do usuário em 'quantitativa' ou 'qualitativa'.
     Retorna 'qualitativa' como padrão em caso de erro.
@@ -241,7 +241,7 @@ def get_query_intent_with_llm(query: str) -> str:
 
     Pergunta do Usuário: "{query}"
 
-    Responda apenas com o JSON da classificação. Exemplo de resposta: {{"intent": "qualitativa"}}
+    Responda apenas com o JSON da classificação. Exemplo de resposta: {{"": "qualitativa"}}
     """
     
     payload = {
@@ -258,12 +258,12 @@ def get_query_intent_with_llm(query: str) -> str:
         response.raise_for_status()
         
         response_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-        intent_json = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group())
-        intent = intent_json.get("intent", "qualitativa").lower()
+        _json = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group())
+         = _json.get("", "qualitativa").lower()
         
-        logger.info(f"Intenção detectada pelo LLM: '{intent}' para a pergunta: '{query}'")
+        logger.info(f"Intenção detectada pelo LLM: '{}' para a pergunta: '{query}'")
         
-        if intent in ["quantitativa", "qualitativa"]:
+        if  in ["quantitativa", "qualitativa"]:
             return intent
         else:
             logger.warning(f"Intenção não reconhecida '{intent}'. Usando 'qualitativa' como padrão.")
@@ -1027,118 +1027,35 @@ def main():
         # --- FIM DA NOVA LÓGICA DE ROTEAMENTO HÍBRIDO ---
 
         if intent == "quantitativa":
-            query_lower = user_query.lower()
-            listing_keywords = ["quais empresas", "liste as empresas", "quais companhias"]
-            thematic_keywords = ["modelos típicos", "padrões comuns", "analise os planos", "formas mais comuns"]
-                # --- INÍCIO DA LÓGICA CORRIGIDA E FINAL ---
+            # Mensagem para o usuário informando qual motor está sendo usado para transparência.
+            st.info("Intenção quantitativa detectada. Usando o motor de análise rápida para garantir consistência e abrangência.")
     
-            # 1. Usa a nova função para criar o mapa hierárquico
-            alias_map = create_hierarchical_alias_map(DICIONARIO_UNIFICADO_HIERARQUICO)
-            found_topics = set()
-    
-            # 2. Itera nos aliases para encontrar os tópicos mencionados na query
-            for alias in sorted(alias_map.keys(), key=len, reverse=True):
-                if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
-                    full_path = alias_map[alias]
-                    topic_leaf = full_path.split(',')[-1].replace('_', ' ')
-                    found_topics.add(topic_leaf)
-    
-            topics_to_search = list(found_topics)
-            # Remove palavras-chave genéricas da lista de tópicos
-            topics_to_search = [t for t in topics_to_search if t.lower() not in listing_keywords and t.lower() not in thematic_keywords]
-
-            # --- FIM DA LÓGICA CORRIGIDA E FINAL ---
-
-            # Rota 1: Análise Temática
-            if any(keyword in query_lower for keyword in thematic_keywords) and topics_to_search:
-                primary_topic = topics_to_search[0]
-                with st.spinner(f"Iniciando análise temática... Este processo é detalhado e pode levar alguns minutos."):
-                    st.write(f"**Tópico identificado para análise temática:** `{topics_to_search}`")
-                    final_report = analyze_topic_thematically(
-                        topic=topics_to_search, query=user_query, artifacts=artifacts, model=embedding_model, kb=DICIONARIO_UNIFICADO_HIERARQUICO,
-                        execute_dynamic_plan_func=execute_dynamic_plan, get_final_unified_answer_func=get_final_unified_answer,filters=active_filters,
-                        company_catalog_rich=st.session_state.company_catalog_rich, company_lookup_map=st.session_state.company_lookup_map,
-                    )
-                    st.markdown(final_report)
-
-            # Rota 2: Listagem de Empresas
-            elif any(keyword in query_lower for keyword in listing_keywords) and topics_to_search:
-                with st.spinner(f"Usando ferramentas para encontrar empresas..."):
-                    st.write(f"**Tópicos identificados para busca:** `{', '.join(topics_to_search)}`")
+            with st.spinner("Executando análise quantitativa..."):
+                # PONTO ÚNICO DE ENTRADA: Todas as perguntas quantitativas agora passam
+                # exclusivamente pelo AnalyticalEngine. Ele possui suas próprias regras
+                # internas para decidir qual análise específica realizar (vesting, diluição,
+                # listagem de empresas por tópico, etc.), garantindo o uso dos dados completos do JSON.
+                report_text, data_result = engine.answer_query(user_query, filters=active_filters)
         
-                    all_found_companies = set()
-        
-                    # CORREÇÃO: Itera sobre a lista e chama a ferramenta para CADA tópico.
-                    for topic_item in topics_to_search:
-                        companies = find_companies_by_topic(
-                            topic=topic_item,  # Passa um único tópico (string)
-                            artifacts=artifacts, 
-                            model=embedding_model, 
-                            kb=DICIONARIO_UNIFICADO_HIERARQUICO,
-                            filters=active_filters
-                        )
-                        all_found_companies.update(companies)
+                # Lógica robusta para exibir os resultados.
+                if report_text:
+                    st.markdown(report_text)
+            
+                if data_result is not None:
+                    if isinstance(data_result, pd.DataFrame):
+                        if not data_result.empty:
+                            st.dataframe(data_result, use_container_width=True, hide_index=True)
+                    elif isinstance(data_result, dict):
+                        # Se o motor retornar múltiplos DataFrames
+                        for df_name, df_content in data_result.items():
+                            if isinstance(df_content, pd.DataFrame) and not df_content.empty:
+                                st.markdown(f"#### {df_name}")
+                                st.dataframe(df_content, use_container_width=True, hide_index=True)
 
-                    if all_found_companies:
-                        sorted_companies = sorted(list(all_found_companies))
-                        final_answer = f"#### Foram encontradas {len(sorted_companies)} empresas para os tópicos relacionados:\n"
-                        final_answer += "\n".join([f"- {company}" for company in sorted_companies])
-                    else:
-                        final_answer = "Nenhuma empresa encontrada nos documentos para os tópicos identificados."
-                
-                st.markdown(final_answer)
-                     # --- INÍCIO DA NOVA ROTA 2.5 ---
-            # Rota 2.5: Listagem de Empresas APENAS POR FILTRO
-            elif any(keyword in query_lower for keyword in listing_keywords) and active_filters and not topics_to_search:
-                with st.spinner("Listando empresas com base nos filtros selecionados..."):
-                    st.write("Nenhum tópico técnico identificado. Listando todas as empresas que correspondem aos filtros.")
-                    
-                    companies_from_filter = set()
-                    # Itera em todos os documentos para encontrar empresas que correspondem ao filtro
-                    for artifact_data in artifacts.values():
-                        
-                        list_of_chunks = artifact_data.get('chunks', [])
-                        for metadata in list_of_chunks:
-                            # --- INÍCIO DA CORREÇÃO ---
-                            setor_metadata = metadata.get('setor', '')
-                            controle_metadata = metadata.get('controle_acionario', '')
+                # Se não houver nenhum resultado, informa o usuário.
+                if not report_text and (data_result is None or (isinstance(data_result, pd.DataFrame) and data_result.empty)):
+                    st.info("Nenhuma análise textual ou tabular foi gerada para a sua pergunta ou os dados foram insuficientes.")
 
-                            setor_match = (not active_filters.get('setor') or 
-                                           (isinstance(setor_metadata, str) and setor_metadata.lower() == active_filters['setor']))
-                        
-                            controle_match = (not active_filters.get('controle_acionario') or 
-                                              (isinstance(controle_metadata, str) and controle_metadata.lower() == active_filters['controle_acionario']))
-                            # --- FIM DA CORREÇÃO ---
-                            if setor_match and controle_match:
-                                company_name = metadata.get('company_name')
-                                if company_name:
-                                    companies_from_filter.add(company_name)
-                    
-                    if companies_from_filter:
-                        sorted_companies = sorted(list(companies_from_filter))
-                        final_answer = f"#### Foram encontradas {len(sorted_companies)} empresas para os filtros selecionados:\n"
-                        final_answer += "\n".join([f"- {company}" for company in sorted_companies])
-                    else:
-                        final_answer = "Nenhuma empresa foi encontrada para a combinação de filtros selecionada."
-                    
-                    st.markdown(final_answer)
-
-            # Rota 3: Fallback para o AnalyticalEngine
-            else:
-                st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
-                with st.spinner("Executando análise quantitativa rápida..."):
-                    report_text, data_result = engine.answer_query(user_query, filters=active_filters)
-                    if report_text: st.markdown(report_text)
-                    if data_result is not None:
-                        if isinstance(data_result, pd.DataFrame):
-                            if not data_result.empty: st.dataframe(data_result, use_container_width=True, hide_index=True)
-                        elif isinstance(data_result, dict):
-                            for df_name, df_content in data_result.items():
-                                if df_content is not None and not df_content.empty:
-                                    st.markdown(f"#### {df_name}")
-                                    st.dataframe(df_content, use_container_width=True, hide_index=True)
-                    else: 
-                        st.info("Nenhuma análise tabular foi gerada para a sua pergunta ou dados insuficientes.")
         
         else: # intent == 'qualitativa'
             final_answer, sources = handle_rag_query(
