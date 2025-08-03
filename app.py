@@ -1030,8 +1030,8 @@ def main():
         # 2. Camada de LLM: Se nenhuma regra correspondeu, consulta o LLM.
         if intent is None:
             with st.spinner("Analisando a intenção da sua pergunta..."):
-                intent = get_query_intent_with_llm(user_query)
-
+                intent = get_query__with_llm(user_query)
+                
         # --- FIM DA NOVA LÓGICA DE ROTEAMENTO HÍBRIDO ---
 
         if intent == "quantitativa":
