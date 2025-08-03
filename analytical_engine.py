@@ -60,7 +60,6 @@ class AnalyticalEngine:
         }
 
         # --- Mapeamento Canônico de Indicadores e Categorias ---
-        # Isso centraliza a lógica de unificação e categorização para análise de indicadores
         self.INDICATOR_CANONICAL_MAP = {
             "TSR": "TSR (Retorno Total ao Acionista)",
             "Total Shareholder Return": "TSR (Retorno Total ao Acionista)",
@@ -123,16 +122,15 @@ class AnalyticalEngine:
             "Igualdade de Gênero": "ESG (Inclusão/Diversidade)",
             "Neutralização de Emissões": "ESG (Meio Ambiente)",
             "Redução de Emissões": "ESG (Meio Ambiente)",
-            "IAGEE": "ESG (Meio Ambiente)", # Assumindo um contexto de emissões ou energia
-            "ICMA": "ESG (Meio Ambiente)", # Assumindo um contexto de emissões ou energia
+            "IAGEE": "ESG (Meio Ambiente)",
+            "ICMA": "ESG (Meio Ambiente)",
             "objetivos de desenvolvimento sustentável": "ESG (Objetivos de Desenvolvimento Sustentável)",
 
-            # Termos que não são indicadores de performance e devem ser tratados separadamente ou ignorados em listagens diretas
             "metas": "Outros/Genéricos",
             "critérios de desempenho": "Outros/Genéricos",
             "Metas de Performance": "Outros/Genéricos",
-            "Performance Shares": "Outros/Genéricos", # É um tipo de plano, não um indicador
-            "PSU": "Outros/Genéricos", # É um tipo de plano, não um indicador
+            "Performance Shares": "Outros/Genéricos",
+            "PSU": "Outros/Genéricos",
             "Peer Group": "Grupos de Comparação",
             "Empresas Comparáveis": "Grupos de Comparação",
             "Companhias Comparáveis": "Grupos de Comparação"
@@ -159,7 +157,7 @@ class AnalyticalEngine:
                 "ESG (Sustentabilidade)", "ESG (Inclusão/Diversidade)", "ESG (Meio Ambiente)",
                 "ESG (Objetivos de Desenvolvimento Sustentável)"
             ],
-            "Outros/Genéricos": ["Outros/Genéricos"], # Para agrupar termos que não são indicadores específicos
+            "Outros/Genéricos": ["Outros/Genéricos"],
             "Grupos de Comparação": ["Grupos de Comparação"]
         }
         
@@ -193,7 +191,7 @@ class AnalyticalEngine:
             (lambda q: 'conselho de administracao' in q and ('elegivel' in q or 'aprovador' in q), self._count_plans_for_board),
             
             # Metas/Indicadores: A regra original já era boa.
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q or 'quais os indicadores mais comuns' in q, self._analyze_common_),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q or 'quais os indicadores mais comuns' in q, self._analyze_common_goals),
             
             # Regra para tipos de plano (agora separada e com sua própria vírgula)
             (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
@@ -264,8 +262,8 @@ class AnalyticalEngine:
         Args:
             query (str): A pergunta do usuário.
             filters (dict | None, optional): Um dicionário de filtros pré-selecionados
-                                            (ex: da interface). Se for None, os filtros
-                                            serão extraídos do texto da query.
+                                             (ex: da interface). Se for None, os filtros
+                                             serão extraídos do texto da query.
         
         Returns:
             tuple: Uma tupla contendo o texto do relatório e um DataFrame/dicionário.
@@ -418,12 +416,10 @@ class AnalyticalEngine:
                 for key, value in node.items():
                     if key == 'TSR':
                         return True
-                    # Continua a busca recursiva nos valores se forem dicionários ou listas
                     if isinstance(value, (dict, list)) and find_tsr_recursively(value):
                         return True
             elif isinstance(node, list):
                 for item in node:
-                    # Continua a busca recursiva nos itens da lista
                     if isinstance(item, (dict, list)) and find_tsr_recursively(item):
                         return True
             return False
@@ -431,21 +427,17 @@ class AnalyticalEngine:
         data_to_analyze = self._apply_filters_to_data(filters)
         companies_with_tsr = []
 
-        # Itera sobre cada empresa nos dados filtrados
         for company, details in data_to_analyze.items():
-            # Itera sobre cada plano identificado para a empresa
             for plan_details in details.get("planos_identificados", {}).values():
                 performance_section = plan_details.get("topicos_encontrados", {}).get("IndicadoresPerformance")
-            
+                
                 if performance_section and find_tsr_recursively(performance_section):
                     companies_with_tsr.append(company)
-                    # Otimização: Se já encontrou TSR em um plano, não precisa checar os outros da mesma empresa.
-                    break 
+                    break
     
         if not companies_with_tsr:
             return "Nenhuma empresa encontrada com o critério de TSR para os filtros selecionados.", None
 
-        # Remove duplicatas e ordena a lista final
         unique_companies = sorted(list(set(companies_with_tsr)))
 
         report_text = f"Encontradas **{len(unique_companies)}** empresas com o critério de TSR para os filtros aplicados."
@@ -460,7 +452,6 @@ class AnalyticalEngine:
         data_to_analyze = self._apply_filters_to_data(filters)
         companies = []
         for company, details in data_to_analyze.items():
-            # A lógica original busca em "fatos_extraidos", que é uma fonte rápida e confiável para este item
             facts = details.get("fatos_extraidos", {})
             if 'malus_clawback_presente' in facts and facts['malus_clawback_presente'].get('presente', False):
                 companies.append(company)
@@ -493,7 +484,7 @@ class AnalyticalEngine:
             topics = details.get("topicos_encontrados", {})
             elegibility_section = topics.get("ParticipantesCondicoes", {}).get("Elegibilidade", [])
             
-            if elegibility_section: # Check if elegibility_section exists and is not empty
+            if elegibility_section:
                 company_member_details.append({"Empresa": company, "Funções Elegíveis": ", ".join(elegibility_section)})
                 for role in elegibility_section:
                     member_role_counts[role] += 1
@@ -531,101 +522,101 @@ class AnalyticalEngine:
         df = pd.DataFrame(sorted(companies), columns=["Empresas com Menção ao Conselho de Administração"])
         return report_text, df
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
-    	"""
-    	Analisa e contabiliza os aliases de indicadores de performance mais comuns,
-    	unificando redundâncias e categorizando-os, garantindo que cada empresa
-    	seja contada apenas uma vez por indicador canônico.
-    	Retorna um texto de relatório e um DataFrame com os resultados.
-    	"""
-    	data_to_analyze = self._apply_filters_to_data(filters)
+        """
+        Analisa e contabiliza os aliases de indicadores de performance mais comuns,
+        unificando redundâncias e categorizando-os, garantindo que cada empresa
+        seja contada apenas uma vez por indicador canônico.
+        Retorna um texto de relatório e um DataFrame com os resultados.
+        """
+        data_to_analyze = self._apply_filters_to_data(filters)
 
-    	# Mapeamento para armazenar para CADA INDICADOR CANÔNICO, QUAIS EMPRESAS O MENCIONAM.
-    	canonical_indicator_companies = defaultdict(set)
+        # Mapeamento para armazenar para CADA INDICADOR CANÔNICO, QUAIS EMPRESAS O MENCIONAM.
+        canonical_indicator_companies = defaultdict(set)
 
-    	# Coleta e unifica os aliases para os indicadores de performance
-    	for company, details in data_to_analyze.items():
-       	 if "planos_identificados" in details:
-            	for plan_name, plan_details in details["planos_identificados"].items():
-                	performance_section = plan_details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
-               	 if not performance_section:
-                    	continue
+        # Coleta e unifica os aliases para os indicadores de performance
+        for company, details in data_to_analyze.items():
+            if "planos_identificados" in details:
+                for plan_name, plan_details in details["planos_identificados"].items():
+                    performance_section = plan_details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
+                    if not performance_section:
+                        continue
+                
+                    company_leaf_aliases = []
+                    self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
 
-                	company_leaf_aliases = []
-               	 self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
+                    for alias in set(company_leaf_aliases):
+                        canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias, alias)
+                        canonical_indicator_companies[canonical_alias].add(company)
+        
+        canonical_alias_counts = {
+            indicator: len(companies_set)
+            for indicator, companies_set in canonical_indicator_companies.items()
+        }
 
-                	for alias in set(company_leaf_aliases):
-                	    canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias, alias)
-        	            canonical_indicator_companies[canonical_alias].add(company)
+        if not canonical_alias_counts:
+            return "Nenhum alias de indicador de performance encontrado para os filtros selecionados.", None
 
-    	canonical_alias_counts = {
-        	indicator: len(companies_set)
-        	for indicator, companies_set in canonical_indicator_companies.items()
-    	}
+        filtered_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k not in ["Outros/Genéricos", "Grupos de Comparação"]
+        }
+        
+        generic_terms_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k in ["Outros/Genéricos"]
+        }
+        
+        comparison_groups_counts = {
+            k: v for k, v in canonical_alias_counts.items()
+            if k in ["Grupos de Comparação"]
+        }
 
-   	 if not canonical_alias_counts:
-        	return "Nenhum alias de indicador de performance encontrado para os filtros selecionados.", None
+        if not filtered_counts and not generic_terms_counts and not comparison_groups_counts:
+            return "Nenhum indicador de performance específico ou termo relevante encontrado para os filtros selecionados.", None
 
-    	filtered_counts = {
-      	  k: v for k, v in canonical_alias_counts.items()
-        	if k not in ["Outros/Genéricos", "Grupos de Comparação"]
-    	}
+        categorized_indicators = defaultdict(list)
+        for indicator, count in filtered_counts.items():
+            found_category = None
+            for category, indicators_list in self.INDICATOR_CATEGORIES.items():
+                if indicator in indicators_list:
+                    found_category = category
+                    break
+            if found_category:
+                categorized_indicators[found_category].append((indicator, count))
+            else:
+                categorized_indicators["Outros (Não Categorizados)"].append((indicator, count))
 
-   	 generic_terms_counts = {
-        	k: v for k, v in canonical_alias_counts.items()
-       	 if k in ["Outros/Genéricos"]
-    	}
+        report_text = "### Indicadores de Performance Mais Comuns\n\n"
+        df_overall_data = []
 
-    	comparison_groups_counts = {
-        	k: v for k, v in canonical_alias_counts.items()
-        	if k in ["Grupos de Comparação"]
-    	}
+        ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG", "Outros (Não Categorizados)"]
+        
+        for category in ordered_categories:
+            if category in categorized_indicators:
+                sorted_indicators = sorted(categorized_indicators[category], key=lambda item: item[1], reverse=True)
+                
+                report_text += f"#### **{category}**\n"
+                
+                for indicator, count in sorted_indicators:
+                    report_text += f"- **{indicator}:** {count} empresas\n"
+                    df_overall_data.append({"Indicador": indicator, "Categoria": category, "Nº de Empresas": count})
+                report_text += "\n"
+        
+        if generic_terms_counts:
+            report_text += "#### **Termos Genéricos/Contextuais (não indicadores específicos)**\n"
+            for term, count in sorted(generic_terms_counts.items(), key=lambda item: item[1], reverse=True):
+                report_text += f"- **{term}:** {count} empresas\n"
+                df_overall_data.append({"Indicador": term, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
+            report_text += "\n"
+        
+        if comparison_groups_counts:
+            report_text += "#### **Grupos de Comparação (Mencionados)**\n"
+            for group, count in sorted(comparison_groups_counts.items(), key=lambda item: item[1], reverse=True):
+                report_text += f"- **{group}:** {count} empresas\n"
+                df_overall_data.append({"Indicador": group, "Categoria": "Grupos de Comparação", "Nº de Empresas": count})
+            report_text += "\n"
 
-    	if not filtered_counts and not generic_terms_counts and not comparison_groups_counts:
-        	return "Nenhum indicador de performance específico ou termo relevante encontrado para os filtros selecionados.", None
-
-   	 categorized_indicators = defaultdict(list)
-    	for indicator, count in filtered_counts.items():
-        	found_category = None
-        	for category, indicators_list in self.INDICATOR_CATEGORIES.items():
-            	if indicator in indicators_list:
-                	found_category = category
-        	        break
-       	 if found_category:
-            	categorized_indicators[found_category].append((indicator, count))
-        	else:
-        	    categorized_indicators["Outros (Não Categorizados)"].append((indicator, count))
-
-    	report_text = "### Indicadores de Performance Mais Comuns\n\n"
-    	df_overall_data = []
-
-    	ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG", "Outros (Não Categorizados)"]
-
-    	for category in ordered_categories:
-      	  if category in categorized_indicators:
-           	 sorted_indicators = sorted(categorized_indicators[category], key=lambda item: item[1], reverse=True)
-
-            	report_text += f"#### **{category}**\n"
-
-            	for indicator, count in sorted_indicators:
-                	report_text += f"- **{indicator}:** {count} empresas\n"
-                	df_overall_data.append({"Indicador": indicator, "Categoria": category, "Nº de Empresas": count})
-        	    report_text += "\n"
-
-    	if generic_terms_counts:
-       	 report_text += "#### **Termos Genéricos/Contextuais (não indicadores específicos)**\n"
-       	 for term, count in sorted(generic_terms_counts.items(), key=lambda item: item[1], reverse=True):
-            	report_text += f"- **{term}:** {count} empresas\n"
-           	    df_overall_data.append({"Indicador": term, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
-        	report_text += "\n"
-
-    	if comparison_groups_counts:
-        	report_text += "#### **Grupos de Comparação (Mencionados)**\n"
-        	for group, count in sorted(comparison_groups_counts.items(), key=lambda item: item[1], reverse=True):
-            	report_text += f"- **{group}:** {count} empresas\n"
-            	df_overall_data.append({"Indicador": group, "Categoria": "Grupos de Comparação", "Nº de Empresas": count})
-        	report_text += "\n"
-
-    	df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
+        df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
         return report_text, df
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
@@ -634,11 +625,8 @@ class AnalyticalEngine:
         for details in data_to_analyze.values():
             plan_topics = details.get("topicos_encontrados", {}).get("TiposDePlano", {})
             
-            # This part needs to correctly extract the *keys* from TiposDePlano,
-            # which represent the plan types (e.g., AcoesRestritas, OpcoesDeCompra)
-            # and count them.
             for plan_type_raw in plan_topics.keys():
-                if plan_type_raw not in ['_aliases', 'subtopicos']: # Exclude metadata keys
+                if plan_type_raw not in ['_aliases', 'subtopicos']:
                     plan_type_counts[plan_type_raw.replace('_', ' ')] += 1
 
         if not plan_type_counts:
