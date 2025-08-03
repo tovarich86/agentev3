@@ -615,7 +615,7 @@ class AnalyticalEngine:
        	 report_text += "#### **Termos Genéricos/Contextuais (não indicadores específicos)**\n"
        	 for term, count in sorted(generic_terms_counts.items(), key=lambda item: item[1], reverse=True):
             	report_text += f"- **{term}:** {count} empresas\n"
-           	 df_overall_data.append({"Indicador": term, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
+           	    df_overall_data.append({"Indicador": term, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
         	report_text += "\n"
 
     	if comparison_groups_counts:
@@ -626,7 +626,7 @@ class AnalyticalEngine:
         	report_text += "\n"
 
     	df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
- 	   return report_text, df
+        return report_text, df
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
