@@ -1,11 +1,12 @@
+# analytical_engine.py (VERSÃO CORRIGIDA E FORMATADA)
+
 import numpy as np
 import pandas as pd
 import re
-from collections import defaultdict
+from collections import defaultdict, deque
 from scipy import stats
 import unicodedata
 import logging
-from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -61,95 +62,95 @@ class AnalyticalEngine:
 
         # --- Mapeamento Canônico de Indicadores e Categorias ---
         self.TERMOS_A_IGNORAR = [
-        "performance",
-        "indicadores de performance",
-        "outros/genéricos",
-        "grupos de comparação"
-    ]
+            "performance",
+            "indicadores de performance",
+            "outros/genéricos",
+            "grupos de comparação"
+        ]
 
         self.INDICATOR_CANONICAL_MAP = {
-        # Financeiro - Unificação
-        'lucro': 'Lucro (Geral)',
-        'lucro líquido': 'Lucro (Geral)',
-        'ebitda': 'EBITDA',
-        'adjusted ebitda': 'EBITDA',
-        'fluxo de caixa': 'Fluxo de Caixa / FCF',
-        'fcf': 'Fluxo de Caixa / FCF',
-        'fluxo de caixa livre': 'Fluxo de Caixa / FCF',
-        'roic': 'ROIC (Retorno sobre Capital Investido)',
-        'retorno sobre o capital investido': 'ROIC (Retorno sobre Capital Investido)',
-        'cagr': 'CAGR (Taxa de Crescimento Anual)',
-        'cagr ebitda per share': 'CAGR (Taxa de Crescimento Anual)',
-        'receita líquida': 'Receita',
-        'receita operacional líquida': 'Receita',
-        'receita operacional': 'Receita',
-        'capital de giro': 'Capital de Giro',
-        'margem bruta': 'Margens',
-        'margem operacional': 'Margens',
-        'eva': 'EVA (Valor Econômico Agregado)',
-        'economic value added': 'EVA (Valor Econômico Agregado)',
-        'valor econômico agregado': 'EVA (Valor Econômico Agregado)',
-        'redução de dívida': 'Redução de Dívida / Alavancagem',
-        'dívida financeira bruta': 'Redução de Dívida / Alavancagem',
-        'wacc': 'WACC (Custo de Capital)',
-        'weighted average capital cost': 'WACC (Custo de Capital)',
-        'custo de capital': 'WACC (Custo de Capital)',
-        'ev': 'EV (Enterprise Value)',
-        'enterprise value': 'EV (Enterprise Value)',
-        'nopat': 'NOPAT (Lucro Operacional s/ Impostos)',
-        'net operating profit after tax': 'NOPAT (Lucro Operacional s/ Impostos)',
-        'rentabilidade': 'Rentabilidade (Geral)',
-        'retorno sobre ativo': 'Rentabilidade (Geral)',
-        'despesas de capital': 'CAPEX',
-    
-        # Mercado - Unificação
-        'ipca': 'IPCA (Inflação)',
-        'tsr': 'TSR (Retorno Total ao Acionista)',
-        'cdi': 'CDI (Taxa Interbancária)',
-        'selic': 'Selic (Taxa Básica de Juros)',
-        'equity value': 'Valor de Mercado / Equity',
-        'valor teórico da companhia': 'Valor de Mercado / Equity',
-        'valor teórico unitário da ação': 'Valor de Mercado / Equity',
+            # Financeiro - Unificação
+            'lucro': 'Lucro (Geral)',
+            'lucro líquido': 'Lucro (Geral)',
+            'ebitda': 'EBITDA',
+            'adjusted ebitda': 'EBITDA',
+            'fluxo de caixa': 'Fluxo de Caixa / FCF',
+            'fcf': 'Fluxo de Caixa / FCF',
+            'fluxo de caixa livre': 'Fluxo de Caixa / FCF',
+            'roic': 'ROIC (Retorno sobre Capital Investido)',
+            'retorno sobre o capital investido': 'ROIC (Retorno sobre Capital Investido)',
+            'cagr': 'CAGR (Taxa de Crescimento Anual)',
+            'cagr ebitda per share': 'CAGR (Taxa de Crescimento Anual)',
+            'receita líquida': 'Receita',
+            'receita operacional líquida': 'Receita',
+            'receita operacional': 'Receita',
+            'capital de giro': 'Capital de Giro',
+            'margem bruta': 'Margens',
+            'margem operacional': 'Margens',
+            'eva': 'EVA (Valor Econômico Agregado)',
+            'economic value added': 'EVA (Valor Econômico Agregado)',
+            'valor econômico agregado': 'EVA (Valor Econômico Agregado)',
+            'redução de dívida': 'Redução de Dívida / Alavancagem',
+            'dívida financeira bruta': 'Redução de Dívida / Alavancagem',
+            'wacc': 'WACC (Custo de Capital)',
+            'weighted average capital cost': 'WACC (Custo de Capital)',
+            'custo de capital': 'WACC (Custo de Capital)',
+            'ev': 'EV (Enterprise Value)',
+            'enterprise value': 'EV (Enterprise Value)',
+            'nopat': 'NOPAT (Lucro Operacional s/ Impostos)',
+            'net operating profit after tax': 'NOPAT (Lucro Operacional s/ Impostos)',
+            'rentabilidade': 'Rentabilidade (Geral)',
+            'retorno sobre ativo': 'Rentabilidade (Geral)',
+            'despesas de capital': 'CAPEX',
+        
+            # Mercado - Unificação
+            'ipca': 'IPCA (Inflação)',
+            'tsr': 'TSR (Retorno Total ao Acionista)',
+            'cdi': 'CDI (Taxa Interbancária)',
+            'selic': 'Selic (Taxa Básica de Juros)',
+            'equity value': 'Valor de Mercado / Equity',
+            'valor teórico da companhia': 'Valor de Mercado / Equity',
+            'valor teórico unitário da ação': 'Valor de Mercado / Equity',
 
-        # ESG - Unificação
-        'esg': 'ESG (Geral)',
-        'esg (objetivos de desenvolvimento sustentável)': 'ESG (Geral)',
-        'esg (meio ambiente)': 'ESG (Geral)',
-        'esg (inclusão/diversidade)': 'ESG (Geral)',
+            # ESG - Unificação
+            'esg': 'ESG (Geral)',
+            'esg (objetivos de desenvolvimento sustentável)': 'ESG (Geral)',
+            'esg (meio ambiente)': 'ESG (Geral)',
+            'esg (inclusão/diversidade)': 'ESG (Geral)',
 
-        # Operacional - Unificação
-        'qualidade': 'Qualidade (Operacional)',
-        'crescimento': 'Crescimento (Operacional)',
-        'produtividade': 'Produtividade (Operacional)',
-        'desempenho de entrega': 'Desempenho de Entrega',
-        'expansão comercial': 'Expansão Comercial',
-        'conclusão de aquisições': 'M&A e Expansão',
-        'desempenho de segurança': 'Segurança (Operacional)',
-        'nps': 'NPS (Net Promoter Score)',
-        'rotatividade do estoque': 'Eficiência de Ativos',
-        'rotatividade de ativos líquidos': 'Eficiência de Ativos'
-    }
+            # Operacional - Unificação
+            'qualidade': 'Qualidade (Operacional)',
+            'crescimento': 'Crescimento (Operacional)',
+            'produtividade': 'Produtividade (Operacional)',
+            'desempenho de entrega': 'Desempenho de Entrega',
+            'expansão comercial': 'Expansão Comercial',
+            'conclusão de aquisições': 'M&A e Expansão',
+            'desempenho de segurança': 'Segurança (Operacional)',
+            'nps': 'NPS (Net Promoter Score)',
+            'rotatividade do estoque': 'Eficiência de Ativos',
+            'rotatividade de ativos líquidos': 'Eficiência de Ativos'
+        }
 
-    self.INDICATOR_CATEGORIES = {
-        "Financeiro": [
-            'Lucro (Geral)', 'EBITDA', 'Fluxo de Caixa / FCF', 'ROIC (Retorno sobre Capital Investido)',
-            'CAGR (Taxa de Crescimento Anual)', 'Receita', 'Capital de Giro', 'Margens',
-            'EVA (Valor Econômico Agregado)', 'Redução de Dívida / Alavancagem', 'WACC (Custo de Capital)',
-            'EV (Enterprise Value)', 'NOPAT (Lucro Operacional s/ Impostos)', 'Rentabilidade (Geral)', 'CAPEX'
-        ],
-        "Mercado": [
-            'IPCA (Inflação)', 'TSR (Retorno Total ao Acionista)', 'CDI (Taxa Interbancária)',
-            'Selic (Taxa Básica de Juros)', 'Valor de Mercado / Equity'
-        ],
-        "ESG": [
-            'ESG (Geral)'
-        ],
-        "Operacional": [
-            'Qualidade (Operacional)', 'Crescimento (Operacional)', 'Produtividade (Operacional)',
-            'Desempenho de Entrega', 'Expansão Comercial', 'M&A e Expansão',
-            'Segurança (Operacional)', 'NPS (Net Promoter Score)', 'Eficiência de Ativos'
-        ]
-    }
+        self.INDICATOR_CATEGORIES = {
+            "Financeiro": [
+                'Lucro (Geral)', 'EBITDA', 'Fluxo de Caixa / FCF', 'ROIC (Retorno sobre Capital Investido)',
+                'CAGR (Taxa de Crescimento Anual)', 'Receita', 'Capital de Giro', 'Margens',
+                'EVA (Valor Econômico Agregado)', 'Redução de Dívida / Alavancagem', 'WACC (Custo de Capital)',
+                'EV (Enterprise Value)', 'NOPAT (Lucro Operacional s/ Impostos)', 'Rentabilidade (Geral)', 'CAPEX'
+            ],
+            "Mercado": [
+                'IPCA (Inflação)', 'TSR (Retorno Total ao Acionista)', 'CDI (Taxa Interbancária)',
+                'Selic (Taxa Básica de Juros)', 'Valor de Mercado / Equity'
+            ],
+            "ESG": [
+                'ESG (Geral)'
+            ],
+            "Operacional": [
+                'Qualidade (Operacional)', 'Crescimento (Operacional)', 'Produtividade (Operacional)',
+                'Desempenho de Entrega', 'Expansão Comercial', 'M&A e Expansão',
+                'Segurança (Operacional)', 'NPS (Net Promoter Score)', 'Eficiência de Ativos'
+            ]
+        }
         
         # --- Roteador Declarativo (Completo e com todas as funções implementadas) ---
         self.intent_rules = [
@@ -191,12 +192,6 @@ class AnalyticalEngine:
         ]
 
     def _collect_leaf_aliases_recursive(self, node: dict or list, collected_aliases: list):
-        """
-        Percorre qualquer estrutura baseada no modelo dado e coleta todos os aliases.
-        Se 'node' for uma lista, ela itera sobre seus elementos.
-        Se 'node' for um dicionário, ela verifica as chaves '_aliases' e 'subtopicos'
-        para continuar a recursão ou adicionar aliases.
-        """
         if isinstance(node, list):
             for item in node:
                 if isinstance(item, str):
@@ -209,19 +204,16 @@ class AnalyticalEngine:
             for k, v in node.items():
                 if k != "_aliases" and isinstance(v, (dict, list)):
                     self._collect_leaf_aliases_recursive(v, collected_aliases)
-                elif isinstance(v, list) and k != "_aliases": # Handle lists that are not _aliases but contain values
+                elif isinstance(v, list) and k != "_aliases":
                     for item in v:
                         if isinstance(item, str):
                             collected_aliases.append(item)
 
-
     def _normalize_text(self, text: str) -> str:
-        """Normaliza o texto para minúsculas e remove acentos."""
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
         return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
 
     def _extract_filters(self, normalized_query: str) -> dict:
-        """Extrai filtros da pergunta com base em palavras-chave."""
         filters = {}
         for filter_type, keywords in self.FILTER_KEYWORDS.items():
             for keyword in keywords:
@@ -234,7 +226,6 @@ class AnalyticalEngine:
         return filters
 
     def _apply_filters_to_data(self, filters: dict) -> dict:
-        """Aplica um dicionário de filtros aos dados principais."""
         if not filters:
             return self.data
         filtered_data = {
@@ -246,22 +237,7 @@ class AnalyticalEngine:
         return filtered_data
 
     def answer_query(self, query: str, filters: dict | None = None) -> tuple:
-        """
-        Responde a uma consulta quantitativa.
-        
-        Args:
-            query (str): A pergunta do usuário.
-            filters (dict | None, optional): Um dicionário de filtros pré-selecionados
-                                             (ex: da interface). Se for None, os filtros
-                                             serão extraídos do texto da query.
-        
-        Returns:
-            tuple: Uma tupla contendo o texto do relatório e um DataFrame/dicionário.
-        """
         normalized_query = self._normalize_text(query)
-        
-        # Prioriza os filtros passados como argumento (da UI).
-        # Se nenhum for passado, usa a extração da query como fallback.
         final_filters = filters if filters is not None else self._extract_filters(normalized_query)
         
         for intent_checker_func, analysis_func in self.intent_rules:
@@ -392,16 +368,7 @@ class AnalyticalEngine:
         return report_text, df.sort_values(by="Desconto Aplicado (%)", ascending=False).reset_index(drop=True)
 
     def _analyze_tsr(self, normalized_query: str, filters: dict) -> tuple:
-        """
-        Analisa a presença de TSR (Total Shareholder Return), lidando com
-        múltiplas estruturas de dados aninhadas de forma recursiva.
-        """
-    
         def find_tsr_recursively(node: dict or list) -> bool:
-            """
-            Função auxiliar recursiva que busca a chave 'TSR' em um nó (dicionário ou lista).
-            Retorna True assim que a primeira ocorrência é encontrada.
-            """
             if isinstance(node, dict):
                 for key, value in node.items():
                     if key == 'TSR':
@@ -424,21 +391,16 @@ class AnalyticalEngine:
                 if performance_section and find_tsr_recursively(performance_section):
                     companies_with_tsr.append(company)
                     break
-    
+        
         if not companies_with_tsr:
             return "Nenhuma empresa encontrada com o critério de TSR para os filtros selecionados.", None
 
         unique_companies = sorted(list(set(companies_with_tsr)))
-
         report_text = f"Encontradas **{len(unique_companies)}** empresas com o critério de TSR para os filtros aplicados."
         df = pd.DataFrame(unique_companies, columns=["Empresas com TSR"])
-    
         return report_text, df
 
     def _analyze_malus_clawback(self, normalized_query: str, filters: dict) -> tuple:
-        """
-        Identifica e lista as empresas que possuem cláusulas de Malus ou Clawback.
-        """
         data_to_analyze = self._apply_filters_to_data(filters)
         companies = []
         for company, details in data_to_analyze.items():
@@ -452,6 +414,7 @@ class AnalyticalEngine:
         report_text = f"Encontradas **{len(companies)}** empresas com cláusulas de **Malus ou Clawback** para os filtros aplicados."
         df = pd.DataFrame(sorted(companies), columns=["Empresas com Malus/Clawback"])
         return report_text, df
+
     def _analyze_dividends_during_vesting(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         companies = []
@@ -478,7 +441,7 @@ class AnalyticalEngine:
                 company_member_details.append({"Empresa": company, "Funções Elegíveis": ", ".join(elegibility_section)})
                 for role in elegibility_section:
                     member_role_counts[role] += 1
-        
+            
         if not member_role_counts:
             return "Nenhuma informação sobre membros elegíveis foi encontrada para os filtros selecionados.", None
         
@@ -511,38 +474,30 @@ class AnalyticalEngine:
         report_text = f"**{len(companies)}** empresas com menção ao **Conselho de Administração** como elegível ou aprovador de planos foram encontradas para os filtros aplicados."
         df = pd.DataFrame(sorted(companies), columns=["Empresas com Menção ao Conselho de Administração"])
         return report_text, df
+
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
-        """
-        Versão Aprimorada: Analisa e contabiliza os indicadores de performance,
-        unificando redundâncias, removendo termos genéricos e categorizando de
-        forma clara e relevante.
-        """
         data_to_analyze = self._apply_filters_to_data(filters)
         canonical_indicator_companies = defaultdict(set)
 
-        # 1. Coleta todos os aliases, como antes
         for company, details in data_to_analyze.items():
             if "planos_identificados" in details:
                 for plan_name, plan_details in details["planos_identificados"].items():
                     performance_section = plan_details.get("topicos_encontrados", {}).get("IndicadoresPerformance", {})
                     if not performance_section:
                         continue
-                
+                    
                     company_leaf_aliases = []
                     self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
 
-                    # 2. Unifica os aliases para a sua forma canônica
                     for alias in set(company_leaf_aliases):
                         canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias.lower(), alias)
                         canonical_indicator_companies[canonical_alias].add(company)
     
-        # 3. Conta as empresas por indicador canônico
         canonical_alias_counts = {
             indicator: len(companies_set)
             for indicator, companies_set in canonical_indicator_companies.items()
         }
 
-        # 4. Filtra os termos que devem ser completamente ignorados
         filtered_counts = {
             k: v for k, v in canonical_alias_counts.items()
             if k.lower() not in self.TERMOS_A_IGNORAR
@@ -551,7 +506,6 @@ class AnalyticalEngine:
         if not filtered_counts:
             return "Nenhum indicador de performance relevante encontrado para os filtros selecionados.", None
 
-        # 5. Categoriza os indicadores já limpos e unificados
         categorized_indicators = defaultdict(list)
         uncategorized_list = []
     
@@ -561,32 +515,27 @@ class AnalyticalEngine:
                 if indicator in indicators_list:
                     found_category = category
                     break
-        
+            
             if found_category:
                 categorized_indicators[found_category].append((indicator, count))
             else:
-                # Armazena os não categorizados para exibir no final, se houver
                 uncategorized_list.append((indicator, count))
 
-        # 6. Monta o relatório final com uma estrutura clara
         report_text = "### Indicadores de Performance Mais Comuns\n\n"
         df_overall_data = []
     
-        # Ordem de exibição preferencial das categorias
         ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG"]
     
         for category in ordered_categories:
             if category in categorized_indicators:
-                # Ordena os indicadores dentro de cada categoria por contagem
                 sorted_indicators = sorted(categorized_indicators[category], key=lambda item: item[1], reverse=True)
-            
+                
                 report_text += f"#### {category}\n"
                 for indicator, count in sorted_indicators:
                     report_text += f"- **{indicator}:** {count} empresas\n"
                     df_overall_data.append({"Indicador": indicator, "Categoria": category, "Nº de Empresas": count})
                 report_text += "\n"
     
-        # Adiciona a categoria de "Outros" apenas se houver itens nela
         if uncategorized_list:
             report_text += "#### Outros Indicadores\n"
             sorted_uncategorized = sorted(uncategorized_list, key=lambda item: item[1], reverse=True)
@@ -595,7 +544,6 @@ class AnalyticalEngine:
                 df_overall_data.append({"Indicador": indicator, "Categoria": "Outros", "Nº de Empresas": count})
             report_text += "\n"
 
-        # Cria o DataFrame final, ordenado pela contagem geral
         df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
     
         return report_text, df
@@ -619,10 +567,7 @@ class AnalyticalEngine:
             report_text += f"- **{item['Tipo de Plano'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
         return report_text, pd.DataFrame(df_data)
 
-    # --- Funções de Busca Hierárquica (Fallback) ---
-
     def _recursive_flat_map_builder(self, sub_dict: dict, section: str, flat_map: dict):
-        """Função auxiliar recursiva para construir o mapa plano de aliases."""
         for topic_name_raw, data in sub_dict.items():
             if not isinstance(data, dict):
                 continue
@@ -638,7 +583,6 @@ class AnalyticalEngine:
                 self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
     
     def _kb_flat_map(self) -> dict:
-        """Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
         if hasattr(self, '_kb_flat_map_cache'):
             return self._kb_flat_map_cache
         
@@ -665,7 +609,6 @@ class AnalyticalEngine:
         flat_map = self._kb_flat_map()
         found_topic_details = None
         
-        # Busca pelo alias mais longo que corresponde à pergunta
         for alias in sorted(flat_map.keys(), key=len, reverse=True):
             if re.search(r'\b' + re.escape(alias) + r'\b', normalized_query):
                 found_topic_details = flat_map[alias]
@@ -676,11 +619,9 @@ class AnalyticalEngine:
 
         section, topic_name_formatted, topic_name_raw = found_topic_details
         
-        # Lógica para encontrar empresas que mencionam o tópico (incluindo sub-tópicos)
         companies = []
         for name, details in data_to_analyze.items():
             if section in details.get("topicos_encontrados", {}):
-                # Using deque for a BFS-like traversal
                 queue = deque([details["topicos_encontrados"][section]])
                 found_in_company = False
                 while queue:
@@ -693,15 +634,15 @@ class AnalyticalEngine:
                             if isinstance(v, dict) and 'subtopicos' in v and v['subtopicos']:
                                 queue.append(v['subtopicos'])
                             elif isinstance(v, list):
-                                if topic_name_raw in current_node: # Check if the raw topic name is directly in a list
+                                if topic_name_raw in current_node:
                                     found_in_company = True
                                     break
-                    elif isinstance(current_node, list): # Added this check for lists not under a specific key
+                    elif isinstance(current_node, list):
                         if topic_name_raw in current_node:
                             found_in_company = True
                             break
                     if found_in_company:
-                        break # Exit inner loop once found in this company
+                        break
                 if found_in_company:
                     companies.append(name)
 
