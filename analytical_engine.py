@@ -193,29 +193,33 @@ class AnalyticalEngine:
 
     def _collect_leaf_aliases_recursive(self, node: dict or list, collected_aliases: list):
         """
-        Versão Aprimorada: Percorre a estrutura de dados e coleta tanto os aliases
+        Versão Definitiva: Percorre a estrutura de dados e coleta tanto os aliases
         explícitos (em '_aliases') quanto os nomes dos indicadores que são usados
-        como chaves de dicionário (ex: "TSR": {...}).
+        como chaves de dicionário (ex: "TSR": {...}), garantindo uma contagem precisa
+        e consistente em todas as análises.
         """
         if isinstance(node, list):
             for item in node:
+                # Se o item da lista for um alias (string), coleta
                 if isinstance(item, str):
                     collected_aliases.append(item)
+                # Se for outro dicionário ou lista, continua a busca
                 elif isinstance(item, (dict, list)):
                     self._collect_leaf_aliases_recursive(item, collected_aliases)
+        
         elif isinstance(node, dict):
-            # Itera sobre as chaves e valores para capturar tudo
-            for k, v in node.items():
-                # A chave em si pode ser um indicador (ex: "TSR")
-                if k not in ["_aliases", "subtopicos"]:
-                    collected_aliases.append(k)
+            # Itera sobre as chaves e valores do dicionário
+            for key, value in node.items():
+                # A própria CHAVE é um indicador, exceto as chaves de controle
+                if key not in ["_aliases", "subtopicos"]:
+                    collected_aliases.append(key)
                 
-                # Se o valor for uma lista de aliases, adiciona
-                if k == "_aliases" and isinstance(v, list):
-                    collected_aliases.extend(v)
-                # Continua a recursão para sub-níveis
-                elif isinstance(v, (dict, list)):
-                    self._collect_leaf_aliases_recursive(v, collected_aliases)
+                # Se o valor for a lista de aliases, adiciona todos
+                if key == "_aliases" and isinstance(value, list):
+                    collected_aliases.extend(value)
+                # Se o valor for outro dicionário ou lista, continua a recursão
+                elif isinstance(value, (dict, list)):
+                    self._collect_leaf_aliases_recursive(value, collected_aliases)
 
     def _normalize_text(self, text: str) -> str:
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
