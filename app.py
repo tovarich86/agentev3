@@ -142,10 +142,10 @@ def setup_and_load_data():
                 st.error(f"Erro ao baixar {filename} de {url}: {e}")
                 st.stop()
     # --- Carregamento de Modelos ---
-    st.write("Carregando modelo de embedding...")
+    
     embedding_model = SentenceTransformer(MODEL_NAME)
     
-    st.write("Carregando modelo de Re-ranking (Cross-Encoder)...")
+    
     cross_encoder_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
     
     artifacts = {}
