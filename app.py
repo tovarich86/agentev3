@@ -35,15 +35,8 @@ logger = logging.getLogger(__name__)
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
 from analytical_engine import AnalyticalEngine
 
-# --- Configurações Gerais ---
-
-def get_img_as_base64(file):
-    with open(file, "rb") as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
-
-# Use o nome do arquivo da imagem que você enviou
-img = get_img_as_base64("prisday.png")
+# URL da imagem "raw" do seu GitHub
+image_url = "https://raw.githubusercontent.com/tovarich86/agentev3/main/prisday.png"
 
 # CSS para aplicar o background e as fontes
 page_bg_img = f"""
@@ -53,13 +46,13 @@ page_bg_img = f"""
 
 /* --- ESTILOS GERAIS --- */
 
-/* Aplica a imagem de fundo */
+/* Aplica a imagem de fundo usando a URL do GitHub */
 [data-testid="stAppViewContainer"] > .main {{
-background-image: url("data:image/png;base64,{img}");
+background-image: url("{image_url}");
 background-size: cover;
 background-position: top left;
 background-repeat: no-repeat;
-background-attachment: local;
+background-attachment: local; /* Garante que a imagem role com o conteúdo */
 }}
 
 /* Deixa o header transparente para a imagem aparecer */
@@ -86,7 +79,7 @@ h1, h2, h3, h4, h5, h6 {{
     font-weight: 700; /* Bold */
 }}
 
-/* Você pode customizar elementos específicos se desejar */
+/* Customiza a fonte dos botões */
 .stButton>button {{
     font-family: 'Nunito Sans', sans-serif;
     font-weight: 700;
@@ -96,6 +89,8 @@ h1, h2, h3, h4, h5, h6 {{
 """
 
 st.markdown(page_bg_img, unsafe_allow_html=True)
+
+
 
 st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
