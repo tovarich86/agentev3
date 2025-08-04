@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 import zipfile
 import io
+import base64
 import shutil
 import random
 from models import get_embedding_model, get_cross_encoder_model
