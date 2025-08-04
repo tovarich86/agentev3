@@ -35,6 +35,67 @@ from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
 from analytical_engine import AnalyticalEngine
 
 # --- Configurações Gerais ---
+
+def get_img_as_base64(file):
+    with open(file, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+# Use o nome do arquivo da imagem que você enviou
+img = get_img_as_base64("prisday.png")
+
+# CSS para aplicar o background e as fontes
+page_bg_img = f"""
+<style>
+/* Importa as fontes do Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;700&family=Nunito+Sans:wght@400;700;800;900&display=swap');
+
+/* --- ESTILOS GERAIS --- */
+
+/* Aplica a imagem de fundo */
+[data-testid="stAppViewContainer"] > .main {{
+background-image: url("data:image/png;base64,{img}");
+background-size: cover;
+background-position: top left;
+background-repeat: no-repeat;
+background-attachment: local;
+}}
+
+/* Deixa o header transparente para a imagem aparecer */
+[data-testid="stHeader"] {{
+background: rgba(0,0,0,0);
+}}
+
+/* Ajusta a posição da barra de ferramentas do Streamlit */
+[data-testid="stToolbar"] {{
+right: 2rem;
+}}
+
+/* --- ESTILOS DE FONTE --- */
+
+/* Define a fonte padrão para o corpo do texto */
+html, body, [class*="css"]  {{
+    font-family: 'Nunito Sans', sans-serif;
+    font-weight: 400;
+}}
+
+/* Define a fonte para os títulos e subtítulos */
+h1, h2, h3, h4, h5, h6 {{
+    font-family: 'Fira Sans', sans-serif;
+    font-weight: 700; /* Bold */
+}}
+
+/* Você pode customizar elementos específicos se desejar */
+.stButton>button {{
+    font-family: 'Nunito Sans', sans-serif;
+    font-weight: 700;
+}}
+
+</style>
+"""
+
+st.markdown(page_bg_img, unsafe_allow_html=True)
+
 st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
