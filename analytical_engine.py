@@ -192,6 +192,11 @@ class AnalyticalEngine:
         ]
 
     def _collect_leaf_aliases_recursive(self, node: dict or list, collected_aliases: list):
+        """
+        Versão Aprimorada: Percorre a estrutura de dados e coleta tanto os aliases
+        explícitos (em '_aliases') quanto os nomes dos indicadores que são usados
+        como chaves de dicionário (ex: "TSR": {...}).
+        """
         if isinstance(node, list):
             for item in node:
                 if isinstance(item, str):
@@ -199,15 +204,18 @@ class AnalyticalEngine:
                 elif isinstance(item, (dict, list)):
                     self._collect_leaf_aliases_recursive(item, collected_aliases)
         elif isinstance(node, dict):
-            if "_aliases" in node and isinstance(node["_aliases"], list):
-                collected_aliases.extend(node["_aliases"])
+            # Itera sobre as chaves e valores para capturar tudo
             for k, v in node.items():
-                if k != "_aliases" and isinstance(v, (dict, list)):
+                # A chave em si pode ser um indicador (ex: "TSR")
+                if k not in ["_aliases", "subtopicos"]:
+                    collected_aliases.append(k)
+                
+                # Se o valor for uma lista de aliases, adiciona
+                if k == "_aliases" and isinstance(v, list):
+                    collected_aliases.extend(v)
+                # Continua a recursão para sub-níveis
+                elif isinstance(v, (dict, list)):
                     self._collect_leaf_aliases_recursive(v, collected_aliases)
-                elif isinstance(v, list) and k != "_aliases":
-                    for item in v:
-                        if isinstance(item, str):
-                            collected_aliases.append(item)
 
     def _normalize_text(self, text: str) -> str:
         nfkd_form = unicodedata.normalize('NFKD', text.lower())
