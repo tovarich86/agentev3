@@ -888,7 +888,7 @@ def handle_rag_query(
     return final_answer, all_sources_structured
 
 def main():
-    st.title("🤖 PR.IA (Agente de IA para ILP)")
+    st.markdown('<h1 style="color:#0b2859;">🤖 PRIA (Agente de IA para ILP)</h1>', unsafe_allow_html=True)
     st.markdown("---")
 
     artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
