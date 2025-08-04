@@ -60,106 +60,96 @@ class AnalyticalEngine:
         }
 
         # --- Mapeamento Canônico de Indicadores e Categorias ---
+        self.TERMOS_A_IGNORAR = [
+        "performance",
+        "indicadores de performance",
+        "outros/genéricos",
+        "grupos de comparação"
+    ]
+
         self.INDICATOR_CANONICAL_MAP = {
-            "TSR": "TSR (Retorno Total ao Acionista)",
-            "Total Shareholder Return": "TSR (Retorno Total ao Acionista)",
-            "Retorno Total ao Acionista": "TSR (Retorno Total ao Acionista)",
-            "TSR Absoluto": "TSR (Retorno Total ao Acionista)",
-            "TSR Relativo": "TSR (Retorno Total ao Acionista)",
-            "TSR versus": "TSR (Retorno Total ao Acionista)",
-            "TSR comparado a": "TSR (Retorno Total ao Acionista)",
+        # Financeiro - Unificação
+        'lucro': 'Lucro (Geral)',
+        'lucro líquido': 'Lucro (Geral)',
+        'ebitda': 'EBITDA',
+        'adjusted ebitda': 'EBITDA',
+        'fluxo de caixa': 'Fluxo de Caixa / FCF',
+        'fcf': 'Fluxo de Caixa / FCF',
+        'fluxo de caixa livre': 'Fluxo de Caixa / FCF',
+        'roic': 'ROIC (Retorno sobre Capital Investido)',
+        'retorno sobre o capital investido': 'ROIC (Retorno sobre Capital Investido)',
+        'cagr': 'CAGR (Taxa de Crescimento Anual)',
+        'cagr ebitda per share': 'CAGR (Taxa de Crescimento Anual)',
+        'receita líquida': 'Receita',
+        'receita operacional líquida': 'Receita',
+        'receita operacional': 'Receita',
+        'capital de giro': 'Capital de Giro',
+        'margem bruta': 'Margens',
+        'margem operacional': 'Margens',
+        'eva': 'EVA (Valor Econômico Agregado)',
+        'economic value added': 'EVA (Valor Econômico Agregado)',
+        'valor econômico agregado': 'EVA (Valor Econômico Agregado)',
+        'redução de dívida': 'Redução de Dívida / Alavancagem',
+        'dívida financeira bruta': 'Redução de Dívida / Alavancagem',
+        'wacc': 'WACC (Custo de Capital)',
+        'weighted average capital cost': 'WACC (Custo de Capital)',
+        'custo de capital': 'WACC (Custo de Capital)',
+        'ev': 'EV (Enterprise Value)',
+        'enterprise value': 'EV (Enterprise Value)',
+        'nopat': 'NOPAT (Lucro Operacional s/ Impostos)',
+        'net operating profit after tax': 'NOPAT (Lucro Operacional s/ Impostos)',
+        'rentabilidade': 'Rentabilidade (Geral)',
+        'retorno sobre ativo': 'Rentabilidade (Geral)',
+        'despesas de capital': 'CAPEX',
+    
+        # Mercado - Unificação
+        'ipca': 'IPCA (Inflação)',
+        'tsr': 'TSR (Retorno Total ao Acionista)',
+        'cdi': 'CDI (Taxa Interbancária)',
+        'selic': 'Selic (Taxa Básica de Juros)',
+        'equity value': 'Valor de Mercado / Equity',
+        'valor teórico da companhia': 'Valor de Mercado / Equity',
+        'valor teórico unitário da ação': 'Valor de Mercado / Equity',
 
-            "Lucro": "Lucro (Geral)",
-            "lucro líquido": "Lucro (Geral)",
-            "lucro operacional": "Lucro (Geral)",
-            "lucros por ação": "Lucro (Geral)",
-            "Earnings per Share": "Lucro (Geral)",
-            "EPS": "Lucro (Geral)",
+        # ESG - Unificação
+        'esg': 'ESG (Geral)',
+        'esg (objetivos de desenvolvimento sustentável)': 'ESG (Geral)',
+        'esg (meio ambiente)': 'ESG (Geral)',
+        'esg (inclusão/diversidade)': 'ESG (Geral)',
 
-            "ROIC": "ROIC (Retorno sobre Capital Investido)",
-            "retorno sobre investimentos": "ROIC (Retorno sobre Capital Investido)",
-            "retorno sobre capital": "ROIC (Retorno sobre Capital Investido)",
-            "Return on Investment": "ROIC (Retorno sobre Capital Investido)",
-            "ROCE": "ROIC (Retorno sobre Capital Investido)",
+        # Operacional - Unificação
+        'qualidade': 'Qualidade (Operacional)',
+        'crescimento': 'Crescimento (Operacional)',
+        'produtividade': 'Produtividade (Operacional)',
+        'desempenho de entrega': 'Desempenho de Entrega',
+        'expansão comercial': 'Expansão Comercial',
+        'conclusão de aquisições': 'M&A e Expansão',
+        'desempenho de segurança': 'Segurança (Operacional)',
+        'nps': 'NPS (Net Promoter Score)',
+        'rotatividade do estoque': 'Eficiência de Ativos',
+        'rotatividade de ativos líquidos': 'Eficiência de Ativos'
+    }
 
-            "EBITDA": "EBITDA",
-            "fluxo de caixa": "Fluxo de Caixa / FCF",
-            "geração de caixa": "Fluxo de Caixa / FCF",
-            "Free Cash Flow": "Fluxo de Caixa / FCF",
-            "FCF": "Fluxo de Caixa / FCF",
-            "Receita Líquida": "Receita Líquida",
-            "vendas líquidas": "Receita Líquida",
-            "margem bruta": "Margem Bruta",
-            "margem operacional": "Margem Operacional",
-            "redução de dívida": "Redução de Dívida",
-            "Dívida Líquida / EBITDA": "Dívida Líquida / EBITDA",
-            "capital de giro": "Capital de Giro",
-            "valor econômico agregado": "Valor Econômico Agregado",
-            "CAGR": "CAGR (Taxa de Crescimento Anual Composta)",
-
-            "qualidade": "Qualidade (Operacional)",
-            "produtividade": "Produtividade (Operacional)",
-            "crescimento": "Crescimento (Operacional)",
-            "eficiência operacional": "Eficiência Operacional",
-            "desempenho de entrega": "Desempenho de Entrega",
-            "desempenho de segurança": "Desempenho de Segurança",
-            "satisfação do cliente": "Satisfação do Cliente",
-            "NPS": "NPS (Net Promoter Score)",
-            "conclusão de aquisições": "Conclusão de Aquisições (Operacional)",
-            "expansão comercial": "Expansão Comercial (Operacional)",
-
-            "IPCA": "IPCA (Inflação)",
-            "CDI": "CDI (Taxa Interbancária)",
-            "Selic": "Selic (Taxa Básica de Juros)",
-            "preço da ação": "Preço da Ação (Mercado)",
-            "cotação das ações": "Preço da Ação (Mercado)",
-            "participação de mercado": "Participação de Mercado",
-            "market share": "Participação de Mercado",
-
-            "Sustentabilidade": "ESG (Sustentabilidade)",
-            "inclusão": "ESG (Inclusão/Diversidade)",
-            "diversidade": "ESG (Inclusão/Diversidade)",
-            "Igualdade de Gênero": "ESG (Inclusão/Diversidade)",
-            "Neutralização de Emissões": "ESG (Meio Ambiente)",
-            "Redução de Emissões": "ESG (Meio Ambiente)",
-            "IAGEE": "ESG (Meio Ambiente)",
-            "ICMA": "ESG (Meio Ambiente)",
-            "objetivos de desenvolvimento sustentável": "ESG (Objetivos de Desenvolvimento Sustentável)",
-
-            "metas": "Outros/Genéricos",
-            "critérios de desempenho": "Outros/Genéricos",
-            "Metas de Performance": "Outros/Genéricos",
-            "Performance Shares": "Outros/Genéricos",
-            "PSU": "Outros/Genéricos",
-            "Peer Group": "Grupos de Comparação",
-            "Empresas Comparáveis": "Grupos de Comparação",
-            "Companhias Comparáveis": "Grupos de Comparação"
-        }
-
-        self.INDICATOR_CATEGORIES = {
-            "Financeiro": [
-                "Lucro (Geral)", "EBITDA", "Fluxo de Caixa / FCF", "ROIC (Retorno sobre Capital Investido)",
-                "CAGR (Taxa de Crescimento Anual Composta)", "Receita Líquida", "Margem Bruta",
-                "Margem Operacional", "Redução de Dívida", "Dívida Líquida / EBITDA",
-                "Capital de Giro", "Valor Econômico Agregado"
-            ],
-            "Mercado": [
-                "TSR (Retorno Total ao Acionista)", "IPCA (Inflação)", "CDI (Taxa Interbancária)",
-                "Selic (Taxa Básica de Juros)", "Preço da Ação (Mercado)", "Participação de Mercado"
-            ],
-            "Operacional": [
-                "Qualidade (Operacional)", "Produtividade (Operacional)", "Crescimento (Operacional)",
-                "Eficiência Operacional", "Desempenho de Entrega", "Desempenho de Segurança",
-                "Satisfação do Cliente", "NPS (Net Promoter Score)", "Conclusão de Aquisições (Operacional)",
-                "Expansão Comercial (Operacional)"
-            ],
-            "ESG": [
-                "ESG (Sustentabilidade)", "ESG (Inclusão/Diversidade)", "ESG (Meio Ambiente)",
-                "ESG (Objetivos de Desenvolvimento Sustentável)"
-            ],
-            "Outros/Genéricos": ["Outros/Genéricos"],
-            "Grupos de Comparação": ["Grupos de Comparação"]
-        }
+    self.INDICATOR_CATEGORIES = {
+        "Financeiro": [
+            'Lucro (Geral)', 'EBITDA', 'Fluxo de Caixa / FCF', 'ROIC (Retorno sobre Capital Investido)',
+            'CAGR (Taxa de Crescimento Anual)', 'Receita', 'Capital de Giro', 'Margens',
+            'EVA (Valor Econômico Agregado)', 'Redução de Dívida / Alavancagem', 'WACC (Custo de Capital)',
+            'EV (Enterprise Value)', 'NOPAT (Lucro Operacional s/ Impostos)', 'Rentabilidade (Geral)', 'CAPEX'
+        ],
+        "Mercado": [
+            'IPCA (Inflação)', 'TSR (Retorno Total ao Acionista)', 'CDI (Taxa Interbancária)',
+            'Selic (Taxa Básica de Juros)', 'Valor de Mercado / Equity'
+        ],
+        "ESG": [
+            'ESG (Geral)'
+        ],
+        "Operacional": [
+            'Qualidade (Operacional)', 'Crescimento (Operacional)', 'Produtividade (Operacional)',
+            'Desempenho de Entrega', 'Expansão Comercial', 'M&A e Expansão',
+            'Segurança (Operacional)', 'NPS (Net Promoter Score)', 'Eficiência de Ativos'
+        ]
+    }
         
         # --- Roteador Declarativo (Completo e com todas as funções implementadas) ---
         self.intent_rules = [
@@ -523,17 +513,14 @@ class AnalyticalEngine:
         return report_text, df
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
         """
-        Analisa e contabiliza os aliases de indicadores de performance mais comuns,
-        unificando redundâncias e categorizando-os, garantindo que cada empresa
-        seja contada apenas uma vez por indicador canônico.
-        Retorna um texto de relatório e um DataFrame com os resultados.
+        Versão Aprimorada: Analisa e contabiliza os indicadores de performance,
+        unificando redundâncias, removendo termos genéricos e categorizando de
+        forma clara e relevante.
         """
         data_to_analyze = self._apply_filters_to_data(filters)
-
-        # Mapeamento para armazenar para CADA INDICADOR CANÔNICO, QUAIS EMPRESAS O MENCIONAM.
         canonical_indicator_companies = defaultdict(set)
 
-        # Coleta e unifica os aliases para os indicadores de performance
+        # 1. Coleta todos os aliases, como antes
         for company, details in data_to_analyze.items():
             if "planos_identificados" in details:
                 for plan_name, plan_details in details["planos_identificados"].items():
@@ -544,79 +531,73 @@ class AnalyticalEngine:
                     company_leaf_aliases = []
                     self._collect_leaf_aliases_recursive(performance_section, company_leaf_aliases)
 
+                    # 2. Unifica os aliases para a sua forma canônica
                     for alias in set(company_leaf_aliases):
-                        canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias, alias)
+                        canonical_alias = self.INDICATOR_CANONICAL_MAP.get(alias.lower(), alias)
                         canonical_indicator_companies[canonical_alias].add(company)
-        
+    
+        # 3. Conta as empresas por indicador canônico
         canonical_alias_counts = {
             indicator: len(companies_set)
             for indicator, companies_set in canonical_indicator_companies.items()
         }
 
-        if not canonical_alias_counts:
-            return "Nenhum alias de indicador de performance encontrado para os filtros selecionados.", None
-
+        # 4. Filtra os termos que devem ser completamente ignorados
         filtered_counts = {
             k: v for k, v in canonical_alias_counts.items()
-            if k not in ["Outros/Genéricos", "Grupos de Comparação"]
-        }
-        
-        generic_terms_counts = {
-            k: v for k, v in canonical_alias_counts.items()
-            if k in ["Outros/Genéricos"]
-        }
-        
-        comparison_groups_counts = {
-            k: v for k, v in canonical_alias_counts.items()
-            if k in ["Grupos de Comparação"]
+            if k.lower() not in self.TERMOS_A_IGNORAR
         }
 
-        if not filtered_counts and not generic_terms_counts and not comparison_groups_counts:
-            return "Nenhum indicador de performance específico ou termo relevante encontrado para os filtros selecionados.", None
+        if not filtered_counts:
+            return "Nenhum indicador de performance relevante encontrado para os filtros selecionados.", None
 
+        # 5. Categoriza os indicadores já limpos e unificados
         categorized_indicators = defaultdict(list)
+        uncategorized_list = []
+    
         for indicator, count in filtered_counts.items():
             found_category = None
             for category, indicators_list in self.INDICATOR_CATEGORIES.items():
                 if indicator in indicators_list:
                     found_category = category
                     break
+        
             if found_category:
                 categorized_indicators[found_category].append((indicator, count))
             else:
-                categorized_indicators["Outros (Não Categorizados)"].append((indicator, count))
+                # Armazena os não categorizados para exibir no final, se houver
+                uncategorized_list.append((indicator, count))
 
+        # 6. Monta o relatório final com uma estrutura clara
         report_text = "### Indicadores de Performance Mais Comuns\n\n"
         df_overall_data = []
-
-        ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG", "Outros (Não Categorizados)"]
-        
+    
+        # Ordem de exibição preferencial das categorias
+        ordered_categories = ["Financeiro", "Mercado", "Operacional", "ESG"]
+    
         for category in ordered_categories:
             if category in categorized_indicators:
+                # Ordena os indicadores dentro de cada categoria por contagem
                 sorted_indicators = sorted(categorized_indicators[category], key=lambda item: item[1], reverse=True)
-                
-                report_text += f"#### **{category}**\n"
-                
+            
+                report_text += f"#### {category}\n"
                 for indicator, count in sorted_indicators:
                     report_text += f"- **{indicator}:** {count} empresas\n"
                     df_overall_data.append({"Indicador": indicator, "Categoria": category, "Nº de Empresas": count})
                 report_text += "\n"
-        
-        if generic_terms_counts:
-            report_text += "#### **Termos Genéricos/Contextuais (não indicadores específicos)**\n"
-            for term, count in sorted(generic_terms_counts.items(), key=lambda item: item[1], reverse=True):
-                report_text += f"- **{term}:** {count} empresas\n"
-                df_overall_data.append({"Indicador": term, "Categoria": "Termos Genéricos/Contextuais", "Nº de Empresas": count})
-            report_text += "\n"
-        
-        if comparison_groups_counts:
-            report_text += "#### **Grupos de Comparação (Mencionados)**\n"
-            for group, count in sorted(comparison_groups_counts.items(), key=lambda item: item[1], reverse=True):
-                report_text += f"- **{group}:** {count} empresas\n"
-                df_overall_data.append({"Indicador": group, "Categoria": "Grupos de Comparação", "Nº de Empresas": count})
+    
+        # Adiciona a categoria de "Outros" apenas se houver itens nela
+        if uncategorized_list:
+            report_text += "#### Outros Indicadores\n"
+            sorted_uncategorized = sorted(uncategorized_list, key=lambda item: item[1], reverse=True)
+            for indicator, count in sorted_uncategorized:
+                report_text += f"- **{indicator}:** {count} empresas\n"
+                df_overall_data.append({"Indicador": indicator, "Categoria": "Outros", "Nº de Empresas": count})
             report_text += "\n"
 
+        # Cria o DataFrame final, ordenado pela contagem geral
         df = pd.DataFrame(df_overall_data).sort_values(by="Nº de Empresas", ascending=False).reset_index(drop=True)
+    
         return report_text, df
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
