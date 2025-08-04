@@ -891,6 +891,35 @@ def main():
     st.markdown('<h1 style="color:#0b2859;">🤖 PRIA (Agente de IA para ILP)</h1>', unsafe_allow_html=True)
     st.markdown("---")
 
+    # Criar placeholders para as mensagens de carregamento
+    status_message_1 = st.empty()
+    status_message_2 = st.empty()
+    
+    status_message_1.info("Carregando modelo de embedding...")
+    # A linha abaixo deve ser executada após o carregamento do modelo de embedding.
+    # No seu código, a função setup_and_load_data() faz isso.
+    # Vou simular que o carregamento está acontecendo.
+    
+    # Simulação do carregamento (você já tem a sua função `setup_and_load_data`)
+    # time.sleep(2)  
+    
+    status_message_1.success("✅ Modelo de embedding carregado.")
+    status_message_2.info("Carregando modelo de Re-ranking (Cross-Encoder)...")
+    
+    # A linha abaixo deve ser executada após o carregamento do modelo de re-ranking.
+    # time.sleep(2)
+    
+    # Suas chamadas de carregamento
+    artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
+
+    # Limpar os placeholders para que as mensagens não fiquem na tela
+    status_message_1.empty()
+    status_message_2.empty()
+
+    if not summary_data or not artifacts:
+        st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
+        st.stop()
+
     artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
         
     if not summary_data or not artifacts:
