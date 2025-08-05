@@ -622,14 +622,14 @@ class AnalyticalEngine:
 
     def _find_companies_by_general_topic(self, normalized_query: str, filters: dict) -> tuple:
         """
-        Busca empresas por um tópico geral identificado na query, usando uma busca
-        recursiva robusta nos dados de tópicos de cada empresa.
+        Busca empresas por um tópico geral identificado na query, usando uma coleta
+        recursiva de chaves para garantir uma busca robusta.
         """
         data_to_analyze = self._apply_filters_to_data(filters)
         flat_map = self._kb_flat_map()
         found_topic_details = None
         
-        # Identifica o tópico na pergunta usando o mapa plano
+        # Identifica o tópico na pergunta usando o mapa plano (isso já está funcionando)
         for alias in sorted(flat_map.keys(), key=len, reverse=True):
             if re.search(r'\b' + re.escape(alias) + r'\b', normalized_query):
                 found_topic_details = flat_map[alias]
@@ -640,36 +640,38 @@ class AnalyticalEngine:
 
         section, topic_name_formatted, topic_name_raw = found_topic_details
         
-        # --- INÍCIO DA CORREÇÃO ROBUSTA ---
+        # --- INÍCIO DA SOLUÇÃO DEFINITIVA ---
         
-        # Helper function para buscar uma chave recursivamente em dicionários e listas
-        def _key_exists_recursive(node, key_to_find):
+        # Função auxiliar para coletar todas as chaves (tópicos) de uma estrutura aninhada.
+        def _collect_all_topic_keys(node, collected_keys: set):
             if isinstance(node, dict):
-                # Se a chave existe no dicionário atual, retorna True
-                if key_to_find in node:
-                    return True
-                # Senão, busca recursivamente nos valores do dicionário
-                for value in node.values():
-                    if _key_exists_recursive(value, key_to_find):
-                        return True
+                for key, value in node.items():
+                    # A própria chave é um tópico
+                    if key not in ["_aliases", "subtopicos"]:
+                        collected_keys.add(key)
+                    # Continua a recursão para valores que são dicionários ou listas
+                    if isinstance(value, (dict, list)):
+                        _collect_all_topic_keys(value, collected_keys)
             elif isinstance(node, list):
-                # Se for uma lista, busca recursivamente em cada item
+                # Se for uma lista, itera sobre seus itens
                 for item in node:
-                    if _key_exists_recursive(item, key_to_find):
-                        return True
-            # Se não encontrar, retorna False
-            return False
+                    _collect_all_topic_keys(item, collected_keys)
 
         companies = []
         for company_name, details in data_to_analyze.items():
-            # Pega todo o dicionário de tópicos encontrados para a empresa
             topics_for_company = details.get("topicos_encontrados", {})
             
-            # Usa a nova função de busca recursiva para verificar se o tópico existe
-            if _key_exists_recursive(topics_for_company, topic_name_raw):
+            # Cria um set para armazenar todas as chaves de tópicos desta empresa
+            all_company_topic_keys = set()
+            
+            # Preenche o set usando a nova função auxiliar
+            _collect_all_topic_keys(topics_for_company, all_company_topic_keys)
+            
+            # A verificação agora é um simples e eficiente "in"
+            if topic_name_raw in all_company_topic_keys:
                 companies.append(company_name)
         
-        # --- FIM DA CORREÇÃO ROBUSTA ---
+        # --- FIM DA SOLUÇÃO DEFINITIVA ---
 
         if not companies:
             return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}' para os filtros aplicados.", None
