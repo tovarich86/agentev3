@@ -444,16 +444,24 @@ class AnalyticalEngine:
     def _analyze_plan_members(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         member_role_counts = defaultdict(int)
-        company_member_details = []
+        company_member_details = defaultdict(set) # Usar set para evitar duplicatas
+
         for company, details in data_to_analyze.items():
-            topics = details.get("topicos_encontrados", {})
-            elegibility_section = topics.get("ParticipantesCondicoes", {}).get("Elegibilidade", [])
-            
-            if elegibility_section:
-                company_member_details.append({"Empresa": company, "Funções Elegíveis": ", ".join(elegibility_section)})
-                for role in elegibility_section:
-                    member_role_counts[role] += 1
-            
+            # Itera sobre cada plano identificado para a empresa
+            for plan_name, plan_details in details.get("planos_identificados", {}).items():
+                # Busca a seção de elegibilidade DENTRO de cada plano
+                elegibility_section = plan_details.get("topicos_encontrados", {}).get("ParticipantesCondicoes", {}).get("Elegibilidade", [])
+                
+                if elegibility_section:
+                    for role in elegibility_section:
+                        # Adiciona a função elegível ao set da empresa
+                        company_member_details[company].add(role)
+
+        # Após coletar de todas as empresas, faz a contagem
+        for company, roles in company_member_details.items():
+            for role in roles:
+                member_role_counts[role] += 1
+        
         if not member_role_counts:
             return "Nenhuma informação sobre membros elegíveis foi encontrada para os filtros selecionados.", None
         
@@ -463,28 +471,38 @@ class AnalyticalEngine:
             report_text += f"- **{role}:** {count} empresas\n"
             df_counts_data.append({"Tipo de Membro Elegível": role, "Nº de Empresas": count})
         
+        # Formata o DataFrame de detalhes
+        df_details_data = [{"Empresa": company, "Funções Elegíveis": ", ".join(sorted(list(roles)))} for company, roles in company_member_details.items()]
+
         dfs_to_return = {
             'Contagem por Tipo de Membro': pd.DataFrame(df_counts_data),
-            'Detalhes por Empresa': pd.DataFrame(company_member_details).sort_values(by="Empresa").reset_index(drop=True)
+            'Detalhes por Empresa': pd.DataFrame(df_details_data).sort_values(by="Empresa").reset_index(drop=True)
         }
         return report_text, dfs_to_return
 
     def _count_plans_for_board(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
-        companies = []
+        companies = set() # Usar set para evitar contagem dupla
+
         for company, details in data_to_analyze.items():
-            topics = details.get("topicos_encontrados", {})
-            governance_section = topics.get("GovernancaRisco", {})
-            if "OrgaoDeliberativo" in governance_section:
-                deliberative_organs = governance_section["OrgaoDeliberativo"]
-                normalized_deliberative_organs = [self._normalize_text(org) for org in deliberative_organs]
-                if "conselho de administracao" in normalized_deliberative_organs:
-                    companies.append(company)
+            # Itera sobre cada plano da empresa
+            for plan_name, plan_details in details.get("planos_identificados", {}).items():
+                governance_section = plan_details.get("topicos_encontrados", {}).get("GovernancaRisco", {})
+                
+                if "OrgaoDeliberativo" in governance_section:
+                    deliberative_organs = governance_section["OrgaoDeliberativo"]
+                    normalized_deliberative_organs = [self._normalize_text(org) for org in deliberative_organs]
+                    
+                    if "conselho de administracao" in normalized_deliberative_organs:
+                        companies.add(company)
+                        break # Encontrou na empresa, pode ir para a próxima
+
         if not companies:
             return "Nenhuma empresa com menção ao Conselho de Administração como elegível/aprovador foi encontrada para os filtros selecionados.", None
         
-        report_text = f"**{len(companies)}** empresas com menção ao **Conselho de Administração** como elegível ou aprovador de planos foram encontradas para os filtros aplicados."
-        df = pd.DataFrame(sorted(companies), columns=["Empresas com Menção ao Conselho de Administração"])
+        companies_list = sorted(list(companies))
+        report_text = f"**{len(companies_list)}** empresas com menção ao **Conselho de Administração** como elegível ou aprovador de planos foram encontradas para os filtros aplicados."
+        df = pd.DataFrame(companies_list, columns=["Empresas com Menção ao Conselho de Administração"])
         return report_text, df
 
     def _analyze_common_goals(self, normalized_query: str, filters: dict) -> tuple:
@@ -563,36 +581,25 @@ class AnalyticalEngine:
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
         data_to_analyze = self._apply_filters_to_data(filters)
         plan_type_counts = defaultdict(int)
-        for details in data_to_analyze.values():
-            plan_topics = details.get("topicos_encontrados", {}).get("TiposDePlano", {})
-            
-            for plan_type_raw in plan_topics.keys():
-                if plan_type_raw not in ['_aliases', 'subtopicos']:
-                    plan_type_counts[plan_type_raw.replace('_', ' ')] += 1
+
+        for company, details in data_to_analyze.items():
+            # As chaves de 'planos_identificados' SÃO os tipos de plano
+            identified_plans = details.get("planos_identificados", {})
+            unique_plan_types_for_company = set(identified_plans.keys())
+
+            for plan_type in unique_plan_types_for_company:
+                plan_type_counts[plan_type.replace('_', ' ')] += 1
 
         if not plan_type_counts:
             return "Nenhum tipo de plano encontrado para os filtros selecionados.", None
             
         report_text = "### Tipos de Planos Mais Comuns\n"
         df_data = [{"Tipo de Plano": k, "Nº de Empresas": v} for k, v in sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)]
+        
         for item in df_data:
             report_text += f"- **{item['Tipo de Plano'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
+            
         return report_text, pd.DataFrame(df_data)
-
-    def _recursive_flat_map_builder(self, sub_dict: dict, section: str, flat_map: dict):
-        for topic_name_raw, data in sub_dict.items():
-            if not isinstance(data, dict):
-                continue
-            
-            topic_name_formatted = topic_name_raw.replace('_', ' ')
-            details = (section, topic_name_formatted, topic_name_raw)
-
-            flat_map[self._normalize_text(topic_name_formatted)] = details
-            for alias in data.get("aliases", []):
-                flat_map[self._normalize_text(alias)] = details
-            
-            if "subtopicos" in data and data.get("subtopicos"):
-                self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
     
     def _kb_flat_map(self) -> dict:
         """Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
