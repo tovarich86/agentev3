@@ -191,6 +191,26 @@ class AnalyticalEngine:
             (lambda q: True, self._find_companies_by_general_topic),
         ]
 
+    def _recursive_flat_map_builder(self, sub_dict: dict, section: str, flat_map: dict):
+        """Função auxiliar recursiva para construir o mapa plano de aliases."""
+        for topic_name_raw, data in sub_dict.items():
+            # Pula chaves de controle como '_aliases'
+            if not isinstance(data, dict):
+                continue
+            
+            topic_name_formatted = topic_name_raw.replace('_', ' ')
+            details = (section, topic_name_formatted, topic_name_raw)
+
+            # Mapeia o nome canônico do tópico e seus aliases
+            flat_map[self._normalize_text(topic_name_formatted)] = details
+            for alias in data.get("aliases", []):
+                flat_map[self._normalize_text(alias)] = details
+            
+            # Continua a recursão para 'subtopicos', se existirem
+            if "subtopicos" in data and data.get("subtopicos"):
+                self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
+
+
     def _collect_leaf_aliases_recursive(self, node: dict or list, collected_aliases: list):
         """
         Versão Definitiva: Percorre a estrutura de dados e coleta tanto os aliases
@@ -619,9 +639,7 @@ class AnalyticalEngine:
             for alias in data.get("aliases", []):
                 flat_map[self._normalize_text(alias)] = details
 
-            # **CORREÇÃO PRINCIPAL:** Inicia a recursão diretamente no dicionário de dados 
-            # da seção, que contém os tópicos de primeiro nível (como "AcoesRestritas").
-            # A verificação "if 'subtopicos' in data" foi removida daqui.
+            # Inicia a recursão diretamente no dicionário de dados da seção
             self._recursive_flat_map_builder(data, section, flat_map)
         
         self._kb_flat_map_cache = flat_map
