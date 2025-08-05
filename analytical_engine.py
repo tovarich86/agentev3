@@ -599,27 +599,44 @@ class AnalyticalEngine:
         return report_text, df
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
+        """
+        [VERSÃO CORRIGIDA] Analisa e conta a prevalência de cada tipo de plano
+        de incentivo, baseando-se nas chaves do dicionário 'planos_identificados'.
+        """
         data_to_analyze = self._apply_filters_to_data(filters)
         plan_type_counts = defaultdict(int)
 
+        # Itera sobre cada empresa nos dados filtrados
         for company, details in data_to_analyze.items():
-            # As chaves de 'planos_identificados' SÃO os tipos de plano
+            
+            # As chaves do dicionário 'planos_identificados' SÃO os tipos de plano.
+            # Ex: {"OpcoesDeCompra": {...}, "AcoesRestritas": {...}}
             identified_plans = details.get("planos_identificados", {})
+            
+            # Usamos um 'set' para garantir que cada tipo de plano seja contado
+            # apenas uma vez por empresa, mesmo que haja múltiplos planos do mesmo tipo.
             unique_plan_types_for_company = set(identified_plans.keys())
 
+            # Para cada tipo de plano único encontrado nesta empresa, incrementa o contador geral.
             for plan_type in unique_plan_types_for_company:
+                # Substitui '_' por espaço para um nome mais amigável e incrementa a contagem.
                 plan_type_counts[plan_type.replace('_', ' ')] += 1
 
         if not plan_type_counts:
             return "Nenhum tipo de plano encontrado para os filtros selecionados.", None
             
         report_text = "### Tipos de Planos Mais Comuns\n"
+        
+        # Cria a lista de dados para o DataFrame, ordenando pela contagem (mais comum primeiro)
         df_data = [{"Tipo de Plano": k, "Nº de Empresas": v} for k, v in sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)]
         
+        # Constrói o relatório de texto a partir dos dados já ordenados
         for item in df_data:
             report_text += f"- **{item['Tipo de Plano'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
             
+        # Retorna o relatório e o DataFrame
         return report_text, pd.DataFrame(df_data)
+
     
     def _kb_flat_map(self) -> dict:
         """Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
