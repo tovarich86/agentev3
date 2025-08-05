@@ -621,10 +621,15 @@ class AnalyticalEngine:
         return flat_map
 
     def _find_companies_by_general_topic(self, normalized_query: str, filters: dict) -> tuple:
+        """
+        Busca empresas por um tópico geral identificado na query, usando uma busca
+        recursiva robusta nos dados de tópicos de cada empresa.
+        """
         data_to_analyze = self._apply_filters_to_data(filters)
         flat_map = self._kb_flat_map()
         found_topic_details = None
         
+        # Identifica o tópico na pergunta usando o mapa plano
         for alias in sorted(flat_map.keys(), key=len, reverse=True):
             if re.search(r'\b' + re.escape(alias) + r'\b', normalized_query):
                 found_topic_details = flat_map[alias]
@@ -635,32 +640,36 @@ class AnalyticalEngine:
 
         section, topic_name_formatted, topic_name_raw = found_topic_details
         
+        # --- INÍCIO DA CORREÇÃO ROBUSTA ---
+        
+        # Helper function para buscar uma chave recursivamente em dicionários e listas
+        def _key_exists_recursive(node, key_to_find):
+            if isinstance(node, dict):
+                # Se a chave existe no dicionário atual, retorna True
+                if key_to_find in node:
+                    return True
+                # Senão, busca recursivamente nos valores do dicionário
+                for value in node.values():
+                    if _key_exists_recursive(value, key_to_find):
+                        return True
+            elif isinstance(node, list):
+                # Se for uma lista, busca recursivamente em cada item
+                for item in node:
+                    if _key_exists_recursive(item, key_to_find):
+                        return True
+            # Se não encontrar, retorna False
+            return False
+
         companies = []
-        for name, details in data_to_analyze.items():
-            if section in details.get("topicos_encontrados", {}):
-                queue = deque([details["topicos_encontrados"][section]])
-                found_in_company = False
-                while queue:
-                    current_node = queue.popleft()
-                    if isinstance(current_node, dict):
-                        for k, v in current_node.items():
-                            if k == topic_name_raw:
-                                found_in_company = True
-                                break
-                            if isinstance(v, dict) and 'subtopicos' in v and v['subtopicos']:
-                                queue.append(v['subtopicos'])
-                            elif isinstance(v, list):
-                                if topic_name_raw in current_node:
-                                    found_in_company = True
-                                    break
-                    elif isinstance(current_node, list):
-                        if topic_name_raw in current_node:
-                            found_in_company = True
-                            break
-                    if found_in_company:
-                        break
-                if found_in_company:
-                    companies.append(name)
+        for company_name, details in data_to_analyze.items():
+            # Pega todo o dicionário de tópicos encontrados para a empresa
+            topics_for_company = details.get("topicos_encontrados", {})
+            
+            # Usa a nova função de busca recursiva para verificar se o tópico existe
+            if _key_exists_recursive(topics_for_company, topic_name_raw):
+                companies.append(company_name)
+        
+        # --- FIM DA CORREÇÃO ROBUSTA ---
 
         if not companies:
             return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}' para os filtros aplicados.", None
