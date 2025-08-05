@@ -614,7 +614,7 @@ class AnalyticalEngine:
             identified_plans = details.get("planos_identificados", {})
             
             # Usamos um 'set' para garantir que cada tipo de plano seja contado
-            # apenas uma vez por empresa, mesmo que haja múltiplos planos do mesmo tipo.
+            # apenas uma vez por empresa.
             unique_plan_types_for_company = set(identified_plans.keys())
 
             # Para cada tipo de plano único encontrado nesta empresa, incrementa o contador geral.
@@ -623,7 +623,7 @@ class AnalyticalEngine:
                 plan_type_counts[plan_type.replace('_', ' ')] += 1
 
         if not plan_type_counts:
-            return "Nenhum tipo de plano encontrado para os filtros selecionados.", None
+            return "Nenhum tipo de plano foi encontrado para os filtros selecionados.", None
             
         report_text = "### Tipos de Planos Mais Comuns\n"
         
@@ -636,7 +636,6 @@ class AnalyticalEngine:
             
         # Retorna o relatório e o DataFrame
         return report_text, pd.DataFrame(df_data)
-
     
     def _kb_flat_map(self) -> dict:
         """[VERSÃO DE DEPURAÇÃO] Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
