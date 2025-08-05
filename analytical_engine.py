@@ -595,6 +595,7 @@ class AnalyticalEngine:
                 self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
     
     def _kb_flat_map(self) -> dict:
+        """Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
         if hasattr(self, '_kb_flat_map_cache'):
             return self._kb_flat_map_cache
         
@@ -603,6 +604,7 @@ class AnalyticalEngine:
             if not isinstance(data, dict):
                 continue
 
+            # Mapeia a própria seção principal e seus aliases
             section_name_formatted = section.replace('_', ' ')
             details = (section, section_name_formatted, section)
             
@@ -610,8 +612,10 @@ class AnalyticalEngine:
             for alias in data.get("aliases", []):
                 flat_map[self._normalize_text(alias)] = details
 
-            if "subtopicos" in data and data.get("subtopicos"):
-                self._recursive_flat_map_builder(data["subtopicos"], section, flat_map)
+            # **CORREÇÃO PRINCIPAL:** Inicia a recursão diretamente no dicionário de dados 
+            # da seção, que contém os tópicos de primeiro nível (como "AcoesRestritas").
+            # A verificação "if 'subtopicos' in data" foi removida daqui.
+            self._recursive_flat_map_builder(data, section, flat_map)
         
         self._kb_flat_map_cache = flat_map
         return flat_map
