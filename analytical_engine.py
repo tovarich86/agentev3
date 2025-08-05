@@ -639,7 +639,10 @@ class AnalyticalEngine:
 
     
     def _kb_flat_map(self) -> dict:
-        """Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
+        """[VERSÃO DE DEPURAÇÃO] Cria um mapa plano de alias -> (seção, nome_formatado, nome_bruto)."""
+        # Adicione 'import streamlit as st' no topo do seu arquivo analytical_engine.py
+        import streamlit as st
+
         if hasattr(self, '_kb_flat_map_cache'):
             return self._kb_flat_map_cache
         
@@ -648,7 +651,6 @@ class AnalyticalEngine:
             if not isinstance(data, dict):
                 continue
 
-            # Mapeia a própria seção principal e seus aliases
             section_name_formatted = section.replace('_', ' ')
             details = (section, section_name_formatted, section)
             
@@ -656,12 +658,20 @@ class AnalyticalEngine:
             for alias in data.get("aliases", []):
                 flat_map[self._normalize_text(alias)] = details
 
-            # Inicia a recursão diretamente no dicionário de dados da seção
             self._recursive_flat_map_builder(data, section, flat_map)
         
+        # --- DEBUG PRINT ---
+        with st.expander("--- DEBUG: Conteúdo do `flat_map` gerado ---"):
+             # Filtra o mapa para encontrar chaves relacionadas a "matching"
+            debug_info = {k: v for k, v in flat_map.items() if "matching" in k or "coinvestimento" in k}
+            st.write("Verificando se os aliases para 'Matching Coinvestimento' foram mapeados:")
+            st.json(debug_info if debug_info else {"status": "Nenhum alias relevante encontrado no mapa."})
+            st.write("--- Mapa Completo (primeiros 300 itens) ---")
+            st.json({k: v for i, (k, v) in enumerate(flat_map.items()) if i < 300})
+        # --- FIM DEBUG ---
+
         self._kb_flat_map_cache = flat_map
         return flat_map
-
     def _find_companies_by_general_topic(self, normalized_query: str, filters: dict) -> tuple:
         """
         [VERSÃO CORRIGIDA FINAL] Busca empresas por um tópico geral, navegando 
