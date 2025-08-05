@@ -622,86 +622,71 @@ class AnalyticalEngine:
 
     def _find_companies_by_general_topic(self, normalized_query: str, filters: dict) -> tuple:
         """
-        [VERSÃO DE DEPURAÇÃO] Busca empresas por um tópico geral.
+        [VERSÃO CORRIGIDA FINAL] Busca empresas por um tópico geral, navegando 
+        corretamente pela estrutura aninhada de 'planos_identificados'.
         """
-        # Adicione 'import streamlit as st' no topo do seu arquivo analytical_engine.py
-        import streamlit as st
-
-        st.info("--- INICIANDO MODO DE DEPURAÇÃO: _find_companies_by_general_topic ---")
-
         data_to_analyze = self._apply_filters_to_data(filters)
         flat_map = self._kb_flat_map()
         found_topic_details = None
         
+        # ETAPA 1: Identificar o tópico na pergunta (já funcionando corretamente)
         for alias in sorted(flat_map.keys(), key=len, reverse=True):
             if re.search(r'\b' + re.escape(alias) + r'\b', normalized_query):
                 found_topic_details = flat_map[alias]
                 break
         
         if not found_topic_details:
-            st.error("DEBUG: Falha na ETAPA 1. O tópico não foi identificado a partir da query.")
             return "Não foi possível identificar um tópico técnico conhecido na sua pergunta para realizar a busca.", None
 
         section, topic_name_formatted, topic_name_raw = found_topic_details
         
-        # DEBUG: Mostrar qual tópico foi identificado
-        st.write(f"**DEBUG ETAPA 1 (Sucesso):** Tópico identificado com sucesso!")
-        st.json({
-            "Nome Formatado": topic_name_formatted,
-            "Chave de Busca (raw)": topic_name_raw,
-            "Seção do KB": section
-        })
-
+        # --- INÍCIO DA CORREÇÃO DE LÓGICA ---
+        
+        # Função auxiliar para coletar todas as chaves (ex: "Matching_Coinvestimento")
+        # de uma estrutura aninhada.
         def _collect_all_topic_keys(node, collected_keys: set):
             if isinstance(node, dict):
                 for key, value in node.items():
-                    if key not in ["_aliases", "subtopicos"]:
-                        collected_keys.add(key)
+                    # A própria chave é um tópico
+                    collected_keys.add(key)
+                    # Continua a recursão para valores que são dicionários ou listas
                     if isinstance(value, (dict, list)):
                         _collect_all_topic_keys(value, collected_keys)
             elif isinstance(node, list):
                 for item in node:
                     _collect_all_topic_keys(item, collected_keys)
 
-        companies_found = []
+        companies_found = set() # Usar um set para evitar nomes duplicados
         
-        st.warning("--- DEBUG ETAPA 2: Verificando cada empresa ---")
-        # DEBUG: Limitar a verificação a algumas empresas para não poluir a tela
-        companies_to_check = list(data_to_analyze.items())[:5] # Verificando as 5 primeiras
-
-        for company_name, details in companies_to_check:
-            topics_for_company = details.get("topicos_encontrados", {})
+        # Itera sobre cada empresa no dicionário de dados
+        for company_name, company_details in data_to_analyze.items():
             
-            all_company_topic_keys = set()
-            _collect_all_topic_keys(topics_for_company, all_company_topic_keys)
+            # **A CORREÇÃO PRINCIPAL ESTÁ AQUI**
+            # Pega o dicionário de planos da empresa (ex: {"OpcoesDeCompra": {...}, "Matching_Coinvestimento": {...}})
+            identified_plans = company_details.get("planos_identificados", {})
             
-            # DEBUG: Mostrar os tópicos coletados para esta empresa
-            with st.expander(f"Tópicos coletados para: **{company_name}**"):
-                st.write(sorted(list(all_company_topic_keys)))
-
-            if topic_name_raw in all_company_topic_keys:
-                companies_found.append(company_name)
-                st.success(f"**ENCONTRADO!** O tópico '{topic_name_raw}' foi localizado em **{company_name}**.")
+            # Itera sobre cada plano dentro da empresa
+            for plan_name, plan_details in identified_plans.items():
+                
+                # Procura o dicionário "topicos_encontrados" DENTRO de cada plano
+                topics_for_plan = plan_details.get("topicos_encontrados", {})
+                
+                all_plan_topic_keys = set()
+                _collect_all_topic_keys(topics_for_plan, all_plan_topic_keys)
+                
+                # Verifica se o tópico buscado existe nas chaves deste plano
+                if topic_name_raw in all_plan_topic_keys:
+                    companies_found.add(company_name)
+                    # Se encontrou, não precisa checar outros planos da mesma empresa
+                    break 
         
-        # --- Lógica final (sem alteração) ---
-        if not companies_found:
-             # Re-executa a lógica para todas as empresas sem os prints para dar a resposta final
-            final_companies_list = []
-            for company_name, details in data_to_analyze.items():
-                 topics_for_company = details.get("topicos_encontrados", {})
-                 all_company_topic_keys = set()
-                 _collect_all_topic_keys(topics_for_company, all_company_topic_keys)
-                 if topic_name_raw in all_company_topic_keys:
-                     final_companies_list.append(company_name)
-            
-            if not final_companies_list:
-                st.error(f"**DEBUG FINAL:** Mesmo após verificar todas as {len(data_to_analyze)} empresas, a chave '{topic_name_raw}' não foi encontrada em nenhuma.")
-                return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}' para os filtros aplicados.", None
-            else:
-                 report_text = f"Encontradas **{len(final_companies_list)}** empresas com o tópico: **{topic_name_formatted.capitalize()}**"
-                 df = pd.DataFrame(sorted(final_companies_list), columns=[f"Empresas com {topic_name_formatted.capitalize()}"])
-                 return report_text, df
+        # --- FIM DA CORREÇÃO DE LÓGICA ---
+        
+        companies_list = sorted(list(companies_found))
 
-        report_text = f"Encontradas **{len(companies_found)}** empresas (na amostra de depuração) com o tópico: **{topic_name_formatted.capitalize()}**"
-        df = pd.DataFrame(sorted(companies_found), columns=[f"Empresas com {topic_name_formatted.capitalize()}"])
+        if not companies_list:
+            return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}' para os filtros aplicados.", None
+
+        report_text = f"Encontradas **{len(companies_list)}** empresas com o tópico: **{topic_name_formatted.capitalize()}**"
+        df = pd.DataFrame(companies_list, columns=[f"Empresas com {topic_name_formatted.capitalize()}"])
         return report_text, df
