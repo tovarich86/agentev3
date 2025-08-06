@@ -614,8 +614,14 @@ def execute_dynamic_plan(
     
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters: dict):
     """
-    Versão 3.0 (Unificada) do planejador dinâmico.
+    [VERSÃO DE DEPURAÇÃO] do planejador dinâmico para inspecionar a
+    identificação de tópicos.
     """
+    # Adicione 'import streamlit as st' no topo do seu arquivo, se ainda não o fez.
+    import streamlit as st
+
+    st.info("--- INICIANDO MODO DE DEPURAÇÃO: create_dynamic_analysis_plan ---")
+
     logger.info(f"Gerando plano dinâmico v3.0 para a pergunta: '{query}'")
     query_lower = query.lower().strip()
     
@@ -626,7 +632,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
         "plan_type": "default"
     }
 
-    # --- PASSO 2: Identificação Robusta de Empresas ---
+    # A lógica de identificação de empresas não é o foco do bug, então a mantemos como está.
     mentioned_companies = []
     if company_catalog_rich:
         companies_found_by_alias = {}
@@ -651,40 +657,44 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     plan["empresas"] = mentioned_companies
     logger.info(f"Empresas identificadas: {plan['empresas']}")
 
-    # --- PASSO 3: Detecção de Intenções Especiais ---
-    summary_keywords = ['resumo geral', 'plano completo', 'como funciona o plano', 'descreva o plano', 'resumo do plano', 'detalhes do plano']
-    section_8_4_keywords = ['item 8.4', 'seção 8.4', '8.4 do fre']
+    # --- INÍCIO DA ÁREA DE DEPURAÇÃO ---
+    st.warning("--- DEBUG: Verificando a Extração de Tópicos ---")
     
-    is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
-    is_section_8_4_request = any(keyword in query_lower for keyword in section_8_4_keywords)
-
-    if plan["empresas"] and is_section_8_4_request:
-        plan["plan_type"] = "section_8_4"
-        plan["topicos"] = ["FormularioReferencia,Item_8_4"]
-        logger.info("Plano especial 'section_8_4' detectado.")
-        return {"status": "success", "plan": plan}
-    
-    elif plan["empresas"] and is_summary_request:
-        plan["plan_type"] = "summary"
-        logger.info("Plano especial 'summary' detectado. Montando plano com tópicos essenciais.")
-        plan["topicos"] = [
-            "TiposDePlano", "ParticipantesCondicoes,Elegibilidade", "Mecanicas,Vesting", 
-            "Mecanicas,Lockup", "IndicadoresPerformance", "GovernancaRisco,MalusClawback", 
-            "EventosFinanceiros,DividendosProventos"
-        ]
-        return {"status": "success", "plan": plan}
-
-    # --- PASSO 4: Extração de Tópicos Hierárquicos ---
+    # PASSO 4: Extração de Tópicos Hierárquicos
     alias_map = create_hierarchical_alias_map(kb)
     found_topics = set()
     
+    # DEBUG 1: Mostra o mapa de aliases para confirmar que "good leaver" está lá
+    with st.expander("Verificar Mapa de Aliases Gerado (`alias_map`)"):
+        debug_aliases = {k: v for k, v in alias_map.items() if "good leaver" in k or "condicaosaida" in k}
+        st.write("Aliases relevantes para o nosso teste:")
+        st.json(debug_aliases if debug_aliases else {"status": "Alias 'good leaver' NÃO foi encontrado no mapa!"})
+
+    st.write(f"**Query do usuário (em minúsculas):** `{query_lower}`")
+    
+    # DEBUG 2: Mostra o processo de busca
+    st.write("Iterando sobre os aliases para encontrar correspondência na query...")
+    
+    match_found_flag = False
     for alias in sorted(alias_map.keys(), key=len, reverse=True):
+        # A expressão regular que busca a correspondência
         if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
             found_topics.add(alias_map[alias])
-    
+            st.success(f"**MATCH ENCONTRADO!** O alias `{alias}` foi encontrado na query.")
+            match_found_flag = True
+
+    if not match_found_flag:
+        st.error("**NENHUM MATCH ENCONTRADO!** Nenhum alias do mapa correspondeu à query.")
+
     plan["topicos"] = sorted(list(found_topics))
-    if plan["topicos"]:
-        logger.info(f"Caminhos de tópicos identificados: {plan['topicos']}")
+    
+    st.write("**Tópicos Finais Identificados para o Plano:**")
+    st.json(plan["topicos"] if plan["topicos"] else "Nenhum tópico foi adicionado ao plano.")
+    
+    st.info("--- FIM DO MODO DE DEPURAÇÃO ---")
+    # --- FIM DA ÁREA DE DEPURAÇÃO ---
+        
+    # O resto da função continua normalmente para que o app não quebre
     if plan["empresas"] and not plan["topicos"]:
         logger.info("Nenhum tópico específico encontrado. Ativando modo de resumo/comparação geral.")
         plan["plan_type"] = "summary"
@@ -693,9 +703,8 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
             "MecanicasCicloDeVida,Lockup", "IndicadoresPerformance", "GovernancaRisco,MalusClawback", 
             "EventosFinanceiros,DividendosProventos"
         ]
-        logger.info(f"Tópicos de resumo geral adicionados ao plano: {plan['topicos']}")   
+        logger.info(f"Tópicos de resumo geral adicionados ao plano: {plan['topicos']}")    
 
-    # --- PASSO 5: Validação Final ---
     if not plan["empresas"] and not plan["topicos"] and not plan["filtros"]:
         logger.warning("Planejador não conseguiu identificar empresa, tópico ou filtro na pergunta.")
         return {"status": "error", "message": "Não foi possível identificar uma intenção clara na sua pergunta. Tente ser mais específico."}
