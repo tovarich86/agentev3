@@ -230,42 +230,60 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
                 expanded_terms.update(all_terms_in_group)
     return list(expanded_terms)
 
-def anonimizar_resultados(data, anom_map=None):
+def anonimizar_resultados(data, company_catalog, anom_map=None):
     """
-    Recebe um DataFrame ou texto e substitui os nomes das empresas por placeholders.
-    Mantém um mapa de anonimização para garantir consistência.
+    [VERSÃO APRIMORADA] Recebe um DataFrame ou texto e substitui os nomes das
+    empresas E SEUS ALIASES por placeholders.
     """
     if anom_map is None:
         anom_map = {}
     
-    # Se for um DataFrame
+    # --- Lógica para DataFrames (Cria o mapa de anonimização) ---
     if isinstance(data, pd.DataFrame) and "Empresa" in data.columns:
         df_anonimizado = data.copy()
         
         def get_anon_name(company_name):
             if company_name not in anom_map:
-                anom_map[company_name] = f"Empresa {chr(65 + len(anom_map))}"
-            return anom_map[company_name]
+                # Encontra a entrada completa da empresa no catálogo
+                company_info = next((item for item in company_catalog if item["canonical_name"] == company_name), None)
+                
+                # Gera o nome anônimo
+                anon_name = f"Empresa {chr(65 + len(anom_map))}"
+                
+                # Armazena o nome anônimo e todos os aliases para substituição posterior no texto
+                anom_map[company_name] = {
+                    "anon_name": anon_name,
+                    "aliases_to_replace": [company_name] + (company_info['aliases'] if company_info else [])
+                }
+            return anom_map[company_name]["anon_name"]
             
         df_anonimizado["Empresa"] = df_anonimizado["Empresa"].apply(get_anon_name)
         return df_anonimizado, anom_map
 
-    # Se for um dicionário de DataFrames (como em _analyze_plan_members)
+    # --- Lógica para Dicionários de DataFrames ---
     elif isinstance(data, dict):
         dict_anonimizado = {}
         for key, df in data.items():
             if isinstance(df, pd.DataFrame) and "Empresa" in df.columns:
-                dict_anonimizado[key], anom_map = anonimizar_resultados(df, anom_map)
+                dict_anonimizado[key], anom_map = anonimizar_resultados(df, company_catalog, anom_map)
             else:
                 dict_anonimizado[key] = df
         return dict_anonimizado, anom_map
         
-    # Se for texto (para a resposta final do RAG)
-    elif isinstance(data, str):
+    # --- Lógica para Texto (Usa o mapa de anonimização) ---
+    elif isinstance(data, str) and anom_map:
         texto_anonimizado = data
-        # Ordena as chaves do mapa pelo comprimento para substituir nomes mais longos primeiro
-        for original, anonimo in sorted(anom_map.items(), key=lambda item: len(item[0]), reverse=True):
-            texto_anonimizado = texto_anonimizado.replace(original, anonimo)
+        # Itera sobre o mapa de anonimização
+        for original_canonical, mapping in anom_map.items():
+            anon_name = mapping["anon_name"]
+            # Ordena os aliases pelo comprimento (do maior para o menor) para evitar substituições parciais
+            # Ex: substitui "Lojas Americanas" antes de "Americanas"
+            aliases_sorted = sorted(mapping["aliases_to_replace"], key=len, reverse=True)
+            
+            for alias in aliases_sorted:
+                # Usa regex para substituir o alias como uma palavra inteira (case-insensitive)
+                texto_anonimizado = re.sub(r'\b' + re.escape(alias) + r'\b', anon_name, texto_anonimizado, flags=re.IGNORECASE)
+                
         return texto_anonimizado, anom_map
         
     return data, anom_map
@@ -1119,7 +1137,7 @@ def main():
                 # [NOVA ADIÇÃO 2] Verifica se o modo de anonimização está ativo.
                 # Se estiver, passa o resultado pela função anonimizar_resultados.
                 if anonimizar_empresas and data_result is not None:
-                    data_result, mapa_anonimizacao = anonimizar_resultados(data_result)
+                    data_result, mapa_anonimizacao = anonimizar_resultados(data_result, st.session_state.company_catalog_ric)
 
                 # A partir daqui, o código de exibição renderizará a versão
                 # original ou a anonimizada, dependendo do checkbox.
@@ -1156,14 +1174,12 @@ def main():
                 df_sources = pd.DataFrame(sources)
                 if not df_sources.empty:
                     df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
-                    df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources)
-                    # Atualiza a lista de fontes com a versão anonimizada para exibição.
+                    df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich)
                     sources = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
 
                 # 3.2: Usa o mapa já criado para substituir os nomes no texto da resposta.
-                final_answer, _ = anonimizar_resultados(final_answer, mapa_anonimizacao)
-
-            # O `final_answer` e `sources` agora são exibidos já anonimizados, se o modo estiver ativo.
+                final_answer, _ = anonimizar_resultados(final_answer, st.session_state.company_catalog_rich, mapa_anonimizacao)
+            
             st.markdown(final_answer)
             
             if sources:
