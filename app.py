@@ -700,7 +700,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
         plan["plan_type"] = "summary"
         plan["topicos"] = [
             "TiposDePlano", "ParticipantesCondicoes,Elegibilidade", "MecanicasCicloDeVida,Vesting", 
-            "MecanicasCicloDeVida,Lockup", "IndicadoresPerformance", "GovernancaRisco,MalusClawback", 
+            "MecanicasCicloDeVida,Lockup", "IndicadoresPerformance", 
             "EventosFinanceiros,DividendosProventos"
         ]
         logger.info(f"Tópicos de resumo geral adicionados ao plano: {plan['topicos']}")    
