@@ -207,6 +207,22 @@ def setup_and_load_data():
 
 # ... (o resto do seu código, desde a função _create_flat_alias_map, permanece exatamente o mesmo)
 # --- FUNÇÕES GLOBAIS E DE RAG ---
+
+def construir_mapa_anonimizacao(company_catalog_rich):
+    """
+    Cria um mapa de anonimização completo com base em todo o catálogo de empresas.
+    """
+    anom_map = {}
+    # Ordena para garantir consistência na atribuição (Empresa A, B, etc.)
+    sorted_catalog = sorted(company_catalog_rich, key=lambda x: x['canonical_name'])
+    for idx, empresa in enumerate(sorted_catalog):
+        anon_name = f"Empresa {chr(65 + idx)}"
+        # Mapeia o nome canônico para os detalhes de anonimização
+        anom_map[empresa['canonical_name']] = {
+            "anon_name": anon_name,
+            "aliases_to_replace": [empresa['canonical_name']] + empresa.get('aliases', [])
+        }
+    return anom_map
 def convert_numpy_types(o):
     """
     Percorre recursivamente uma estrutura de dados (dicionários, listas) e converte
@@ -846,6 +862,8 @@ def handle_rag_query(
 
         plan = plan_response['plan']
         mapa_anonimizacao = {}
+        if anonimizar_empresas:
+            mapa_anonimizacao = construir_mapa_anonimizacao(st.session_state.company_catalog_rich)
 
         if not anonimizar_empresas:
             empresas_identificadas = plan.get('empresas', [])
@@ -1124,8 +1142,7 @@ def main():
                 # [NOVA ADIÇÃO 2] Verifica se o modo de anonimização está ativo.
                 # Se estiver, passa o resultado pela função anonimizar_resultados.
                 if anonimizar_empresas and data_result is not None:
-                    data_result, mapa_anonimizacao = anonimizar_resultados(data_result, st.session_state.company_catalog_rich)
-
+                    data_result, _ = anonimizar_resultados(data_result, st.session_state.company_catalog_rich, mapa_anonimizacao)
                 # A partir daqui, o código de exibição renderizará a versão
                 # original ou a anonimizada, dependendo do checkbox.
                 if report_text:
@@ -1152,7 +1169,9 @@ def main():
                 company_lookup_map=st.session_state.company_lookup_map, 
                 summary_data=summary_data,
                 filters=active_filters,
-                prioritize_recency=prioritize_recency
+                prioritize_recency=prioritize_recency,
+                anonimizar_empresas=anonimizar_empresas,
+                mapa_anonimizacao_global=mapa_anonimizacao
             )
             
             # [NOVA ADIÇÃO 3] Lógica de anonimização de duas etapas para o RAG.
