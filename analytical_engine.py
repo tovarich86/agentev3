@@ -598,66 +598,39 @@ class AnalyticalEngine:
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
         """
-        [VERSÃO ESTRATÉGICA] Analisa, conta e categoriza os tipos de planos
-        pela origem da identificação (Item 8.4 vs. Outros Planos).
+        [VERSÃO FINAL E APRIMORADA] Analisa, conta, formata e filtra os tipos de
+        planos mais comuns para uma apresentação clara e profissional.
         """
         data_to_analyze = self._apply_filters_to_data(filters)
-        
-        # A estrutura de contagem agora é mais rica para armazenar a origem
-        plan_stats = defaultdict(lambda: {
-            'Total': set(),
-            'Item 8.4': set(),
-            'Outros Planos': set()
-        })
+        plan_type_counts = defaultdict(int)
 
+        # Helper para converter CamelCase para Título (ex: OpcoesDeCompra -> Opcoes De Compra)
         def format_plan_name(name):
+            # Remove o underscore e depois adiciona um espaço antes de cada letra maiúscula
             name_no_underscore = name.replace('_', ' ')
             return re.sub(r'(?<!^)(?=[A-Z])', ' ', name_no_underscore).title()
 
         for company, details in data_to_analyze.items():
             identified_plans = details.get("planos_identificados", {})
-            
-            for plan_type, plan_details in identified_plans.items():
+            unique_plan_types_for_company = set(identified_plans.keys())
+
+            for plan_type in unique_plan_types_for_company:
+                # **NOVO FILTRO:** Ignora o plano não identificado
                 if plan_type.lower() == 'planogeralnaoidentificado':
                     continue
                 
+                # **NOVA FORMATAÇÃO:** Usa a função helper para formatar o nome
                 formatted_name = format_plan_name(plan_type)
-                
-                # Adiciona a empresa ao contador total para este tipo de plano
-                plan_stats[formatted_name]['Total'].add(company)
-                
-                # Verifica a origem do documento e adiciona ao contador específico
-                doc_type = plan_details.get("document_type", "outros")
-                if "item_8_4" in doc_type:
-                    plan_stats[formatted_name]['Item 8.4'].add(company)
-                else:
-                    plan_stats[formatted_name]['Outros Planos'].add(company)
+                plan_type_counts[formatted_name] += 1
 
-        if not plan_stats:
+        if not plan_type_counts:
             return "Nenhum tipo de plano relevante foi encontrado para os filtros selecionados.", None
             
-        report_text = "### Tipos de Planos Mais Comuns por Origem\n"
+        report_text = "### Tipos de Planos Mais Comuns\n"
+        df_data = [{"Tipo de Plano": k, "Nº de Empresas": v} for k, v in sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)]
         
-        df_data = []
-        # Ordena os planos pelo número total de empresas, em ordem decrescente
-        sorted_plans = sorted(plan_stats.items(), key=lambda item: len(item[1]['Total']), reverse=True)
-        
-        for formatted_name, stats in sorted_plans:
-            total_count = len(stats['Total'])
-            item_8_4_count = len(stats['Item 8.4'])
-            outros_planos_count = len(stats['Outros Planos'])
-            
-            df_data.append({
-                "Tipo de Plano": formatted_name,
-                "Total de Empresas": total_count,
-                "Identificado no Item 8.4": item_8_4_count,
-                "Identificado em Outros Planos": outros_planos_count
-            })
-            
-            report_text += (
-                f"- **{formatted_name}:** {total_count} empresas no total "
-                f"({item_8_4_count} via Item 8.4, {outros_planos_count} via outros documentos)\n"
-            )
+        for item in df_data:
+            report_text += f"- **{item['Tipo de Plano']}:** {item['Nº de Empresas']} empresas\n"
             
         return report_text, pd.DataFrame(df_data)
     
