@@ -282,7 +282,8 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
             
             for alias in aliases_sorted:
                 # Usa regex para substituir o alias como uma palavra inteira (case-insensitive)
-                texto_anonimizado = re.sub(r'\b' + re.escape(alias) + r'\b', anon_name, texto_anonimizado, flags=re.IGNORECASE)
+                pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
+                texto_anonimizado = re.sub(pattern, anon_name, texto_anonimizado, flags=re.IGNORECASE)
                 
         return texto_anonimizado, anom_map
         
