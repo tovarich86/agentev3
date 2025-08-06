@@ -850,7 +850,7 @@ def handle_rag_query(
         if not anonimizar_empresas:
             empresas_identificadas = plan.get('empresas', [])
             if empresas_identificadas:
-                st.write(f"**🏢 Empresas identificadas:** {', '.join(empresas_identificadas)}")
+                #st.write(f"**🏢 Empresas identificadas:** {', '.join(empresas_identificadas)}")
             else:
                 st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
 
