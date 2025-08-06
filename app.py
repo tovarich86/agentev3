@@ -729,7 +729,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
                 mentioned_companies.append(empresa_nome)
     
     plan["empresas"] = mentioned_companies
-    #logger.info(f"Empresas identificadas: {plan['empresas']}")
+    logger.info(f"Empresas identificadas: ") #{plan['empresas']}
 
     # --- Identificação de Tópicos (Hierárquico) ---
     alias_map = create_hierarchical_alias_map(kb)
@@ -850,7 +850,7 @@ def handle_rag_query(
         if not anonimizar_empresas:
             empresas_identificadas = plan.get('empresas', [])
             if empresas_identificadas:
-                #st.write(f"**🏢 Empresas identificadas:** {', '.join(empresas_identificadas)}")
+                #st.write(f"**🏢 Empresas identificadas:** ") #{', '.join(empresas_identificadas)}
             else:
                 st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
 
