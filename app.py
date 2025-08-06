@@ -687,14 +687,10 @@ def execute_dynamic_plan(
     
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters: dict):
     """
-    [VERSÃO DE DEPURAÇÃO] do planejador dinâmico para inspecionar a
-    identificação de tópicos.
+    [VERSÃO FINAL E CORRIGIDA] Gera um plano de análise dinâmico usando uma lógica de
+    identificação de empresas robusta que lida com pontuação e caracteres especiais.
     """
-    # Adicione 'import streamlit as st' no topo do seu arquivo, se ainda não o fez.
-    import streamlit as st
-
-    
-    logger.info(f"Gerando plano dinâmico v3.0 para a pergunta: '{query}'")
+    logger.info(f"Gerando plano dinâmico v3.2 para a pergunta: '{query}'")
     query_lower = query.lower().strip()
     
     plan = {
@@ -704,48 +700,56 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
         "plan_type": "default"
     }
 
-    # A lógica de identificação de empresas não é o foco do bug, então a mantemos como está.
     mentioned_companies = []
+    companies_found_by_alias = {}
+
+    # --- Lógica Primária de Identificação (Robusta) ---
     if company_catalog_rich:
-        companies_found_by_alias = {}
         for company_data in company_catalog_rich:
             canonical_name = company_data.get("canonical_name")
             if not canonical_name: continue
             
-            all_aliases = company_data.get("aliases", []) + [canonical_name]
+            all_aliases = [canonical_name] + company_data.get("aliases", [])
             for alias in all_aliases:
-                if re.search(r'\b' + re.escape(alias.lower()) + r'\b', query_lower):
-                    score = len(alias.split())
-                    if canonical_name not in companies_found_by_alias or score > companies_found_by_alias[canonical_name]:
+                # [CORREÇÃO] Usa regex robusto que não depende do limite de palavra '\b'
+                pattern = r'(?<!\w)' + re.escape(alias.lower()) + r'(?!\w)'
+                if re.search(pattern, query_lower):
+                    score = len(alias)
+                    if canonical_name not in companies_found_by_alias or score > companies_found_by_alias.get(canonical_name, 0):
                         companies_found_by_alias[canonical_name] = score
-        if companies_found_by_alias:
-            mentioned_companies = [c for c, s in sorted(companies_found_by_alias.items(), key=lambda item: item[1], reverse=True)]
 
+    if companies_found_by_alias:
+        mentioned_companies = sorted(companies_found_by_alias, key=companies_found_by_alias.get, reverse=True)
+
+    # --- Lógica Alternativa de Identificação (Também robusta) ---
     if not mentioned_companies:
         for empresa_nome in summary_data.keys():
-            if re.search(r'\b' + re.escape(empresa_nome.lower()) + r'\b', query_lower):
+            pattern = r'(?<!\w)' + re.escape(empresa_nome.lower()) + r'(?!\w)'
+            if re.search(pattern, query_lower):
                 mentioned_companies.append(empresa_nome)
     
     plan["empresas"] = mentioned_companies
     logger.info(f"Empresas identificadas: {plan['empresas']}")
 
-    
+    # --- Identificação de Tópicos (Hierárquico) ---
+    alias_map = create_hierarchical_alias_map(kb)
+    found_topics = set()
+    for alias in sorted(alias_map.keys(), key=len, reverse=True):
+        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
+            found_topics.add(alias_map[alias])
+
+    plan["topicos"] = sorted(list(found_topics))
+    logger.info(f"Tópicos identificados: {plan['topicos']}")
         
-    # O resto da função continua normalmente para que o app não quebre
+    # --- Lógica de Fallback ---
     if plan["empresas"] and not plan["topicos"]:
-        logger.info("Nenhum tópico específico encontrado. Ativando modo de resumo/comparação geral.")
         plan["plan_type"] = "summary"
         plan["topicos"] = [
             "TiposDePlano", "ParticipantesCondicoes,Elegibilidade", "MecanicasCicloDeVida,Vesting", 
             "MecanicasCicloDeVida,Lockup", "IndicadoresPerformance", 
             "EventosFinanceiros,DividendosProventos"
         ]
-        logger.info(f"Tópicos de resumo geral adicionados ao plano: {plan['topicos']}")    
 
-    if not plan["empresas"] and not plan["topicos"] and not plan["filtros"]:
-        logger.warning("Planejador não conseguiu identificar empresa, tópico ou filtro na pergunta.")
-        return {"status": "error", "message": "Não foi possível identificar uma intenção clara na sua pergunta. Tente ser mais específico."}
-        
     return {"status": "success", "plan": plan}
 
     
@@ -994,8 +998,7 @@ def main():
 
     with st.sidebar:
         st.header("📊 Informações do Sistema")
-        st.metric("Categorias de Documentos (RAG)", "Item 8.4", "Plano de Remuneração")
-        
+               
         st.markdown("---")
         st.header("🔒 Modo Apresentação")
         anonimizar_empresas = st.checkbox(
@@ -1011,7 +1014,6 @@ def main():
             "Priorizar documentos mais recentes",
             value=True,
             help="Dá um bônus de relevância para os documentos mais novos.")
-        st.metric("Empresas no Resumo", len(summary_data))
         st.header("⚙️ Filtros da Análise")
         st.caption("Filtre a base de dados antes de fazer sua pergunta.")
         
@@ -1029,9 +1031,7 @@ def main():
         st.markdown("---") 
         with st.expander("Empresas com dados no resumo"):
             st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
-        st.success("✅ Sistema pronto para análise")
-        st.info(f"Embedding Model: `{MODEL_NAME}`")
-        st.info(f"Generative Model: `{GEMINI_MODEL}`")
+        
     
     st.header("💬 Faça sua pergunta")
     
