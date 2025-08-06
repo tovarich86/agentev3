@@ -989,58 +989,42 @@ def main():
     st.markdown('<h1 style="color:#0b2859;">🤖 PRIA (Agente de IA para ILP)</h1>', unsafe_allow_html=True)
     st.markdown("---")
 
-    # Criar placeholders para as mensagens de carregamento
+    # Mensagens de status iniciais
     status_message_1 = st.empty()
     status_message_2 = st.empty()
     
     status_message_1.info("Carregando modelo de embedding...")
-    # A linha abaixo deve ser executada após o carregamento do modelo de embedding.
-    # No seu código, a função setup_and_load_data() faz isso.
-    # Vou simular que o carregamento está acontecendo.
-    
-    # Simulação do carregamento (você já tem a sua função `setup_and_load_data`)
-    # time.sleep(2)  
-    
-    status_message_1.success("✅ Modelo de embedding carregado.")
     status_message_2.info("Carregando modelo de Re-ranking (Cross-Encoder)...")
     
-    # A linha abaixo deve ser executada após o carregamento do modelo de re-ranking.
-    # time.sleep(1)
-    
-    # Suas chamadas de carregamento
+    # Carrega todos os dados e modelos. A anotação @st.cache_resource garante que isso só rode uma vez.
     artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
 
-    # Limpar os placeholders para que as mensagens não fiquem na tela
+    # Limpa as mensagens de status após o carregamento
     status_message_1.empty()
     status_message_2.empty()
 
-    if not summary_data or not artifacts:
-        st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
-        st.stop()
-
-    artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
-        
+    # Validação crítica dos dados carregados
     if not summary_data or not artifacts:
         st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
         st.stop()
     
-    engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO) 
+    # Inicializa o motor de análise quantitativa
+    engine = AnalyticalEngine(summary_data, DICIONARIO_UNIFICADO_HIERARQUICO)
     
+    # Tenta carregar o catálogo de empresas e o mapa de busca, tratando exceções
     try:
-        from catalog_data import company_catalog_rich 
+        from catalog_data import company_catalog_rich
+        st.session_state.company_catalog_rich = company_catalog_rich
+        from tools import _create_company_lookup_map
+        st.session_state.company_lookup_map = _create_company_lookup_map(company_catalog_rich)
     except ImportError:
-        company_catalog_rich = [] 
-    
-    st.session_state.company_catalog_rich = company_catalog_rich
+        st.error("❌ Arquivo 'catalog_data.py' ou 'tools.py' não encontrado. Funcionalidades podem ser limitadas.")
+        st.session_state.company_catalog_rich = []
+        st.session_state.company_lookup_map = {}
 
-    
-    from tools import _create_company_lookup_map
-    st.session_state.company_lookup_map = _create_company_lookup_map(company_catalog_rich)
-
-
+    # --- Configuração da Barra Lateral (Sidebar) ---
     with st.sidebar:
         st.header("📊 Informações do Sistema")
-               
         st.markdown("---")
         st.header("🔒 Modo Apresentação")
         anonimizar_empresas = st.checkbox(
@@ -1049,17 +1033,15 @@ def main():
             help="Substitui os nomes das empresas por placeholders como 'Empresa A', 'Empresa B' para garantir a confidencialidade durante a apresentação."
         )
         
-        
-       
         prioritize_recency = st.checkbox(
             "Priorizar documentos mais recentes",
             value=True,
-            help="Dá um bônus de relevância para os documentos mais novos.")
+            help="Dá um bônus de relevância para os documentos mais novos."
+        )
         st.markdown("---")
         
         st.header("⚙️ Filtros da Análise")
         st.caption("Filtre a base de dados antes de fazer sua pergunta.")
-  
         
         selected_setor = st.selectbox(
             label="Filtrar por Setor",
@@ -1075,10 +1057,11 @@ def main():
         
         with st.expander("Empresas com dados no resumo"):
             st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
-        
-    
+
+    # --- Interface Principal ---
     st.header("💬 Faça sua pergunta")
     
+    # Guia do usuário para ajudar a formular boas perguntas
     with st.expander("ℹ️ **Guia do Usuário: Como Extrair o Máximo do Agente**", expanded=False):
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Para obter os melhores resultados, formule perguntas que explorem suas principais capacidades.
@@ -1087,40 +1070,32 @@ def main():
         st.info("Use estas perguntas para identificar e listar empresas que adotam uma prática específica. Ideal para mapeamento de mercado.")
         st.code("""- Liste as empresas que pagam dividendos ou JCP durante o período de carência (vesting).
 - Quais companhias possuem cláusulas de Malus ou Clawback?
-- Gere uma lista de empresas que oferecem planos com contrapartida do empregador (Matching/Coinvestimento).
-- Quais organizações mencionam explicitamente o Comitê de Remuneração como órgão aprovador dos planos?""")
+- Gere uma lista de empresas que oferecem planos com contrapartida do empregador (Matching/Coinvestimento).""")
         st.subheader("2. Análise Estatística (Qual a média?) 📈")
         st.info("Pergunte por médias, medianas e outros dados estatísticos para entender os números por trás das práticas de mercado e fazer benchmarks.")
         st.code("""- Qual o período médio de vesting (em anos) entre as empresas analisadas?
 - Qual a diluição máxima média (% do capital social) que os planos costumam aprovar?
-- Apresente as estatísticas do desconto no preço de exercício (mínimo, média, máximo).
-- Qual o prazo de lock-up (restrição de venda) mais comum após o vesting das ações?""")
+- Apresente as estatísticas do desconto no preço de exercício (mínimo, média, máximo).""")
         st.subheader("3. Padrões de Mercado (Como é o normal?) 🗺️")
         st.info("Faça perguntas abertas para que o agente analise diversos planos e descreva os padrões e as abordagens mais comuns para um determinado tópico.")
         st.code("""- Analise os modelos típicos de planos de Ações Restritas (RSU), o tipo mais comum no mercado.
 - Além do TSR, quais são as metas de performance (ESG, Financeiras) mais utilizadas pelas empresas?
-- Descreva os padrões de tratamento para condições de saída (Good Leaver vs. Bad Leaver) nos planos.
-- Quais as abordagens mais comuns para o tratamento de dividendos em ações ainda não investidas?""")
+- Descreva os padrões de tratamento para condições de saída (Good Leaver vs. Bad Leaver) nos planos.""")
         st.subheader("4. Análise Profunda e Comparativa (Me explique em detalhes) 🧠")
         st.info("Use o poder do RAG para pedir análises detalhadas sobre uma ou mais empresas, comparando regras e estruturas específicas.")
         st.code("""- Como o plano da Vale trata a aceleração de vesting em caso de mudança de controle?
 - Compare as cláusulas de Malus/Clawback da Vale com as do Itaú.
-- Descreva em detalhes o plano de Opções de Compra da Localiza, incluindo prazos, condições e forma de liquidação.
-- Descreva o Item 8.4 da M.dias Braco.
-- Quais as diferenças na elegibilidade de participantes entre os planos da Magazine Luiza e da Lojas Renner?""")
-        st.subheader("❗ Conhecendo as Limitações")
-        st.warning("""
-- **Fonte dos Dados:** Minha análise se baseia em documentos públicos da CVM com data de corte 31/07/2025. Não tenho acesso a informações em tempo real ou privadas.
-- **Identificação de Nomes:** Para análises profundas, preciso que o nome da empresa seja claro e reconhecível. Se o nome for ambíguo ou não estiver na minha base, posso não encontrar os detalhes.
-- **Escopo:** Sou altamente especializado em Incentivos de Longo Prazo. Perguntas fora deste domínio podem não ter respostas adequadas.
-        """)
+- Descreva em detalhes o plano de Opções de Compra da Localiza, incluindo prazos, condições e forma de liquidação.""")
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quais são os modelos típicos de vesting? ou Como funciona o plano da Vale?")
     
+    # --- Lógica de Execução ao Clicar no Botão ---
     if st.button("🔍 Analisar", type="primary", use_container_width=True):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
             st.stop()
+            
+        # Aplica os filtros selecionados na barra lateral
         active_filters = {}
         if selected_setor != "Todos":
             active_filters['setor'] = selected_setor.lower()
@@ -1132,76 +1107,57 @@ def main():
                 filter_text_parts.append(f"**Setor**: {active_filters['setor'].capitalize()}")
             if 'controle_acionario' in active_filters:
                 filter_text_parts.append(f"**Controle**: {active_filters['controle_acionario'].capitalize()}")
-
             filter_text = " e ".join(filter_text_parts)
             st.info(f"🔎 Análise sendo executada com os seguintes filtros: {filter_text}")
 
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
-                
+        
+        # Determina a intenção da pergunta (quantitativa vs. qualitativa)
         intent = None
         query_lower = user_query.lower()
-        
-        quantitative_keywords = [
-            'liste', 'quais empresas', 'quais companhias', 'quantas', 'média', 
-            'mediana', 'estatísticas', 'mais comuns', 'prevalência', 'contagem'
-        ]
+        quantitative_keywords = ['liste', 'quais empresas', 'quais companhias', 'quantas', 'média', 'mediana', 'estatísticas', 'mais comuns', 'prevalência', 'contagem']
         
         if any(keyword in query_lower for keyword in quantitative_keywords):
             intent = "quantitativa"
             logger.info("Intenção 'quantitativa' detectada por regras de palavras-chave.")
-        
-        if intent is None:
+        else:
             with st.spinner("Analisando a intenção da sua pergunta..."):
                 intent = get_query__with_llm(user_query)
 
-        # [NOVA ADIÇÃO 1] Inicializa o mapa de anonimização que será usado em toda a análise.
-        # Isso garante que a "Empresa A" seja sempre a mesma, seja no texto ou nas tabelas.
+        # [CORREÇÃO APLICADA]
+        # O mapa de anonimização é criado aqui, ANTES da bifurcação de intenção.
         mapa_anonimizacao = {}
-                
+        if anonimizar_empresas:
+            mapa_anonimizacao = construir_mapa_anonimizacao(st.session_state.company_catalog_rich)
+
+        # --- Roteamento baseado na intenção ---
         if intent == "quantitativa":
             st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
-
             with st.spinner("Executando análise quantitativa..."):
-                # 1. Obtenha os resultados (texto e dados) do seu AnalyticalEngine
                 report_text, data_result = engine.answer_query(user_query, filters=active_filters)
 
-                # 2. Se o modo de anonimização estiver ativo, processe AMBOS os resultados
+                # Se a anonimização estiver ativa, processa os resultados usando o mapa já criado.
                 if anonimizar_empresas:
-                    # Anônimiza a estrutura de dados (pode ser DataFrame, dict de DFs, ou None)
                     if data_result is not None:
-                        # A função anonimizar_resultados já sabe lidar com dicts de DataFrames
-                        data_result, mapa_anonimizacao = anonimizar_resultados(
-                            data_result,
-                            st.session_state.company_catalog_rich,
-                            mapa_anonimizacao
-                        )
-
-                    # Anônimiza o texto do relatório usando O MESMO mapa para consistência
+                        data_result, _ = anonimizar_resultados(data_result, st.session_state.company_catalog_rich, mapa_anonimizacao)
                     if report_text:
-                        report_text, _ = anonimizar_resultados(
-                            report_text,
-                            st.session_state.company_catalog_rich,
-                            mapa_anonimizacao
-                        )
-    
-            # 3. Exiba os resultados (que agora estão anonimizados, se aplicável)
-            # A lógica de exibição não precisa mudar, pois ela já lida com os diferentes tipos.
+                        report_text, _ = anonimizar_resultados(report_text, st.session_state.company_catalog_rich, mapa_anonimizacao)
+            
+            # Exibe os resultados (anonimizados ou não)
             if report_text:
                 st.markdown(report_text)
-    
             if data_result is not None:
                 if isinstance(data_result, pd.DataFrame):
                     if not data_result.empty:
                         st.dataframe(data_result, use_container_width=True, hide_index=True)
                 elif isinstance(data_result, dict):
-                    # Esta parte já funciona perfeitamente para o caso de múltiplos DataFrames
                     for df_name, df_content in data_result.items():
                         if isinstance(df_content, pd.DataFrame) and not df_content.empty:
                             st.markdown(f"#### {df_name}")
                             st.dataframe(df_content, use_container_width=True, hide_index=True)
-
         else: # intent == 'qualitativa'
+            # Executa o pipeline de RAG para perguntas qualitativas
             final_answer, sources = handle_rag_query(
                 user_query, 
                 artifacts, 
@@ -1217,51 +1173,28 @@ def main():
                 mapa_anonimizacao_global=mapa_anonimizacao
             )
             
-            # [NOVA ADIÇÃO 3] Lógica de anonimização de duas etapas para o RAG.
-            if anonimizar_empresas and sources:
-                # 3.1: Cria o mapa de anonimização a partir da lista de fontes.
-                df_sources = pd.DataFrame(sources)
-                if not df_sources.empty:
-                    df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
-                    df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich)
-                    sources = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
-
-                # 3.2: Usa o mapa já criado para substituir os nomes no texto da resposta.
-                final_answer, _ = anonimizar_resultados(final_answer, st.session_state.company_catalog_rich, mapa_anonimizacao)
-            
             st.markdown(final_answer)
             
+            # Exibe as fontes consultadas
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
-                    
-    
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
-                        # Este código de exibição agora usará os nomes anonimizados de 'sources'
                         company_name = src.get('company_name', 'N/A')
                         doc_date = src.get('document_date', 'N/A')
                         doc_type_raw = src.get('doc_type', '')
                         url = src.get('source_url', '')
 
-                        if doc_type_raw == 'outros_documentos':
-                            display_doc_type = 'Plano de Remuneração'
-                        else:
-                            display_doc_type = doc_type_raw.replace('_', ' ')
-    
+                        display_doc_type = 'Plano de Remuneração' if doc_type_raw == 'outros_documentos' else doc_type_raw.replace('_', ' ')
                         display_text = f"{company_name} - {display_doc_type} - (Data: **{doc_date}**)"
                         
                         if "frmExibirArquivoIPEExterno" in url:
-                            protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
-                            protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
                             st.markdown(f"**{display_text}**")
-                            st.markdown(f"↳ [Link Direto para Plano de ILP]({url}) ", unsafe_allow_html=True)
-            
+                            st.markdown(f"↳ [Link Direto para Plano de ILP]({url})", unsafe_allow_html=True)
                         elif "frmExibirArquivoFRE" in url:
                             st.markdown(f"**{display_text}**")
                             st.markdown(f"↳ [Link Direto para Formulário de Referência]({url})", unsafe_allow_html=True)
-            
                         else:
                             st.markdown(f"**{display_text}**: [Link]({url})")
-
 
 if __name__ == "__main__":
     main()
