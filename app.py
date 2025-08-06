@@ -250,26 +250,21 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
 
 def anonimizar_resultados(data, company_catalog, anom_map=None):
     """
-    [VERSÃO FINAL E ROBUSTA] Recebe um DataFrame, texto ou dicionário e substitui
+    [VERSÃO CORRIGIDA E ROBUSTA] Recebe um DataFrame, texto ou dicionário e substitui
     os nomes das empresas e seus aliases por placeholders.
-    Detecta automaticamente a coluna correta no DataFrame.
+    Garante que a função sempre retorne uma tupla (data, anom_map).
     """
     if anom_map is None:
         anom_map = {}
 
-    # --- Lógica para DataFrames ---
+    # Lógica para DataFrames
     if isinstance(data, pd.DataFrame):
         df_anonimizado = data.copy()
-        
-        # [LÓGICA APRIMORADA] Encontra a coluna-alvo dinamicamente
         target_col = None
         for col in df_anonimizado.columns:
-            # Procura por qualquer coluna cujo nome contenha "empresa" ou "companhia"
             if 'empresa' in col.lower() or 'companhia' in col.lower():
                 target_col = col
-                break  # Para na primeira coluna que encontrar
-
-        # Se encontrou uma coluna-alvo, prossegue com a anonimização
+                break
         if target_col:
             def get_anon_name(company_name):
                 if company_name not in anom_map:
@@ -280,13 +275,34 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
                         "aliases_to_replace": [company_name] + (company_info['aliases'] if company_info else [])
                     }
                 return anom_map[company_name]["anon_name"]
-            
-            # Aplica a anonimização na coluna encontrada
             df_anonimizado[target_col] = df_anonimizado[target_col].apply(get_anon_name)
-            return df_anonimizado, anom_map
-        else:
-            # Se não encontrar uma coluna adequada, retorna o DF original para evitar erros
-            return data, anom_map
+        return df_anonimizado, anom_map
+
+    # Lógica para Dicionários de DataFrames
+    if isinstance(data, dict):
+        dict_anonimizado = {}
+        for key, df in data.items():
+            if isinstance(df, pd.DataFrame):
+                dict_anonimizado[key], anom_map = anonimizar_resultados(df, company_catalog, anom_map)
+            else:
+                dict_anonimizado[key] = df
+        return dict_anonimizado, anom_map
+        
+    # Lógica para Texto (Garante o retorno)
+    if isinstance(data, str):
+        texto_anonimizado = data
+        if anom_map:  # Apenas tenta substituir se o mapa não estiver vazio
+            for original_canonical, mapping in anom_map.items():
+                anon_name = mapping["anon_name"]
+                aliases_sorted = sorted(mapping["aliases_to_replace"], key=len, reverse=True)
+                for alias in aliases_sorted:
+                    pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
+                    texto_anonimizado = re.sub(pattern, anon_name, texto_anonimizado, flags=re.IGNORECASE)
+        # SEMPRE retorna uma tupla, mesmo que o texto não tenha sido alterado
+        return texto_anonimizado, anom_map
+        
+    # Fallback para qualquer outro tipo de dado não tratado
+    return data, anom_map
 
 def search_by_tags(query: str, kb: dict) -> list[str]:
     """
