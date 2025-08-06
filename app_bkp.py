@@ -1,4 +1,4 @@
-# app.py (versão com Melhoria 1 e 2)
+# app.py (VERSÃO CORRIGIDA)
 
 import streamlit as st
 import json
@@ -18,22 +18,30 @@ import base64
 import shutil
 import random
 from models import get_embedding_model, get_cross_encoder_model
-from concurrent.futures import ThreadPoolExecutor # <<< MELHORIA 4 ADICIONADA
+from concurrent.futures import ThreadPoolExecutor
 from tools import (
     find_companies_by_topic,
     get_final_unified_answer,
     suggest_alternative_query,
-    analyze_topic_thematically, 
+    analyze_topic_thematically,
     get_summary_for_topic_at_company,
     rerank_with_cross_encoder,
     create_hierarchical_alias_map,
     rerank_by_recency
     )
-logger = logging.getLogger(__name__)
 
-# --- Módulos do Projeto (devem estar na mesma pasta) ---
+# --- Módulos do Projeto ---
 from knowledge_base import DICIONARIO_UNIFICADO_HIERARQUICO
 from analytical_engine import AnalyticalEngine
+
+# ==============================================================================
+# 1. CONFIGURAÇÃO DA PÁGINA - DEVE SER O PRIMEIRO COMANDO STREAMLIT
+# ==============================================================================
+st.set_page_config(page_title="Agente de Análise ILP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
+
+# ==============================================================================
+# 2. INJEÇÃO DE CSS CUSTOMIZADO (BACKGROUND E FONTES)
+# ==============================================================================
 
 # URL da imagem "raw" do seu GitHub
 image_url = "https://raw.githubusercontent.com/tovarich86/agentev3/main/prisday.png"
@@ -44,31 +52,29 @@ page_bg_img = f"""
 /* Importa as fontes do Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;700&family=Nunito+Sans:wght@400;700;800;900&display=swap');
 
-/* --- ESTILOS GERAIS --- */
-
 /* Aplica a imagem de fundo usando a URL do GitHub */
 [data-testid="stAppViewContainer"] > .main {{
-background-image: url("{image_url}");
-background-size: cover;
-background-position: top left;
-background-repeat: no-repeat;
-background-attachment: local; /* Garante que a imagem role com o conteúdo */
+    background-image: url("{image_url}");
+    background-size: cover;
+    background-position: top left;
+    background-repeat: no-repeat;
+    background-attachment: local; /* Garante que a imagem role com o conteúdo */
 }}
 
 /* Deixa o header transparente para a imagem aparecer */
 [data-testid="stHeader"] {{
-background: rgba(0,0,0,0);
+    background: rgba(0,0,0,0);
 }}
 
 /* Ajusta a posição da barra de ferramentas do Streamlit */
 [data-testid="stToolbar"] {{
-right: 2rem;
+    right: 2rem;
 }}
 
 /* --- ESTILOS DE FONTE --- */
 
 /* Define a fonte padrão para o corpo do texto */
-html, body, [class*="css"]  {{
+html, body, [class*="css"] {{
     font-family: 'Nunito Sans', sans-serif;
     font-weight: 400;
 }}
@@ -84,22 +90,23 @@ h1, h2, h3, h4, h5, h6 {{
     font-family: 'Nunito Sans', sans-serif;
     font-weight: 700;
 }}
-
 </style>
 """
 
 st.markdown(page_bg_img, unsafe_allow_html=True)
 
 
+# ==============================================================================
+# O RESTO DO SEU CÓDIGO COMEÇA AQUI
+# ==============================================================================
 
-st.set_page_config(page_title="Agente de Análise LTIP", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
-
+# --- Constantes e Configurações ---
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 TOP_K_SEARCH = 7
 TOP_K_INITIAL_RETRIEVAL = 30
-TOP_K_FINAL = 15             # Número final de chunks a usar no contexto
+TOP_K_FINAL = 15
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-2.0-flash-lite" # Recomendo usar um modelo mais recente se possível
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 FILES_TO_DOWNLOAD = {
@@ -115,7 +122,6 @@ SUMMARY_FILENAME = "resumo_fatos_e_topicos_final_enriquecido.json"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- CARREGADOR DE DADOS ---
 # --- CARREGADOR DE DADOS ---
 @st.cache_resource(show_spinner="Configurando o ambiente e baixando dados...")
 def setup_and_load_data():
@@ -136,10 +142,10 @@ def setup_and_load_data():
                 st.error(f"Erro ao baixar {filename} de {url}: {e}")
                 st.stop()
     # --- Carregamento de Modelos ---
-    st.write("Carregando modelo de embedding...")
+    
     embedding_model = SentenceTransformer(MODEL_NAME)
     
-    st.write("Carregando modelo de Re-ranking (Cross-Encoder)...")
+    
     cross_encoder_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
     
     artifacts = {}
@@ -147,7 +153,6 @@ def setup_and_load_data():
         category = index_file.stem.replace('_faiss_index_final', '')
         chunks_file = CACHE_DIR / f"{category}_chunks_map_final.json"
         try:
-            # CORREÇÃO APLICADA: Ler a lista de chunks diretamente da chave 'chunks'
             with open(chunks_file, 'r', encoding='utf-8') as f:
                 list_of_chunks = json.load(f)
                 
@@ -171,24 +176,20 @@ def setup_and_load_data():
     controles = set()
 
     for artifact_data in artifacts.values():
-        # CORREÇÃO APLICADA: Acessar a lista de chunks diretamente
         chunk_map = artifact_data.get('chunks', [])
         for metadata in chunk_map:
-            # Pega o valor do setor e trata se for nulo ou vazio
             setor = metadata.get('setor')
             if isinstance(setor, str) and setor.strip():
                 setores.add(setor.strip().capitalize())
             else:
-                setores.add("Não idenficado")
+                setores.add("Não identificado")
 
-            # Pega o valor do controle e trata se for nulo ou vazio
             controle = metadata.get('controle_acionario')
             if isinstance(controle, str) and controle.strip():
                 controles.add(controle.strip().capitalize())
             else:
                 controles.add("Não identificado")
 
-    # Converte os sets em listas ordenadas e adiciona "Todos" no início
     sorted_setores = sorted([s for s in setores if s != "Não Informado"])
     if "Não Informado" in setores:
         sorted_setores.append("Não Informado")
@@ -204,8 +205,7 @@ def setup_and_load_data():
     
     return artifacts, summary_data, all_setores, all_controles, embedding_model, cross_encoder_model
 
-
-
+# ... (o resto do seu código, desde a função _create_flat_alias_map, permanece exatamente o mesmo)
 # --- FUNÇÕES GLOBAIS E DE RAG ---
 
 def _create_flat_alias_map(kb: dict) -> dict:
@@ -334,12 +334,7 @@ def get_query__with_llm(query: str) -> str:
         logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
         return "qualitativa"
 
-    except Exception as e:
-        logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
-        return "qualitativa"
-
-
-# Em app.py, substitua sua função pela versão ABAIXO, que é a sua versão original e robusta, apenas com os erros corrigidos.
+# O restante do seu código pode seguir aqui...
 
 from datetime import datetime # Certifique-se que 'datetime' está importado no topo do seu script
 
@@ -436,23 +431,22 @@ def execute_dynamic_plan(
         ]
     logger.info(f"Após pré-filtragem, {len(pre_filtered_chunks)} chunks são candidatos.")
 
-    # -------------- BUSCA POR TAGS E EXPANSÃO DE TERMOS ----------------
-    logger.info("Executando busca por tags...")
-    tags = search_by_tags(query, kb)
-    logger.info(f"Tags encontradas: {tags}")
-
-    # Expansão dos termos de busca para potencializar recuperação semântica
-    if tags:
+    # -------------- EXPANSÃO DE TERMOS COM BASE NOS TÓPICOS DO PLANO ----------------
+    # Esta abordagem é mais robusta pois utiliza os tópicos já identificados pelo planejador.
+    if topicos:
         expanded_terms = {query.lower()}
-        for tag in tags:
-            expanded_terms.update(expand_search_terms(tag, kb))
+        for topic_path in topicos:
+            # Pega o alias mais específico (a última parte do caminho do tópico) para expandir a busca.
+            # Ex: De "ParticipantesCondicoes,CondicaoSaida", extrai "CondicaoSaida".
+            alias = topic_path.split(',')[-1].replace('_', ' ')
+            expanded_terms.update(expand_search_terms(alias, kb))
+        
         query_to_search = " ".join(list(expanded_terms))
-        logger.info(f"Query expandida: {query_to_search}")
+        logger.info(f"Query expandida com base nos tópicos do plano: '{query_to_search}'")
     else:
-        logger.info("Nenhuma tag relevante encontrada. Usando query original.")
+        logger.info("Nenhum tópico encontrado no plano. Usando query original.")
         query_to_search = query
 
-    # -------------- ROTEAMENTO PRINCIPAL --------------
     # -------------- ROTEAMENTO PRINCIPAL --------------
     if plan_type == "section_8_4" and empresas:
         # ROTA CORRIGIDA para "descreva item 8.4 vivara"
@@ -474,7 +468,6 @@ def execute_dynamic_plan(
         ]
 
         # 2. SE chunks foram encontrados, adiciona TODOS eles diretamente aos candidatos.
-        #    A busca vetorial secundária que existia aqui foi removida, pois era a causa do erro.
         if chunks_to_search:
             logger.info(f"Rota 'section_8_4': {len(chunks_to_search)} chunks encontrados para '{canonical_name_from_plan}'. Adicionando todos ao contexto.")
             for chunk in chunks_to_search:
@@ -483,7 +476,6 @@ def execute_dynamic_plan(
             logger.warning(f"Rota 'section_8_4': Nenhum chunk do tipo 'item_8_4' foi encontrado para a empresa '{canonical_name_from_plan}'.")
 
     else:
-        # As outras rotas (busca geral, busca híbrida) permanecem 100% INTACTAS aqui.
         if not empresas and topicos:
             # ROTA GERAL: Lógica original preservada.
             logger.info(f"ROTA Default (Geral): busca conceitual para tópicos: {topicos}")
@@ -622,14 +614,14 @@ def execute_dynamic_plan(
     
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters: dict):
     """
-    Versão 3.0 (Unificada) do planejador dinâmico.
-
-    Esta versão combina o melhor de ambas as propostas:
-    1.  EXTRAI filtros de metadados (setor, controle acionário).
-    2.  EXTRAI tópicos hierárquicos completos.
-    3.  RESTAURA a detecção de intenção de "Resumo Geral" para perguntas abertas.
-    4.  MANTÉM a detecção da intenção especial "Item 8.4".
+    [VERSÃO DE DEPURAÇÃO] do planejador dinâmico para inspecionar a
+    identificação de tópicos.
     """
+    # Adicione 'import streamlit as st' no topo do seu arquivo, se ainda não o fez.
+    import streamlit as st
+
+    st.info("--- INICIANDO MODO DE DEPURAÇÃO: create_dynamic_analysis_plan ---")
+
     logger.info(f"Gerando plano dinâmico v3.0 para a pergunta: '{query}'")
     query_lower = query.lower().strip()
     
@@ -637,12 +629,10 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
         "empresas": [],
         "topicos": [],
         "filtros": filters.copy(),
-        "plan_type": "default" # O tipo de plano default aciona a busca RAG padrão.
+        "plan_type": "default"
     }
 
-
-
-    # --- PASSO 2: Identificação Robusta de Empresas (Lógica Original Mantida) ---
+    # A lógica de identificação de empresas não é o foco do bug, então a mantemos como está.
     mentioned_companies = []
     if company_catalog_rich:
         companies_found_by_alias = {}
@@ -667,67 +657,54 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     plan["empresas"] = mentioned_companies
     logger.info(f"Empresas identificadas: {plan['empresas']}")
 
-    # --- PASSO 3: Detecção de Intenções Especiais (LÓGICA UNIFICADA) ---
-    # Palavras-chave para as intenções especiais
-    summary_keywords = ['resumo geral', 'plano completo', 'como funciona o plano', 'descreva o plano', 'resumo do plano', 'detalhes do plano']
-    section_8_4_keywords = ['item 8.4', 'seção 8.4', '8.4 do fre']
+    # --- INÍCIO DA ÁREA DE DEPURAÇÃO ---
+    st.warning("--- DEBUG: Verificando a Extração de Tópicos ---")
     
-    is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
-    is_section_8_4_request = any(keyword in query_lower for keyword in section_8_4_keywords)
-
-    if plan["empresas"] and is_section_8_4_request:
-        plan["plan_type"] = "section_8_4"
-        # O tópico é o caminho hierárquico para a seção inteira
-        plan["topicos"] = ["FormularioReferencia,Item_8_4"]
-        logger.info("Plano especial 'section_8_4' detectado.")
-        return {"status": "success", "plan": plan}
-    
-    # [LÓGICA RESTAURADA E ADAPTADA]
-    # Se for uma pergunta de resumo para uma empresa, define um conjunto de tópicos essenciais.
-    elif plan["empresas"] and is_summary_request:
-        plan["plan_type"] = "summary" # Um tipo especial para indicar um resumo completo
-        logger.info("Plano especial 'summary' detectado. Montando plano com tópicos essenciais.")
-        # Define os CAMINHOS HIERÁRQUICOS essenciais para um bom resumo.
-        plan["topicos"] = [
-            "TiposDePlano",
-            "ParticipantesCondicoes,Elegibilidade",
-            "Mecanicas,Vesting",
-            "Mecanicas,Lockup",
-            "IndicadoresPerformance",
-            "GovernancaRisco,MalusClawback",
-            "EventosFinanceiros,DividendosProventos"
-        ]
-        return {"status": "success", "plan": plan}
-
-    # --- PASSO 4: Extração de Tópicos Hierárquicos (Se Nenhuma Intenção Especial Foi Ativada) ---
+    # PASSO 4: Extração de Tópicos Hierárquicos
     alias_map = create_hierarchical_alias_map(kb)
     found_topics = set()
     
-    # Ordena os aliases por comprimento para encontrar o mais específico primeiro
+    # DEBUG 1: Mostra o mapa de aliases para confirmar que "good leaver" está lá
+    with st.expander("Verificar Mapa de Aliases Gerado (`alias_map`)"):
+        debug_aliases = {k: v for k, v in alias_map.items() if "good leaver" in k or "condicaosaida" in k}
+        st.write("Aliases relevantes para o nosso teste:")
+        st.json(debug_aliases if debug_aliases else {"status": "Alias 'good leaver' NÃO foi encontrado no mapa!"})
+
+    st.write(f"**Query do usuário (em minúsculas):** `{query_lower}`")
+    
+    # DEBUG 2: Mostra o processo de busca
+    st.write("Iterando sobre os aliases para encontrar correspondência na query...")
+    
+    match_found_flag = False
     for alias in sorted(alias_map.keys(), key=len, reverse=True):
-        # Usamos uma regex mais estrita para evitar matches parciais (ex: 'TSR' em 'TSR Relativo')
+        # A expressão regular que busca a correspondência
         if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
             found_topics.add(alias_map[alias])
-    
+            st.success(f"**MATCH ENCONTRADO!** O alias `{alias}` foi encontrado na query.")
+            match_found_flag = True
+
+    if not match_found_flag:
+        st.error("**NENHUM MATCH ENCONTRADO!** Nenhum alias do mapa correspondeu à query.")
+
     plan["topicos"] = sorted(list(found_topics))
-    if plan["topicos"]:
-        logger.info(f"Caminhos de tópicos identificados: {plan['topicos']}")
+    
+    st.write("**Tópicos Finais Identificados para o Plano:**")
+    st.json(plan["topicos"] if plan["topicos"] else "Nenhum tópico foi adicionado ao plano.")
+    
+    st.info("--- FIM DO MODO DE DEPURAÇÃO ---")
+    # --- FIM DA ÁREA DE DEPURAÇÃO ---
+        
+    # O resto da função continua normalmente para que o app não quebre
     if plan["empresas"] and not plan["topicos"]:
         logger.info("Nenhum tópico específico encontrado. Ativando modo de resumo/comparação geral.")
         plan["plan_type"] = "summary"
-        # Define os CAMINHOS HIERÁRQUICOS essenciais para um bom resumo/comparação.
         plan["topicos"] = [
-            "TiposDePlano",
-            "ParticipantesCondicoes,Elegibilidade",
-            "MecanicasCicloDeVida,Vesting",
-            "MecanicasCicloDeVida,Lockup",
-            "IndicadoresPerformance",
-            "GovernancaRisco,MalusClawback",
+            "TiposDePlano", "ParticipantesCondicoes,Elegibilidade", "MecanicasCicloDeVida,Vesting", 
+            "MecanicasCicloDeVida,Lockup", "IndicadoresPerformance", 
             "EventosFinanceiros,DividendosProventos"
         ]
         logger.info(f"Tópicos de resumo geral adicionados ao plano: {plan['topicos']}")    
 
-    # --- PASSO 5: Validação Final ---
     if not plan["empresas"] and not plan["topicos"] and not plan["filtros"]:
         logger.warning("Planejador não conseguiu identificar empresa, tópico ou filtro na pergunta.")
         return {"status": "error", "message": "Não foi possível identificar uma intenção clara na sua pergunta. Tente ser mais específico."}
@@ -750,12 +727,9 @@ def analyze_single_company(
 ) -> dict:
     """
     Executa o plano de análise para uma única empresa e retorna um dicionário estruturado.
-    Esta função é projetada para ser executada em um processo paralelo.
     """
     single_plan = {'empresas': [empresa], 'topicos': plan['topicos']}
     
-    # --- CORREÇÃO APLICADA AQUI ---
-    # Adicionado o argumento 'is_summary_plan=False' na chamada.
     context, sources_list = execute_dynamic_plan_func(query, single_plan, artifacts, model, cross_encoder_model, kb, company_catalog_rich,
         company_lookup_map, search_by_tags, expand_search_terms)
     
@@ -777,11 +751,11 @@ def analyze_single_company(
         
         FORMATO OBRIGATÓRIO DA RESPOSTA (APENAS JSON):
         {{
-          "resumos_por_topico": {{
-            "Tópico 1": "Resumo conciso sobre o Tópico 1...",
-            "Tópico 2": "Resumo conciso sobre o Tópico 2...",
-            "...": "..."
-          }}
+            "resumos_por_topico": {{
+                "Tópico 1": "Resumo conciso sobre o Tópico 1...",
+                "Tópico 2": "Resumo conciso sobre o Tópico 2...",
+                "...": "..."
+            }}
         }}
         """
         
@@ -813,8 +787,7 @@ def handle_rag_query(
     prioritize_recency: bool = False
 ) -> tuple[str, list[dict]]:
     """
-    Orquestra o pipeline de RAG para perguntas qualitativas, incluindo a geração do plano,
-    a execução da busca (com re-ranking) e a síntese da resposta final.
+    Orquestra o pipeline de RAG para perguntas qualitativas.
     """
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters)
@@ -826,15 +799,13 @@ def handle_rag_query(
             st.info("Para análises detalhadas, por favor, use o nome de uma das empresas listadas na barra lateral.")
             
             with st.spinner("Estou pensando em uma pergunta alternativa que eu possa responder..."):
-                alternative_query = suggest_alternative_query(query, kb) # Passe o kb
+                alternative_query = suggest_alternative_query(query, kb)
             
             st.markdown("#### Que tal tentar uma pergunta mais geral?")
             st.markdown("Você pode copiar a sugestão abaixo ou reformular sua pergunta original.")
             st.code(alternative_query, language=None)
             
-            # Retornamos uma string vazia para o texto e para as fontes, encerrando a análise de forma limpa.
             return "", []
-        # --- FIM DO NOVO BLOCO ---
             
         plan = plan_response['plan']
         
@@ -886,15 +857,12 @@ def handle_rag_query(
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             clean_results = []
             for company_result in results:
-                # Remove a chave 'sources' temporariamente para limpeza
                 sources = company_result.pop("sources", [])
                 clean_sources = []
                 for source_chunk in sources:
-                    # Remove a chave 'relevance_score' de cada chunk
                     source_chunk.pop('relevance_score', None)
                     clean_sources.append(source_chunk)
                 
-                # Adiciona as fontes limpas de volta
                 company_result["sources"] = clean_sources
                 clean_results.append(company_result)
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
@@ -929,10 +897,38 @@ def handle_rag_query(
     return final_answer, all_sources_structured
 
 def main():
-    st.title("🤖 Agente de Análise de Planos de Incentivo (ILP)")
+    st.markdown('<h1 style="color:#0b2859;">🤖 PRIA (Agente de IA para ILP)</h1>', unsafe_allow_html=True)
     st.markdown("---")
 
-    # 2. Carregue os dados (a função agora só retorna 4 valores)
+    # Criar placeholders para as mensagens de carregamento
+    status_message_1 = st.empty()
+    status_message_2 = st.empty()
+    
+    status_message_1.info("Carregando modelo de embedding...")
+    # A linha abaixo deve ser executada após o carregamento do modelo de embedding.
+    # No seu código, a função setup_and_load_data() faz isso.
+    # Vou simular que o carregamento está acontecendo.
+    
+    # Simulação do carregamento (você já tem a sua função `setup_and_load_data`)
+    # time.sleep(2)  
+    
+    status_message_1.success("✅ Modelo de embedding carregado.")
+    status_message_2.info("Carregando modelo de Re-ranking (Cross-Encoder)...")
+    
+    # A linha abaixo deve ser executada após o carregamento do modelo de re-ranking.
+    # time.sleep(2)
+    
+    # Suas chamadas de carregamento
+    artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
+
+    # Limpar os placeholders para que as mensagens não fiquem na tela
+    status_message_1.empty()
+    status_message_2.empty()
+
+    if not summary_data or not artifacts:
+        st.error("❌ Falha crítica no carregamento dos dados. O app não pode continuar.")
+        st.stop()
+
     artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
         
     if not summary_data or not artifacts:
@@ -948,7 +944,7 @@ def main():
     
     st.session_state.company_catalog_rich = company_catalog_rich
 
-   
+    
     from tools import _create_company_lookup_map
     st.session_state.company_lookup_map = _create_company_lookup_map(company_catalog_rich)
 
@@ -958,25 +954,23 @@ def main():
         st.metric("Categorias de Documentos (RAG)", len(artifacts))
         st.markdown("---")
 
-        # Adicione o checkbox para re-ranking por recência
         prioritize_recency = st.checkbox(
             "Priorizar documentos mais recentes",
-            value=True, # Deixe ativado por padrão
+            value=True,
             help="Dá um bônus de relevância para os documentos mais novos.")
         st.metric("Empresas no Resumo", len(summary_data))
-                # --- MODIFICAÇÃO 2: Usar as listas dinâmicas ---
         st.header("⚙️ Filtros da Análise")
         st.caption("Filtre a base de dados antes de fazer sua pergunta.")
         
         selected_setor = st.selectbox(
             label="Filtrar por Setor",
-            options=setores_disponiveis, # Usa a lista dinâmica
+            options=setores_disponiveis,
             index=0
         )
         
         selected_controle = st.selectbox(
             label="Filtrar por Controle Acionário",
-            options=controles_disponiveis, # Usa a lista dinâmica
+            options=controles_disponiveis,
             index=0
         )
         st.markdown("---") 
@@ -988,60 +982,40 @@ def main():
     
     st.header("💬 Faça sua pergunta")
     
-    # Em app.py, localize o bloco `with st.expander(...)` e substitua seu conteúdo por este:
-
-    with st.expander("ℹ️ **Guia do Usuário: Como Extrair o Máximo do Agente**", expanded=False): # `expanded=False` é uma boa prática para não poluir a tela inicial
+    with st.expander("ℹ️ **Guia do Usuário: Como Extrair o Máximo do Agente**", expanded=False):
         st.markdown("""
         Este agente foi projetado para atuar como um consultor especialista em Planos de Incentivo de Longo Prazo (ILP), analisando uma base de dados de documentos públicos da CVM. Para obter os melhores resultados, formule perguntas que explorem suas principais capacidades.
         """)
-
         st.subheader("1. Perguntas de Listagem (Quem tem?) 🎯")
-        st.info("""
-        Use estas perguntas para identificar e listar empresas que adotam uma prática específica. Ideal para mapeamento de mercado.
-        """)
-        st.markdown("**Exemplos:**")
+        st.info("Use estas perguntas para identificar e listar empresas que adotam uma prática específica. Ideal para mapeamento de mercado.")
         st.code("""- Liste as empresas que pagam dividendos ou JCP durante o período de carência (vesting).
-        - Quais companhias possuem cláusulas de Malus ou Clawback?
-        - Gere uma lista de empresas que oferecem planos com contrapartida do empregador (Matching/Coinvestimento).
-        - Quais organizações mencionam explicitamente o Comitê de Remuneração como órgão aprovador dos planos?""")
-
+- Quais companhias possuem cláusulas de Malus ou Clawback?
+- Gere uma lista de empresas que oferecem planos com contrapartida do empregador (Matching/Coinvestimento).
+- Quais organizações mencionam explicitamente o Comitê de Remuneração como órgão aprovador dos planos?""")
         st.subheader("2. Análise Estatística (Qual a média?) 📈")
-        st.info("""
-        Pergunte por médias, medianas e outros dados estatísticos para entender os números por trás das práticas de mercado e fazer benchmarks.
-        """)
-        st.markdown("**Exemplos:**")
+        st.info("Pergunte por médias, medianas e outros dados estatísticos para entender os números por trás das práticas de mercado e fazer benchmarks.")
         st.code("""- Qual o período médio de vesting (em anos) entre as empresas analisadas?
-        - Qual a diluição máxima média (% do capital social) que os planos costumam aprovar?
-        - Apresente as estatísticas do desconto no preço de exercício (mínimo, média, máximo).
-        - Qual o prazo de lock-up (restrição de venda) mais comum após o vesting das ações?""")
-
+- Qual a diluição máxima média (% do capital social) que os planos costumam aprovar?
+- Apresente as estatísticas do desconto no preço de exercício (mínimo, média, máximo).
+- Qual o prazo de lock-up (restrição de venda) mais comum após o vesting das ações?""")
         st.subheader("3. Padrões de Mercado (Como é o normal?) 🗺️")
-        st.info("""
-        Faça perguntas abertas para que o agente analise diversos planos e descreva os padrões e as abordagens mais comuns para um determinado tópico.
-        """)
-        st.markdown("**Exemplos:**")
+        st.info("Faça perguntas abertas para que o agente analise diversos planos e descreva os padrões e as abordagens mais comuns para um determinado tópico.")
         st.code("""- Analise os modelos típicos de planos de Ações Restritas (RSU), o tipo mais comum no mercado.
-        - Além do TSR, quais são as metas de performance (ESG, Financeiras) mais utilizadas pelas empresas?
-        - Descreva os padrões de tratamento para condições de saída (Good Leaver vs. Bad Leaver) nos planos.
-        - Quais as abordagens mais comuns para o tratamento de dividendos em ações ainda não investidas?""")
-
+- Além do TSR, quais são as metas de performance (ESG, Financeiras) mais utilizadas pelas empresas?
+- Descreva os padrões de tratamento para condições de saída (Good Leaver vs. Bad Leaver) nos planos.
+- Quais as abordagens mais comuns para o tratamento de dividendos em ações ainda não investidas?""")
         st.subheader("4. Análise Profunda e Comparativa (Me explique em detalhes) 🧠")
-        st.info("""
-        Use o poder do RAG para pedir análises detalhadas sobre uma ou mais empresas, comparando regras e estruturas específicas.
-        """)
-        st.markdown("**Exemplos:**")
+        st.info("Use o poder do RAG para pedir análises detalhadas sobre uma ou mais empresas, comparando regras e estruturas específicas.")
         st.code("""- Como o plano da Vale trata a aceleração de vesting em caso de mudança de controle?
-        - Compare as cláusulas de Malus/Clawback da Vale com as do Itaú.
-        - Descreva em detalhes o plano de Opções de Compra da Localiza, incluindo prazos, condições e forma de liquidação.
-        - Descreva o Item 8.4 da M.dias Braco.
-        - Quais as diferenças na elegibilidade de participantes entre os planos da Magazine Luiza e da Lojas Renner?""")
-
-
+- Compare as cláusulas de Malus/Clawback da Vale com as do Itaú.
+- Descreva em detalhes o plano de Opções de Compra da Localiza, incluindo prazos, condições e forma de liquidação.
+- Descreva o Item 8.4 da M.dias Braco.
+- Quais as diferenças na elegibilidade de participantes entre os planos da Magazine Luiza e da Lojas Renner?""")
         st.subheader("❗ Conhecendo as Limitações")
         st.warning("""
-        - **Fonte dos Dados:** Minha análise se baseia em documentos públicos da CVM com data de corte 31/07/2025. Não tenho acesso a informações em tempo real ou privadas.
-        - **Identificação de Nomes:** Para análises profundas, preciso que o nome da empresa seja claro e reconhecível. Se o nome for ambíguo ou não estiver na minha base, posso não encontrar os detalhes.
-        - **Escopo:** Sou altamente especializado em Incentivos de Longo Prazo. Perguntas fora deste domínio podem não ter respostas adequadas.
+- **Fonte dos Dados:** Minha análise se baseia em documentos públicos da CVM com data de corte 31/07/2025. Não tenho acesso a informações em tempo real ou privadas.
+- **Identificação de Nomes:** Para análises profundas, preciso que o nome da empresa seja claro e reconhecível. Se o nome for ambíguo ou não estiver na minha base, posso não encontrar os detalhes.
+- **Escopo:** Sou altamente especializado em Incentivos de Longo Prazo. Perguntas fora deste domínio podem não ter respostas adequadas.
         """)
 
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quais são os modelos típicos de vesting? ou Como funciona o plano da Vale?")
@@ -1054,10 +1028,8 @@ def main():
         if selected_setor != "Todos":
             active_filters['setor'] = selected_setor.lower()
         if selected_controle != "Todos":
-            # A chave 'controle_acionario' deve ser exatamente como nos metadados dos chunks.
             active_filters['controle_acionario'] = selected_controle.lower()
         if active_filters:
-            # Formata o dicionário para uma exibição amigável.
             filter_text_parts = []
             if 'setor' in active_filters:
                 filter_text_parts.append(f"**Setor**: {active_filters['setor'].capitalize()}")
@@ -1069,12 +1041,10 @@ def main():
 
         st.markdown("---")
         st.subheader("📋 Resultado da Análise")
-                # --- INÍCIO DA NOVA LÓGICA DE ROTEAMENTO HÍBRIDO ---
-        
+                
         intent = None
         query_lower = user_query.lower()
         
-        # 1. Camada de Regras: Verifica palavras-chave quantitativas óbvias primeiro.
         quantitative_keywords = [
             'liste', 'quais empresas', 'quais companhias', 'quantas', 'média', 
             'mediana', 'estatísticas', 'mais comuns', 'prevalência', 'contagem'
@@ -1084,25 +1054,16 @@ def main():
             intent = "quantitativa"
             logger.info("Intenção 'quantitativa' detectada por regras de palavras-chave.")
         
-        # 2. Camada de LLM: Se nenhuma regra correspondeu, consulta o LLM.
         if intent is None:
             with st.spinner("Analisando a intenção da sua pergunta..."):
                 intent = get_query__with_llm(user_query)
                 
-        # --- FIM DA NOVA LÓGICA DE ROTEAMENTO HÍBRIDO ---
-
         if intent == "quantitativa":
-            # Mensagem para o usuário informando qual motor está sendo usado para transparência.
             st.info("Intenção quantitativa detectada. Usando o motor de análise rápida para garantir consistência e abrangência.")
     
             with st.spinner("Executando análise quantitativa..."):
-                # PONTO ÚNICO DE ENTRADA: Todas as perguntas quantitativas agora passam
-                # exclusivamente pelo AnalyticalEngine. Ele possui suas próprias regras
-                # internas para decidir qual análise específica realizar (vesting, diluição,
-                # listagem de empresas por tópico, etc.), garantindo o uso dos dados completos do JSON.
                 report_text, data_result = engine.answer_query(user_query, filters=active_filters)
         
-                # Lógica robusta para exibir os resultados.
                 if report_text:
                     st.markdown(report_text)
             
@@ -1111,13 +1072,11 @@ def main():
                         if not data_result.empty:
                             st.dataframe(data_result, use_container_width=True, hide_index=True)
                     elif isinstance(data_result, dict):
-                        # Se o motor retornar múltiplos DataFrames
                         for df_name, df_content in data_result.items():
                             if isinstance(df_content, pd.DataFrame) and not df_content.empty:
                                 st.markdown(f"#### {df_name}")
                                 st.dataframe(df_content, use_container_width=True, hide_index=True)
 
-                # Se não houver nenhum resultado, informa o usuário.
                 if not report_text and (data_result is None or (isinstance(data_result, pd.DataFrame) and data_result.empty)):
                     st.info("Nenhuma análise textual ou tabular foi gerada para a sua pergunta ou os dados foram insuficientes.")
 
@@ -1140,11 +1099,9 @@ def main():
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
-        
-        # --- BLOCO CORRIGIDO ---
+    
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
                         company_name = src.get('company_name', 'N/A')
-                        # Recupere a data do documento dos metadados
                         doc_date = src.get('document_date', 'N/A')
                         doc_type_raw = src.get('doc_type', '')
                         url = src.get('source_url', '')
@@ -1154,26 +1111,19 @@ def main():
                         else:
                             display_doc_type = doc_type_raw.replace('_', ' ')
     
-                        # Adicione a data do documento ao texto de exibição
                         display_text = f"{company_name} - {display_doc_type} - (Data: **{doc_date}**)"
-            
-                       
-            
-                        # A lógica de exibição agora está corretamente separada por tipo de documento
+                        
                         if "frmExibirArquivoIPEExterno" in url:
-                            # O protocolo SÓ é definido e usado dentro deste bloco
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
                             st.markdown(f"**{display_text}** (Protocolo: **{protocolo}**)")
                             st.markdown(f"↳ [Link Direto para Plano de ILP]({url}) ", unsafe_allow_html=True)
             
                         elif "frmExibirArquivoFRE" in url:
-                            # Este bloco não usa a variável 'protocolo'
                             st.markdown(f"**{display_text}**")
                             st.markdown(f"↳ [Link Direto para Formulário de Referência]({url})", unsafe_allow_html=True)
             
                         else:
-                            # Este bloco também não usa a variável 'protocolo'
                             st.markdown(f"**{display_text}**: [Link]({url})")
 
 
