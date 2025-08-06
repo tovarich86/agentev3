@@ -751,7 +751,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
                 mentioned_companies.append(empresa_nome)
     
     plan["empresas"] = mentioned_companies
-    logger.info(f"Empresas identificadas: ") #{plan['empresas']}
+    logger.info(f"Empresas identificadas:{plan['empresas']} ") #
 
     # --- Identificação de Tópicos (Hierárquico) ---
     alias_map = create_hierarchical_alias_map(kb)
@@ -875,7 +875,7 @@ def handle_rag_query(
         if not anonimizar_empresas:
             empresas_identificadas = plan.get('empresas', [])
             if empresas_identificadas:
-                st.write(f"**🏢 Empresas identificadas:** ") #{', '.join(empresas_identificadas)}
+                st.write(f"**🏢 Empresas identificadas:**{', '.join(empresas_identificadas)} ") #
             else:
                 st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
 
@@ -1197,7 +1197,7 @@ def main():
             
             if sources:
                 with st.expander(f"📚 Documentos consultados ({len(sources)})", expanded=True):
-                    st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
+                    
     
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
                         # Este código de exibição agora usará os nomes anonimizados de 'sources'
@@ -1216,7 +1216,7 @@ def main():
                         if "frmExibirArquivoIPEExterno" in url:
                             protocolo_match = re.search(r'NumeroProtocoloEntrega=(\d+)', url)
                             protocolo = protocolo_match.group(1) if protocolo_match else "N/A"
-                            st.markdown(f"**{display_text}** (Protocolo: **{protocolo}**)")
+                            st.markdown(f"**{display_text}**")
                             st.markdown(f"↳ [Link Direto para Plano de ILP]({url}) ", unsafe_allow_html=True)
             
                         elif "frmExibirArquivoFRE" in url:
