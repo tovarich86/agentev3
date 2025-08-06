@@ -713,42 +713,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     plan["empresas"] = mentioned_companies
     logger.info(f"Empresas identificadas: {plan['empresas']}")
 
-    # --- INÍCIO DA ÁREA DE DEPURAÇÃO ---
-    st.warning("--- DEBUG: Verificando a Extração de Tópicos ---")
     
-    # PASSO 4: Extração de Tópicos Hierárquicos
-    alias_map = create_hierarchical_alias_map(kb)
-    found_topics = set()
-    
-    # DEBUG 1: Mostra o mapa de aliases para confirmar que "good leaver" está lá
-    with st.expander("Verificar Mapa de Aliases Gerado (`alias_map`)"):
-        debug_aliases = {k: v for k, v in alias_map.items() if "good leaver" in k or "condicaosaida" in k}
-        st.write("Aliases relevantes para o nosso teste:")
-        st.json(debug_aliases if debug_aliases else {"status": "Alias 'good leaver' NÃO foi encontrado no mapa!"})
-
-    st.write(f"**Query do usuário (em minúsculas):** `{query_lower}`")
-    
-    # DEBUG 2: Mostra o processo de busca
-    st.write("Iterando sobre os aliases para encontrar correspondência na query...")
-    
-    match_found_flag = False
-    for alias in sorted(alias_map.keys(), key=len, reverse=True):
-        # A expressão regular que busca a correspondência
-        if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
-            found_topics.add(alias_map[alias])
-            st.success(f"**MATCH ENCONTRADO!** O alias `{alias}` foi encontrado na query.")
-            match_found_flag = True
-
-    if not match_found_flag:
-        st.error("**NENHUM MATCH ENCONTRADO!** Nenhum alias do mapa correspondeu à query.")
-
-    plan["topicos"] = sorted(list(found_topics))
-    
-    st.write("**Tópicos Finais Identificados para o Plano:**")
-    st.json(plan["topicos"] if plan["topicos"] else "Nenhum tópico foi adicionado ao plano.")
-    
-    st.info("--- FIM DO MODO DE DEPURAÇÃO ---")
-    # --- FIM DA ÁREA DE DEPURAÇÃO ---
         
     # O resto da função continua normalmente para que o app não quebre
     if plan["empresas"] and not plan["topicos"]:
