@@ -676,8 +676,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     # Adicione 'import streamlit as st' no topo do seu arquivo, se ainda não o fez.
     import streamlit as st
 
-    st.info("--- INICIANDO MODO DE DEPURAÇÃO: create_dynamic_analysis_plan ---")
-
+    
     logger.info(f"Gerando plano dinâmico v3.0 para a pergunta: '{query}'")
     query_lower = query.lower().strip()
     
