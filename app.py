@@ -232,8 +232,8 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
 
 def anonimizar_resultados(data, company_catalog, anom_map=None):
     """
-    [VERSÃO APRIMORADA] Recebe um DataFrame ou texto e substitui os nomes das
-    empresas E SEUS ALIASES por placeholders.
+    [VERSÃO CORRIGIDA] Recebe um DataFrame ou texto e substitui os nomes das
+    empresas E SEUS ALIASES por placeholders, lidando corretamente com pontuação.
     """
     if anom_map is None:
         anom_map = {}
@@ -244,13 +244,9 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
         
         def get_anon_name(company_name):
             if company_name not in anom_map:
-                # Encontra a entrada completa da empresa no catálogo
                 company_info = next((item for item in company_catalog if item["canonical_name"] == company_name), None)
-                
-                # Gera o nome anônimo
                 anon_name = f"Empresa {chr(65 + len(anom_map))}"
                 
-                # Armazena o nome anônimo e todos os aliases para substituição posterior no texto
                 anom_map[company_name] = {
                     "anon_name": anon_name,
                     "aliases_to_replace": [company_name] + (company_info['aliases'] if company_info else [])
@@ -273,21 +269,21 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
     # --- Lógica para Texto (Usa o mapa de anonimização) ---
     elif isinstance(data, str) and anom_map:
         texto_anonimizado = data
-        # Itera sobre o mapa de anonimização
         for original_canonical, mapping in anom_map.items():
             anon_name = mapping["anon_name"]
-            # Ordena os aliases pelo comprimento (do maior para o menor) para evitar substituições parciais
-            # Ex: substitui "Lojas Americanas" antes de "Americanas"
             aliases_sorted = sorted(mapping["aliases_to_replace"], key=len, reverse=True)
             
             for alias in aliases_sorted:
-                # Usa regex para substituir o alias como uma palavra inteira (case-insensitive)
+                # [CORREÇÃO APLICADA AQUI]
+                # Usa "negative lookarounds" (?<!\w) e (?!\w) para garantir que o alias não é parte de uma palavra maior.
+                # Isso é mais robusto do que \b para nomes com pontuação como "S.A." ou "M.dias".
                 pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
                 texto_anonimizado = re.sub(pattern, anon_name, texto_anonimizado, flags=re.IGNORECASE)
                 
         return texto_anonimizado, anom_map
         
     return data, anom_map
+
 def search_by_tags(query: str, kb: dict) -> list[str]:
     """
     Versão melhorada que busca por palavras-chave na query e retorna as tags correspondentes.
