@@ -888,6 +888,68 @@ def handle_rag_query(
         plan = plan_response['plan']
         mapa_anonimizacao = mapa_anonimizacao_global if mapa_anonimizacao_global is not None else {}
         if anonimizar_empresas:
+        # ======================= INÍCIO DO BLOCO DE DIAGNÓSTICO =======================
+    with st.expander("🕵️‍♂️ **Painel de Diagnóstico de Anonimização**", expanded=True):
+
+        st.subheader("1. Verificação do Mapa de Anonimização")
+        st.write(f"O `mapa_anonimizacao` foi criado? **{'Sim' if anonimizar_empresas else 'Não (Modo Apresentação desligado)'}**")
+        if anonimizar_empresas:
+            st.write(f"- **Tamanho do mapa:** {len(mapa_anonimizacao)} chaves.")
+            st.write("- **Exemplo das chaves (normalizadas):**")
+            st.code(list(mapa_anonimizacao.keys())[:5], language='json')
+
+        st.subheader("2. Verificação do DataFrame Gerado")
+        if data_result is None:
+            st.warning("O `data_result` é Nulo. Nenhuma tabela foi gerada.")
+        else:
+            # Lida com o caso de ser um dicionário de DataFrames
+            dfs_para_analisar = data_result if isinstance(data_result, dict) else {"Resultado": data_result}
+        
+            for nome_df, df in dfs_para_analisar.items():
+                if not isinstance(df, pd.DataFrame):
+                    st.warning(f"O item '{nome_df}' não é um DataFrame.")
+                    continue
+
+                st.markdown(f"#### Análise da Tabela: `{nome_df}`")
+                st.write("**Colunas encontradas na tabela:**", df.columns.tolist())
+
+                # Encontra a coluna alvo para anonimização
+                target_col = None
+                for col in df.columns:
+                    if 'empresa' in col.lower() or 'companhia' in col.lower():
+                        target_col = col
+                        break
+            
+                if not target_col:
+                    st.error(f"**ALERTA:** Nenhuma coluna com 'empresa' ou 'companhia' foi encontrada nesta tabela. A anonimização não pode ser aplicada.")
+                    continue
+
+                st.success(f"Coluna alvo para anonimização encontrada: **'{target_col}'**")
+
+                # A MÁGICA ACONTECE AQUI: O TESTE DE CORRESPONDÊNCIA
+                st.subheader("3. Teste de Correspondência Lado a Lado")
+            
+                nomes_originais = df[target_col].dropna().unique()
+                dados_diagnostico = []
+            
+                mapa_chaves = set(mapa_anonimizacao.keys())
+
+                for nome in nomes_originais:
+                    nome_norm = normalizar_nome(str(nome))
+                    existe_no_mapa = "✅ Sim" if nome_norm in mapa_chaves else "❌ Não"
+                    dados_diagnostico.append({
+                        "Nome Original na Tabela": nome,
+                        "Nome Normalizado (pela função)": nome_norm,
+                        "Existe no Mapa?": existe_no_mapa
+                    })
+            
+                if dados_diagnostico:
+                    df_diag = pd.DataFrame(dados_diagnostico)
+                    st.dataframe(df_diag, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Nenhum nome de empresa encontrado na coluna alvo para analisar.")
+
+    # ======================== FIM DO BLOCO DE DIAGNÓSTICO =========================
             mapa_anonimizacao = construir_mapa_anonimizacao(st.session_state.company_catalog_rich)
 
         if not anonimizar_empresas:
