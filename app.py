@@ -102,9 +102,9 @@ st.markdown(page_bg_img, unsafe_allow_html=True)
 
 # --- Constantes e Configurações ---
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
-TOP_K_SEARCH = 10
+TOP_K_SEARCH = 7
 TOP_K_INITIAL_RETRIEVAL = 30
-TOP_K_FINAL = 20
+TOP_K_FINAL = 17
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.0-flash-lite" # Recomendo usar um modelo mais recente se possível
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
