@@ -825,7 +825,7 @@ def handle_rag_query(
     anonimizar_empresas: bool = False
 ) -> tuple[str, list[dict]]:
     """
-    [VERSÃO COMPLETA E CORRIGIDA] Orquestra o pipeline de RAG, aplicando a anonimização
+    [VERSÃO FINAL E CORRIGIDA] Orquestra o pipeline de RAG, aplicando a anonimização
     de forma centralizada e consistente em todos os fluxos.
     """
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
@@ -879,28 +879,25 @@ def handle_rag_query(
 
         # Etapa 2: Anonimização do CONTEÚDO para o LLM
         if anonimizar_empresas:
-            # Primeiro, anonimiza os resultados da análise, reutilizando e atualizando o mapa
             for res in results:
                 res['empresa'], mapa_anonimizacao = anonimizar_resultados(res['empresa'], st.session_state.company_catalog_rich, mapa_anonimizacao)
                 for topico, resumo in res['resumos_por_topico'].items():
                     res['resumos_por_topico'][topico], mapa_anonimizacao = anonimizar_resultados(resumo, st.session_state.company_catalog_rich, mapa_anonimizacao)
 
-            # Depois, anonimiza a lista de fontes usando o MESMO mapa consistente
             sources_list = [src for res in results for src in res.get('sources', [])]
             df_sources = pd.DataFrame(sources_list)
             if not df_sources.empty:
                 df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
                 df_sources_anon, _ = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich, mapa_anonimizacao)
                 all_sources_structured = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
-
-        else: # Se não estiver anonimizando, apenas coleta as fontes
+        else:
             all_sources_structured = [src for res in results for src in res.get('sources', [])]
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
             comparison_prompt = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}" usando o CONTEXTO JSON abaixo.
-            Os nomes das empresas no contexto já foram anonimizados para "Empresa A", "Empresa B", etc. Use apenas estes nomes anonimizados na sua resposta para garantir a confidencialidade.
+            Os nomes das empresas no contexto já foram anonimizados. Use apenas os nomes anonimizados (ex: "Empresa A", "Empresa B") na sua resposta para garantir a confidencialidade.
             O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada.
 
             CONTEXTO (em formato JSON):
@@ -923,16 +920,13 @@ def handle_rag_query(
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
             status.update(label="✅ Contexto relevante selecionado!", state="complete")
         
-        # Etapa 2: Anonimização do CONTEÚDO para o LLM
         if anonimizar_empresas:
-            # Garante que o mapa está populado com as fontes
             df_sources = pd.DataFrame(all_sources_structured)
             if not df_sources.empty:
                 df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
                 df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich, mapa_anonimizacao)
                 all_sources_structured = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
             
-            # Anonimiza o texto do contexto usando o mapa já populado
             context, _ = anonimizar_resultados(context, st.session_state.company_catalog_rich, mapa_anonimizacao)
             
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
@@ -946,7 +940,6 @@ def handle_rag_query(
             final_answer = get_final_unified_answer(prompt_final, context)
             status.update(label="✅ Análise concluída!", state="complete")
 
-    # Remove duplicatas das fontes coletadas, mantendo a ordem
     unique_sources = list({v['source_url']:v for v in all_sources_structured}.values())
     return final_answer, unique_sources
 def main():
