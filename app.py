@@ -801,46 +801,41 @@ def handle_rag_query(
     company_lookup_map: dict,
     summary_data: dict,
     filters: dict,
-    prioritize_recency: bool = False
+    prioritize_recency: bool = False,
+    anonimizar_empresas: bool = False  # Adicionado o parâmetro aqui
 ) -> tuple[str, list[dict]]:
     """
-    Orquestra o pipeline de RAG para perguntas qualitativas.
+    [VERSÃO CORRIGIDA] Orquestra o pipeline de RAG, aplicando a anonimização
+    corretamente tanto para a UI quanto para o contexto do LLM.
     """
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters)
         
         if plan_response['status'] != "success":
             status.update(label="⚠️ Falha na identificação", state="error", expanded=True)
-            
             st.warning("Não consegui identificar uma empresa conhecida na sua pergunta para realizar uma análise profunda.")
-            st.info("Para análises detalhadas, por favor, use o nome de uma das empresas listadas na barra lateral.")
-            
-            with st.spinner("Estou pensando em uma pergunta alternativa que eu possa responder..."):
+            with st.spinner("Estou pensando em uma pergunta alternativa..."):
                 alternative_query = suggest_alternative_query(query, kb)
-            
             st.markdown("#### Que tal tentar uma pergunta mais geral?")
-            st.markdown("Você pode copiar a sugestão abaixo ou reformular sua pergunta original.")
             st.code(alternative_query, language=None)
-            
             return "", []
             
         plan = plan_response['plan']
-        
-        summary_keywords = ['resumo', 'geral', 'completo', 'visão geral', 'como funciona o plano', 'detalhes do plano']
-        is_summary_request = any(keyword in query.lower() for keyword in summary_keywords)
-        
-        specific_topics_in_query = list({canonical for alias, canonical in _create_flat_alias_map(kb).items() if re.search(r'\b' + re.escape(alias) + r'\b', query.lower())})
-        is_summary_plan = is_summary_request and not specific_topics_in_query
-        
-        if plan['empresas']:
-            st.write(f"**🏢 Empresas identificadas:** {', '.join(plan['empresas'])}")
+        mapa_anonimizacao = {}
+        display_empresas = plan['empresas']
+
+        # Etapa 1: Anonimização para a UI (antes de exibir qualquer coisa)
+        if anonimizar_empresas and plan.get('empresas'):
+            df_empresas_plano = pd.DataFrame([{"Empresa": e} for e in plan['empresas']])
+            df_anon, mapa_anonimizacao = anonimizar_resultados(df_empresas_plano, st.session_state.company_catalog_rich)
+            display_empresas = df_anon["Empresa"].tolist()
+
+        if display_empresas:
+            st.write(f"**🏢 Empresas identificadas:** {', '.join(display_empresas)}")
         else:
             st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
             
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
-        if is_summary_plan:
-            st.info("💡 Modo de resumo geral ativado. A busca será otimizada para os tópicos encontrados.")
-            
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
     final_answer, all_sources_structured = "", []
@@ -860,32 +855,36 @@ def handle_rag_query(
                 ]
                 results = [future.result() for future in futures]
 
+        # Coleta todas as fontes primeiro para anonimização consistente
         for result in results:
             for src_dict in result.get('sources', []):
-                company_name = src_dict.get('company_name')
-                source_url = src_dict.get('source_url')
-                
-                if company_name and source_url:
-                    src_tuple = (company_name, source_url)
-                    if src_tuple not in seen_sources_tuples:
-                        seen_sources_tuples.add(src_tuple)
-                        all_sources_structured.append(src_dict)
+                src_tuple = (src_dict.get('company_name'), src_dict.get('source_url'))
+                if src_tuple not in seen_sources_tuples:
+                    seen_sources_tuples.add(src_tuple)
+                    all_sources_structured.append(src_dict)
+        
+        # Etapa 2: Anonimização do CONTEÚDO para o LLM
+        if anonimizar_empresas:
+            # Anonimiza a lista de fontes
+            df_sources = pd.DataFrame(all_sources_structured)
+            if not df_sources.empty:
+                df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
+                df_sources_anon, mapa_anonimizacao_fontes = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich, mapa_anonimizacao)
+                all_sources_structured = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
+            
+            # Anonimiza os resultados da análise que serão enviados ao LLM
+            for res in results:
+                # Substitui o nome da empresa pelo nome anonimizado do mapa
+                res['empresa'], _ = anonimizar_resultados(res['empresa'], st.session_state.company_catalog_rich, mapa_anonimizacao)
+                # Substitui os nomes dentro dos textos de resumo
+                for topico, resumo in res['resumos_por_topico'].items():
+                    res['resumos_por_topico'][topico], _ = anonimizar_resultados(resumo, st.session_state.company_catalog_rich, mapa_anonimizacao)
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
-            clean_results = []
-            for company_result in results:
-                sources = company_result.pop("sources", [])
-                clean_sources = []
-                for source_chunk in sources:
-                    source_chunk.pop('relevance_score', None)
-                    clean_sources.append(source_chunk)
-                
-                company_result["sources"] = clean_sources
-                clean_results.append(company_result)
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
             comparison_prompt = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}".
-            Use os dados estruturados fornecidos no CONTEXTO JSON abaixo.
+            Use os dados estruturados fornecidos no CONTEXTO JSON abaixo. Os nomes das empresas já foram anonimizados para "Empresa A", "Empresa B", etc. Use esses nomes anonimizados na sua resposta.
             O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada.
 
             CONTEXTO (em formato JSON):
@@ -898,7 +897,7 @@ def handle_rag_query(
     else:
         with st.status("2️⃣ Recuperando e re-ranqueando contexto...", expanded=True) as status:
             context, all_sources_structured = execute_dynamic_plan(
-                query, plan, artifacts, embedding_model, cross_encoder_model, kb,company_catalog_rich, company_lookup_map, search_by_tags, expand_search_terms)
+                query, plan, artifacts, embedding_model, cross_encoder_model, kb, company_catalog_rich, company_lookup_map, search_by_tags, expand_search_terms)
             
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
@@ -907,8 +906,27 @@ def handle_rag_query(
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
             status.update(label="✅ Contexto relevante selecionado!", state="complete")
         
+        # Etapa 2: Anonimização do CONTEÚDO para o LLM
+        if anonimizar_empresas:
+            # Garante que o mapa está populado com as fontes
+            df_sources = pd.DataFrame(all_sources_structured)
+            if not df_sources.empty:
+                df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
+                df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich, mapa_anonimizacao)
+                all_sources_structured = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
+            
+            # Anonimiza o texto do contexto usando o mapa populado
+            context, _ = anonimizar_resultados(context, st.session_state.company_catalog_rich, mapa_anonimizacao)
+            
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
-            final_answer = get_final_unified_answer(query, context)
+            prompt_final = f"""
+            Responda à pergunta: "{query}".
+            Use o contexto abaixo, que já está anonimizado. Refira-se à empresa principal como "a Empresa" ou "a Companhia". Não tente adivinhar o nome original.
+
+            CONTEXTO:
+            {context}
+            """
+            final_answer = get_final_unified_answer(prompt_final, context)
             status.update(label="✅ Análise concluída!", state="complete")
 
     return final_answer, all_sources_structured
@@ -1098,7 +1116,7 @@ def main():
                 # [NOVA ADIÇÃO 2] Verifica se o modo de anonimização está ativo.
                 # Se estiver, passa o resultado pela função anonimizar_resultados.
                 if anonimizar_empresas and data_result is not None:
-                    data_result, mapa_anonimizacao = anonimizar_resultados(data_result, st.session_state.company_catalog_ric)
+                    data_result, mapa_anonimizacao = anonimizar_resultados(data_result, st.session_state.company_catalog_rich)
 
                 # A partir daqui, o código de exibição renderizará a versão
                 # original ou a anonimizada, dependendo do checkbox.
