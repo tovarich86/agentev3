@@ -598,27 +598,39 @@ class AnalyticalEngine:
         
     def _analyze_common_plan_types(self, normalized_query: str, filters: dict) -> tuple:
         """
-        [VERSÃO CORRIGIDA] Analisa e conta a prevalência de cada tipo de plano
-        de incentivo, baseando-se nas chaves do dicionário 'planos_identificados'.
+        [VERSÃO FINAL E APRIMORADA] Analisa, conta, formata e filtra os tipos de
+        planos mais comuns para uma apresentação clara e profissional.
         """
         data_to_analyze = self._apply_filters_to_data(filters)
         plan_type_counts = defaultdict(int)
+
+        # Helper para converter CamelCase para Título (ex: OpcoesDeCompra -> Opcoes De Compra)
+        def format_plan_name(name):
+            # Remove o underscore e depois adiciona um espaço antes de cada letra maiúscula
+            name_no_underscore = name.replace('_', ' ')
+            return re.sub(r'(?<!^)(?=[A-Z])', ' ', name_no_underscore).title()
 
         for company, details in data_to_analyze.items():
             identified_plans = details.get("planos_identificados", {})
             unique_plan_types_for_company = set(identified_plans.keys())
 
             for plan_type in unique_plan_types_for_company:
-                plan_type_counts[plan_type.replace('_', ' ')] += 1
+                # **NOVO FILTRO:** Ignora o plano não identificado
+                if plan_type.lower() == 'planogeralnaoidentificado':
+                    continue
+                
+                # **NOVA FORMATAÇÃO:** Usa a função helper para formatar o nome
+                formatted_name = format_plan_name(plan_type)
+                plan_type_counts[formatted_name] += 1
 
         if not plan_type_counts:
-            return "Nenhum tipo de plano encontrado para os filtros selecionados.", None
+            return "Nenhum tipo de plano relevante foi encontrado para os filtros selecionados.", None
             
         report_text = "### Tipos de Planos Mais Comuns\n"
         df_data = [{"Tipo de Plano": k, "Nº de Empresas": v} for k, v in sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)]
         
         for item in df_data:
-            report_text += f"- **{item['Tipo de Plano'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
+            report_text += f"- **{item['Tipo de Plano']}:** {item['Nº de Empresas']} empresas\n"
             
         return report_text, pd.DataFrame(df_data)
     
