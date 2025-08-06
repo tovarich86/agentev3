@@ -431,20 +431,20 @@ def execute_dynamic_plan(
         ]
     logger.info(f"Após pré-filtragem, {len(pre_filtered_chunks)} chunks são candidatos.")
 
-    # -------------- BUSCA POR TAGS E EXPANSÃO DE TERMOS ----------------
-    logger.info("Executando busca por tags...")
-    tags = search_by_tags(query, kb)
-    logger.info(f"Tags encontradas: {tags}")
-
-    # Expansão dos termos de busca para potencializar recuperação semântica
-    if tags:
+    # -------------- EXPANSÃO DE TERMOS COM BASE NOS TÓPICOS DO PLANO ----------------
+    # Esta abordagem é mais robusta pois utiliza os tópicos já identificados pelo planejador.
+    if topicos:
         expanded_terms = {query.lower()}
-        for tag in tags:
-            expanded_terms.update(expand_search_terms(tag, kb))
+        for topic_path in topicos:
+            # Pega o alias mais específico (a última parte do caminho do tópico) para expandir a busca.
+            # Ex: De "ParticipantesCondicoes,CondicaoSaida", extrai "CondicaoSaida".
+            alias = topic_path.split(',')[-1].replace('_', ' ')
+            expanded_terms.update(expand_search_terms(alias, kb))
+        
         query_to_search = " ".join(list(expanded_terms))
-        logger.info(f"Query expandida: {query_to_search}")
+        logger.info(f"Query expandida com base nos tópicos do plano: '{query_to_search}'")
     else:
-        logger.info("Nenhuma tag relevante encontrada. Usando query original.")
+        logger.info("Nenhum tópico encontrado no plano. Usando query original.")
         query_to_search = query
 
     # -------------- ROTEAMENTO PRINCIPAL --------------
