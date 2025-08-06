@@ -624,35 +624,22 @@ class AnalyticalEngine:
         data_to_analyze = self._apply_filters_to_data(filters)
         plan_type_counts = defaultdict(int)
 
-        # Itera sobre cada empresa nos dados filtrados
         for company, details in data_to_analyze.items():
-            
-            # As chaves do dicionário 'planos_identificados' SÃO os tipos de plano.
-            # Ex: {"OpcoesDeCompra": {...}, "AcoesRestritas": {...}}
             identified_plans = details.get("planos_identificados", {})
-            
-            # Usamos um 'set' para garantir que cada tipo de plano seja contado
-            # apenas uma vez por empresa.
             unique_plan_types_for_company = set(identified_plans.keys())
 
-            # Para cada tipo de plano único encontrado nesta empresa, incrementa o contador geral.
             for plan_type in unique_plan_types_for_company:
-                # Substitui '_' por espaço para um nome mais amigável e incrementa a contagem.
                 plan_type_counts[plan_type.replace('_', ' ')] += 1
 
         if not plan_type_counts:
-            return "Nenhum tipo de plano foi encontrado para os filtros selecionados.", None
+            return "Nenhum tipo de plano encontrado para os filtros selecionados.", None
             
         report_text = "### Tipos de Planos Mais Comuns\n"
-        
-        # Cria a lista de dados para o DataFrame, ordenando pela contagem (mais comum primeiro)
         df_data = [{"Tipo de Plano": k, "Nº de Empresas": v} for k, v in sorted(plan_type_counts.items(), key=lambda item: item[1], reverse=True)]
         
-        # Constrói o relatório de texto a partir dos dados já ordenados
         for item in df_data:
             report_text += f"- **{item['Tipo de Plano'].capitalize()}:** {item['Nº de Empresas']} empresas\n"
             
-        # Retorna o relatório e o DataFrame
         return report_text, pd.DataFrame(df_data)
     
     def _kb_flat_map(self) -> dict:
@@ -690,15 +677,10 @@ class AnalyticalEngine:
         self._kb_flat_map_cache = flat_map
         return flat_map
     def _find_companies_by_general_topic(self, normalized_query: str, filters: dict) -> tuple:
-        """
-        [VERSÃO CORRIGIDA FINAL] Busca empresas por um tópico geral, navegando 
-        corretamente pela estrutura aninhada de 'planos_identificados'.
-        """
         data_to_analyze = self._apply_filters_to_data(filters)
         flat_map = self._kb_flat_map()
         found_topic_details = None
         
-        # ETAPA 1: Identificar o tópico na pergunta (já funcionando corretamente)
         for alias in sorted(flat_map.keys(), key=len, reverse=True):
             if re.search(r'\b' + re.escape(alias) + r'\b', normalized_query):
                 found_topic_details = flat_map[alias]
@@ -709,50 +691,26 @@ class AnalyticalEngine:
 
         section, topic_name_formatted, topic_name_raw = found_topic_details
         
-        # --- INÍCIO DA CORREÇÃO DE LÓGICA ---
-        
-        # Função auxiliar para coletar todas as chaves (ex: "Matching_Coinvestimento")
-        # de uma estrutura aninhada.
         def _collect_all_topic_keys(node, collected_keys: set):
             if isinstance(node, dict):
                 for key, value in node.items():
-                    # A própria chave é um tópico
-                    collected_keys.add(key)
-                    # Continua a recursão para valores que são dicionários ou listas
-                    if isinstance(value, (dict, list)):
-                        _collect_all_topic_keys(value, collected_keys)
+                    if key not in ["_aliases", "subtopicos"]: collected_keys.add(key)
+                    if isinstance(value, (dict, list)): _collect_all_topic_keys(value, collected_keys)
             elif isinstance(node, list):
-                for item in node:
-                    _collect_all_topic_keys(item, collected_keys)
+                for item in node: _collect_all_topic_keys(item, collected_keys)
 
-        companies_found = set() # Usar um set para evitar nomes duplicados
-        
-        # Itera sobre cada empresa no dicionário de dados
-        for company_name, company_details in data_to_analyze.items():
-            
-            # **A CORREÇÃO PRINCIPAL ESTÁ AQUI**
-            # Pega o dicionário de planos da empresa (ex: {"OpcoesDeCompra": {...}, "Matching_Coinvestimento": {...}})
-            identified_plans = company_details.get("planos_identificados", {})
-            
-            # Itera sobre cada plano dentro da empresa
+        companies_found = set()
+        for company_name, details in data_to_analyze.items():
+            identified_plans = details.get("planos_identificados", {})
             for plan_name, plan_details in identified_plans.items():
-                
-                # Procura o dicionário "topicos_encontrados" DENTRO de cada plano
                 topics_for_plan = plan_details.get("topicos_encontrados", {})
-                
                 all_plan_topic_keys = set()
                 _collect_all_topic_keys(topics_for_plan, all_plan_topic_keys)
-                
-                # Verifica se o tópico buscado existe nas chaves deste plano
                 if topic_name_raw in all_plan_topic_keys:
                     companies_found.add(company_name)
-                    # Se encontrou, não precisa checar outros planos da mesma empresa
                     break 
         
-        # --- FIM DA CORREÇÃO DE LÓGICA ---
-        
         companies_list = sorted(list(companies_found))
-
         if not companies_list:
             return f"Nenhuma empresa encontrada com o tópico '{topic_name_formatted}' para os filtros aplicados.", None
 
