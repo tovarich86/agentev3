@@ -185,7 +185,7 @@ class AnalyticalEngine:
             (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q or 'quais os indicadores mais comuns' in q, self._analyze_common_goals),
             
             # Regra para tipos de plano (agora separada e com sua própria vírgula)
-            (lambda q: 'planos mais comuns' in q or 'tipos de plano mais comuns' in q, self._analyze_common_plan_types),
+            (lambda q: all(k in q for k in ['tipos', 'planos', 'comuns']), self._analyze_common_plan_types),
             
             # Fallback (sempre por último)
             (lambda q: True, self._find_companies_by_general_topic),
@@ -269,34 +269,14 @@ class AnalyticalEngine:
         return filtered_data
 
     def answer_query(self, query: str, filters: dict | None = None) -> tuple:
-        """
-        [VERSÃO DE DEPURAÇÃO] Responde a uma consulta quantitativa e mostra o processo 
-        de decisão do roteador de intenção.
-        """
-        # Adicione 'import streamlit as st' no topo do seu arquivo analytical_engine.py
-        import streamlit as st
-
         normalized_query = self._normalize_text(query)
         final_filters = filters if filters is not None else self._extract_filters(normalized_query)
-        
-        st.info("--- INICIANDO MODO DE DEPURAÇÃO: Roteador `answer_query` ---")
-        st.write(f"**Query Original:** '{query}'")
-        st.write(f"**Query Normalizada (usada para regras):** '{normalized_query}'")
-        st.write("--- Verificando Regras de Intenção em Ordem ---")
 
-        for i, (intent_checker_func, analysis_func) in enumerate(self.intent_rules):
-            match_found = intent_checker_func(normalized_query)
-            
-            # Mostra o status de verificação de cada regra
-            if match_found:
-                st.success(f"**REGRA {i+1} (MATCH!):** A query correspondeu a esta regra. Executando `{analysis_func.__name__}`.")
-                # Se a regra correta for encontrada, removemos os prints de debug e executamos a função
-                st.empty() # Limpa a tela de debug para mostrar apenas o resultado
+        for intent_checker_func, analysis_func in self.intent_rules:
+            if intent_checker_func(normalized_query):
+                logging.info(f"Intenção detectada. Executando: {analysis_func.__name__}")
                 return analysis_func(normalized_query, final_filters)
-            else:
-                st.warning(f"**REGRA {i+1} (NO MATCH):** A query não correspondeu à regra para `{analysis_func.__name__}`.")
-                
-        # Este retorno só acontecerá se nenhuma regra corresponder (o que é impossível devido ao fallback)
+
         return "Não consegui identificar uma intenção clara na sua pergunta.", None
 
     def _analyze_vesting_period(self, normalized_query: str, filters: dict) -> tuple:
