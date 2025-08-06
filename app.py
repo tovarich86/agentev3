@@ -276,22 +276,27 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
     # Lógica para DataFrames
     if isinstance(data, pd.DataFrame):
         df_anonimizado = data.copy()
+        
+        # 1. Encontra a coluna que contém os nomes das empresas
         target_col = None
         for col in df_anonimizado.columns:
             if 'empresa' in col.lower() or 'companhia' in col.lower():
                 target_col = col
                 break
-        if target_col:
-            def get_anon_name(company_name):
-                if company_name not in anom_map:
-                    company_info = next((item for item in company_catalog if item["canonical_name"] == company_name), None)
-                    anon_name = f"Empresa {chr(65 + len(anom_map))}"
-                    anom_map[company_name] = {
-                        "anon_name": anon_name,
-                        "aliases_to_replace": [company_name] + (company_info['aliases'] if company_info else [])
-                    }
-                return anom_map[company_name]["anon_name"]
-            df_anonimizado[target_col] = df_anonimizado[target_col].apply(get_anon_name)
+        
+        # 2. Se encontrou a coluna, aplica a anonimização diretamente nela
+        if target_col and anom_map:
+            # Pega o mapa de substituição (nome real -> nome anônimo) do mapa global
+            # Apenas para os nomes que existem na coluna, para eficiência
+            nomes_na_coluna = df_anonimizado[target_col].unique()
+            mapa_de_substituicao = {}
+            for nome_real, detalhes in anom_map.items():
+                if nome_real in nomes_na_coluna:
+                    mapa_de_substituicao[nome_real] = detalhes['anon_name']
+
+            # Usa a função .replace() do Pandas, que é otimizada para isso
+            df_anonimizado[target_col] = df_anonimizado[target_col].replace(mapa_de_substituicao)
+
         return df_anonimizado, anom_map
 
     # Lógica para Dicionários de DataFrames
