@@ -842,7 +842,8 @@ def handle_rag_query(
     summary_data: dict,
     filters: dict,
     prioritize_recency: bool = False,
-    anonimizar_empresas: bool = False
+    anonimizar_empresas: bool = False,
+    mapa_anonimizacao_global: dict = None  # <--- ADICIONE ESTA LINHA
 ) -> tuple[str, list[dict]]:
     """
     [VERSÃO FINAL E CORRIGIDA] Orquestra o pipeline de RAG, aplicando a anonimização
@@ -861,7 +862,7 @@ def handle_rag_query(
             return "", []
 
         plan = plan_response['plan']
-        mapa_anonimizacao = {}
+        mapa_anonimizacao = mapa_anonimizacao_global if mapa_anonimizacao_global is not None else {}
         if anonimizar_empresas:
             mapa_anonimizacao = construir_mapa_anonimizacao(st.session_state.company_catalog_rich)
 
