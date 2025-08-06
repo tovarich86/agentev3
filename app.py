@@ -230,7 +230,45 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
                 expanded_terms.update(all_terms_in_group)
     return list(expanded_terms)
 
-# Em app.py, substitua esta função
+def anonimizar_resultados(data, anom_map=None):
+    """
+    Recebe um DataFrame ou texto e substitui os nomes das empresas por placeholders.
+    Mantém um mapa de anonimização para garantir consistência.
+    """
+    if anom_map is None:
+        anom_map = {}
+    
+    # Se for um DataFrame
+    if isinstance(data, pd.DataFrame) and "Empresa" in data.columns:
+        df_anonimizado = data.copy()
+        
+        def get_anon_name(company_name):
+            if company_name not in anom_map:
+                anom_map[company_name] = f"Empresa {chr(65 + len(anom_map))}"
+            return anom_map[company_name]
+            
+        df_anonimizado["Empresa"] = df_anonimizado["Empresa"].apply(get_anon_name)
+        return df_anonimizado, anom_map
+
+    # Se for um dicionário de DataFrames (como em _analyze_plan_members)
+    elif isinstance(data, dict):
+        dict_anonimizado = {}
+        for key, df in data.items():
+            if isinstance(df, pd.DataFrame) and "Empresa" in df.columns:
+                dict_anonimizado[key], anom_map = anonimizar_resultados(df, anom_map)
+            else:
+                dict_anonimizado[key] = df
+        return dict_anonimizado, anom_map
+        
+    # Se for texto (para a resposta final do RAG)
+    elif isinstance(data, str):
+        texto_anonimizado = data
+        # Ordena as chaves do mapa pelo comprimento para substituir nomes mais longos primeiro
+        for original, anonimo in sorted(anom_map.items(), key=lambda item: len(item[0]), reverse=True):
+            texto_anonimizado = texto_anonimizado.replace(original, anonimo)
+        return texto_anonimizado, anom_map
+        
+    return data, anom_map
 def search_by_tags(query: str, kb: dict) -> list[str]:
     """
     Versão melhorada que busca por palavras-chave na query e retorna as tags correspondentes.
@@ -951,9 +989,19 @@ def main():
 
     with st.sidebar:
         st.header("📊 Informações do Sistema")
-        st.metric("Categorias de Documentos (RAG)", len(artifacts))
+        st.metric("Categorias de Documentos (RAG)", "Item 8.4", "Plano de Remuneração")
+        
+        st.markdown("---")
+        st.header("🔒 Modo Apresentação")
+        anonimizar_empresas = st.checkbox(
+            "Ocultar nomes de empresas",
+            value=False,
+            help="Substitui os nomes das empresas por placeholders como 'Empresa A', 'Empresa B' para garantir a confidencialidade durante a apresentação."
+        )
+        
         st.markdown("---")
 
+        
         prioritize_recency = st.checkbox(
             "Priorizar documentos mais recentes",
             value=True,
@@ -1057,13 +1105,24 @@ def main():
         if intent is None:
             with st.spinner("Analisando a intenção da sua pergunta..."):
                 intent = get_query__with_llm(user_query)
+
+        # [NOVA ADIÇÃO 1] Inicializa o mapa de anonimização que será usado em toda a análise.
+        # Isso garante que a "Empresa A" seja sempre a mesma, seja no texto ou nas tabelas.
+        mapa_anonimizacao = {}
                 
         if intent == "quantitativa":
-            st.info("Intenção quantitativa detectada. Usando o motor de análise rápida para garantir consistência e abrangência.")
+            st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
     
             with st.spinner("Executando análise quantitativa..."):
                 report_text, data_result = engine.answer_query(user_query, filters=active_filters)
-        
+                
+                # [NOVA ADIÇÃO 2] Verifica se o modo de anonimização está ativo.
+                # Se estiver, passa o resultado pela função anonimizar_resultados.
+                if anonimizar_empresas and data_result is not None:
+                    data_result, mapa_anonimizacao = anonimizar_resultados(data_result)
+
+                # A partir daqui, o código de exibição renderizará a versão
+                # original ou a anonimizada, dependendo do checkbox.
                 if report_text:
                     st.markdown(report_text)
             
@@ -1077,10 +1136,6 @@ def main():
                                 st.markdown(f"#### {df_name}")
                                 st.dataframe(df_content, use_container_width=True, hide_index=True)
 
-                if not report_text and (data_result is None or (isinstance(data_result, pd.DataFrame) and data_result.empty)):
-                    st.info("Nenhuma análise textual ou tabular foi gerada para a sua pergunta ou os dados foram insuficientes.")
-
-        
         else: # intent == 'qualitativa'
             final_answer, sources = handle_rag_query(
                 user_query, 
@@ -1094,6 +1149,21 @@ def main():
                 filters=active_filters,
                 prioritize_recency=prioritize_recency
             )
+            
+            # [NOVA ADIÇÃO 3] Lógica de anonimização de duas etapas para o RAG.
+            if anonimizar_empresas and sources:
+                # 3.1: Cria o mapa de anonimização a partir da lista de fontes.
+                df_sources = pd.DataFrame(sources)
+                if not df_sources.empty:
+                    df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
+                    df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources)
+                    # Atualiza a lista de fontes com a versão anonimizada para exibição.
+                    sources = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
+
+                # 3.2: Usa o mapa já criado para substituir os nomes no texto da resposta.
+                final_answer, _ = anonimizar_resultados(final_answer, mapa_anonimizacao)
+
+            # O `final_answer` e `sources` agora são exibidos já anonimizados, se o modo estiver ativo.
             st.markdown(final_answer)
             
             if sources:
@@ -1101,6 +1171,7 @@ def main():
                     st.caption("Nota: Links diretos para a CVM podem falhar. Use a busca no portal com o protocolo como plano B.")
     
                     for src in sorted(sources, key=lambda x: x.get('company_name', '')):
+                        # Este código de exibição agora usará os nomes anonimizados de 'sources'
                         company_name = src.get('company_name', 'N/A')
                         doc_date = src.get('document_date', 'N/A')
                         doc_type_raw = src.get('doc_type', '')
