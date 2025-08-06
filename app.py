@@ -1160,28 +1160,45 @@ def main():
                 
         if intent == "quantitativa":
             st.info("Intenção quantitativa detectada. Usando o motor de análise rápida...")
-    
+
             with st.spinner("Executando análise quantitativa..."):
+                # 1. Obtenha os resultados (texto e dados) do seu AnalyticalEngine
                 report_text, data_result = engine.answer_query(user_query, filters=active_filters)
-                
-                # [NOVA ADIÇÃO 2] Verifica se o modo de anonimização está ativo.
-                # Se estiver, passa o resultado pela função anonimizar_resultados.
-                if anonimizar_empresas and data_result is not None:
-                    data_result, _ = anonimizar_resultados(data_result, st.session_state.company_catalog_rich, mapa_anonimizacao)
-                # A partir daqui, o código de exibição renderizará a versão
-                # original ou a anonimizada, dependendo do checkbox.
-                if report_text:
-                    st.markdown(report_text)
-            
-                if data_result is not None:
-                    if isinstance(data_result, pd.DataFrame):
-                        if not data_result.empty:
-                            st.dataframe(data_result, use_container_width=True, hide_index=True)
-                    elif isinstance(data_result, dict):
-                        for df_name, df_content in data_result.items():
-                            if isinstance(df_content, pd.DataFrame) and not df_content.empty:
-                                st.markdown(f"#### {df_name}")
-                                st.dataframe(df_content, use_container_width=True, hide_index=True)
+
+                # 2. Se o modo de anonimização estiver ativo, processe AMBOS os resultados
+                if anonimizar_empresas:
+                    # Anônimiza a estrutura de dados (pode ser DataFrame, dict de DFs, ou None)
+                    if data_result is not None:
+                        # A função anonimizar_resultados já sabe lidar com dicts de DataFrames
+                        data_result, mapa_anonimizacao = anonimizar_resultados(
+                            data_result,
+                            st.session_state.company_catalog_rich,
+                            mapa_anonimizacao
+                        )
+
+                    # Anônimiza o texto do relatório usando O MESMO mapa para consistência
+                    if report_text:
+                        report_text, _ = anonimizar_resultados(
+                            report_text,
+                            st.session_state.company_catalog_rich,
+                            mapa_anonimizacao
+                        )
+    
+            # 3. Exiba os resultados (que agora estão anonimizados, se aplicável)
+            # A lógica de exibição não precisa mudar, pois ela já lida com os diferentes tipos.
+            if report_text:
+                st.markdown(report_text)
+    
+            if data_result is not None:
+                if isinstance(data_result, pd.DataFrame):
+                    if not data_result.empty:
+                        st.dataframe(data_result, use_container_width=True, hide_index=True)
+                elif isinstance(data_result, dict):
+                    # Esta parte já funciona perfeitamente para o caso de múltiplos DataFrames
+                    for df_name, df_content in data_result.items():
+                        if isinstance(df_content, pd.DataFrame) and not df_content.empty:
+                            st.markdown(f"#### {df_name}")
+                            st.dataframe(df_content, use_container_width=True, hide_index=True)
 
         else: # intent == 'qualitativa'
             final_answer, sources = handle_rag_query(
