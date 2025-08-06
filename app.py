@@ -207,6 +207,24 @@ def setup_and_load_data():
 
 # ... (o resto do seu código, desde a função _create_flat_alias_map, permanece exatamente o mesmo)
 # --- FUNÇÕES GLOBAIS E DE RAG ---
+def convert_numpy_types(o):
+    """
+    Percorre recursivamente uma estrutura de dados (dicionários, listas) e converte
+    os tipos numéricos do NumPy para os tipos nativos do Python, tornando-a
+    serializável para JSON.
+    """
+    if isinstance(o, (np.int64, np.int32, np.int16, np.int8)):
+        return int(o)
+    if isinstance(o, (np.float64, np.float32, np.float16)):
+        return float(o)
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, dict):
+        return {k: convert_numpy_types(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [convert_numpy_types(i) for i in o]
+    return o
+
 
 def _create_flat_alias_map(kb: dict) -> dict:
     alias_to_canonical = {}
@@ -842,6 +860,7 @@ def handle_rag_query(
                 results = [future.result() for future in futures]
 
         # Coleta todas as fontes primeiro para anonimização consistente
+        results = convert_numpy_types(results)
         for result in results:
             for src_dict in result.get('sources', []):
                 src_tuple = (src_dict.get('company_name'), src_dict.get('source_url'))
