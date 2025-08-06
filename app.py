@@ -1011,10 +1011,11 @@ def main():
             "Priorizar documentos mais recentes",
             value=True,
             help="Dá um bônus de relevância para os documentos mais novos.")
+        st.markdown("---")
+        
         st.header("⚙️ Filtros da Análise")
         st.caption("Filtre a base de dados antes de fazer sua pergunta.")
-
-        st.markdown("---")
+  
         
         selected_setor = st.selectbox(
             label="Filtrar por Setor",
