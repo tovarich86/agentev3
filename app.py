@@ -834,7 +834,7 @@ def handle_rag_query(
     """
     with st.status("1️⃣ Gerando plano de análise...", expanded=True) as status:
         plan_response = create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters)
-        
+
         if plan_response['status'] != "success":
             status.update(label="⚠️ Falha na identificação", state="error", expanded=True)
             st.warning("Não consegui identificar uma empresa conhecida na sua pergunta para realizar uma análise profunda.")
@@ -843,7 +843,7 @@ def handle_rag_query(
             st.markdown("#### Que tal tentar uma pergunta mais geral?")
             st.code(alternative_query, language=None)
             return "", []
-            
+
         plan = plan_response['plan']
         mapa_anonimizacao = {}
 
@@ -853,7 +853,7 @@ def handle_rag_query(
                 st.write(f"**🏢 Empresas identificadas:** {', '.join(empresas_identificadas)}")
             else:
                 st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
-        
+
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
@@ -863,17 +863,17 @@ def handle_rag_query(
     # --- Lógica para Múltiplas Empresas (Comparação) ---
     if len(plan.get('empresas', [])) > 1:
         st.info(f"Modo de comparação ativado para {len(plan['empresas'])} empresas. Executando análises em paralelo...")
-        
+
         with st.spinner(f"Analisando {len(plan['empresas'])} empresas..."):
             with ThreadPoolExecutor(max_workers=len(plan['empresas'])) as executor:
                 futures = [
                     executor.submit(
-                        analyze_single_company, empresa, plan, query, artifacts, embedding_model, cross_encoder_model, 
-                        kb, company_catalog_rich, company_lookup_map, execute_dynamic_plan, get_final_unified_answer) 
+                        analyze_single_company, empresa, plan, query, artifacts, embedding_model, cross_encoder_model,
+                        kb, company_catalog_rich, company_lookup_map, execute_dynamic_plan, get_final_unified_answer)
                     for empresa in plan['empresas']
                 ]
                 results = [future.result() for future in futures]
-        
+
         results = convert_numpy_types(results)
 
         if anonimizar_empresas:
@@ -903,33 +903,30 @@ def handle_rag_query(
             """
             final_answer = get_final_unified_answer(prompt_final, structured_context)
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
-            
+
     # --- Lógica para Empresa Única ou Busca Geral ---
     else:
         with st.status("2️⃣ Recuperando e re-ranqueando contexto...", expanded=True) as status:
             context, sources_from_plan = execute_dynamic_plan(
                 query, plan, artifacts, embedding_model, cross_encoder_model, kb, company_catalog_rich, company_lookup_map, search_by_tags, expand_search_terms, prioritize_recency=prioritize_recency)
-            
+
             if not context:
                 st.error("❌ Não encontrei informações relevantes nos documentos para a sua consulta.")
                 return "Nenhuma informação relevante encontrada.", []
-            
+
             all_sources_structured = sources_from_plan
             st.write(f"**📄 Contexto recuperado de:** {len(all_sources_structured)} documento(s)")
             status.update(label="✅ Contexto relevante selecionado!", state="complete")
-        
+
         if anonimizar_empresas:
-            # Popula o mapa de anonimização a partir das fontes encontradas
             df_sources = pd.DataFrame(all_sources_structured)
             if not df_sources.empty:
                 df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
                 df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich, mapa_anonimizacao)
                 all_sources_structured = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
-            
-            # [CORREÇÃO APLICADA AQUI]
-            # Usa o mapa para anonimizar o texto do contexto antes de enviar ao LLM
+
             context, _ = anonimizar_resultados(context, st.session_state.company_catalog_rich, mapa_anonimizacao)
-            
+
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
             prompt_final = f"""
             Responda à pergunta: "{query}".
@@ -943,6 +940,7 @@ def handle_rag_query(
 
     unique_sources = list({v['source_url']:v for v in all_sources_structured}.values())
     return final_answer, unique_sources
+    
 def main():
     st.markdown('<h1 style="color:#0b2859;">🤖 PRIA (Agente de IA para ILP)</h1>', unsafe_allow_html=True)
     st.markdown("---")
