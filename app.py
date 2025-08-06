@@ -842,19 +842,14 @@ def handle_rag_query(
             
         plan = plan_response['plan']
         mapa_anonimizacao = {}
-        display_empresas = plan.get('empresas', [])
 
-        # Etapa 1: Anonimização para a UI (cria o mapa inicial e consistente)
-        if anonimizar_empresas and display_empresas:
-            df_empresas_plano = pd.DataFrame([{"Empresa": e} for e in display_empresas])
-            df_anon, mapa_anonimizacao = anonimizar_resultados(df_empresas_plano, st.session_state.company_catalog_rich, mapa_anonimizacao)
-            display_empresas = df_anon["Empresa"].tolist()
-
-        if display_empresas:
-            st.write(f"**🏢 Empresas identificadas:** {', '.join(display_empresas)}")
-        else:
-            st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
-            
+        if not anonimizar_empresas:
+            empresas_identificadas = plan.get('empresas', [])
+            if empresas_identificadas:
+                st.write(f"**🏢 Empresas identificadas:** {', '.join(empresas_identificadas)}")
+            else:
+                st.write("**🏢 Nenhuma empresa específica identificada. Realizando busca geral.**")
+        
         st.write(f"**📝 Tópicos a analisar:** {', '.join(plan['topicos'])}")
         status.update(label="✅ Plano gerado com sucesso!", state="complete")
 
@@ -877,7 +872,6 @@ def handle_rag_query(
         
         results = convert_numpy_types(results)
 
-        # Etapa 2: Anonimização do CONTEÚDO para o LLM
         if anonimizar_empresas:
             for res in results:
                 res['empresa'], mapa_anonimizacao = anonimizar_resultados(res['empresa'], st.session_state.company_catalog_rich, mapa_anonimizacao)
@@ -895,15 +889,15 @@ def handle_rag_query(
 
         with st.status("Gerando relatório comparativo final...", expanded=True) as status:
             structured_context = json.dumps(results, indent=2, ensure_ascii=False)
-            comparison_prompt = f"""
+            prompt_final = f"""
             Sua tarefa é criar um relatório comparativo detalhado sobre "{query}" usando o CONTEXTO JSON abaixo.
-            Os nomes das empresas no contexto já foram anonimizados. Use apenas os nomes anonimizados (ex: "Empresa A", "Empresa B") na sua resposta para garantir a confidencialidade.
+            Os nomes das empresas no contexto já foram anonimizados. Use apenas os nomes anonimizados (ex: "Empresa A", "Empresa B") na sua resposta.
             O relatório deve começar com uma breve análise textual e, em seguida, apresentar uma TABELA MARKDOWN clara e bem formatada.
 
             CONTEXTO (em formato JSON):
             {structured_context}
             """
-            final_answer = get_final_unified_answer(comparison_prompt, structured_context)
+            final_answer = get_final_unified_answer(prompt_final, structured_context)
             status.update(label="✅ Relatório comparativo gerado!", state="complete")
             
     # --- Lógica para Empresa Única ou Busca Geral ---
@@ -921,12 +915,15 @@ def handle_rag_query(
             status.update(label="✅ Contexto relevante selecionado!", state="complete")
         
         if anonimizar_empresas:
+            # Popula o mapa de anonimização a partir das fontes encontradas
             df_sources = pd.DataFrame(all_sources_structured)
             if not df_sources.empty:
                 df_sources.rename(columns={'company_name': 'Empresa'}, inplace=True)
                 df_sources_anon, mapa_anonimizacao = anonimizar_resultados(df_sources, st.session_state.company_catalog_rich, mapa_anonimizacao)
                 all_sources_structured = df_sources_anon.rename(columns={'Empresa': 'company_name'}).to_dict('records')
             
+            # [CORREÇÃO APLICADA AQUI]
+            # Usa o mapa para anonimizar o texto do contexto antes de enviar ao LLM
             context, _ = anonimizar_resultados(context, st.session_state.company_catalog_rich, mapa_anonimizacao)
             
         with st.status("3️⃣ Gerando resposta final...", expanded=True) as status:
