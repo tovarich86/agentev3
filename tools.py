@@ -113,46 +113,47 @@ def rerank_by_recency(chunks_to_rerank: list[dict], current_query_date: datetime
 def _recursive_alias_mapper(sub_dict, path_so_far, flat_map):
     """Função auxiliar recursiva para criar o mapa de aliases."""
     for topic_key, topic_data in sub_dict.items():
+        # Ignora as chaves de controle para não serem mapeadas como tópicos
+        if topic_key in ["aliases", "subtopicos"]:
+            continue
+
         current_path = path_so_far + [topic_key]
         path_str = ",".join(current_path)
         
-        # Mapeia todos os aliases para o caminho completo
-        for alias in topic_data.get("aliases", []):
-            flat_map[alias.lower()] = path_str
-        
-        # Mapeia o nome canônico do tópico (ex: 'Acoes_Restritas' -> 'acoes restritas')
-        canonical_alias = topic_key.replace('_', ' ').lower()
-        if canonical_alias not in flat_map:
-            flat_map[canonical_alias] = path_str
+        if isinstance(topic_data, dict):
+            # Mapeia todos os aliases para o caminho completo
+            for alias in topic_data.get("aliases", []):
+                flat_map[alias.lower()] = path_str
+            
+            # Mapeia o nome canônico do tópico (ex: 'CondicaoSaida' -> 'condicao saida')
+            canonical_alias = topic_key.replace('_', ' ').lower()
+            if canonical_alias not in flat_map:
+                flat_map[canonical_alias] = path_str
 
-        # Continua a recursão para sub-tópicos
-        if "subtopicos" in topic_data and topic_data["subtopicos"]:
-            _recursive_alias_mapper(topic_data["subtopicos"], current_path, flat_map)
+            # Continua a recursão para sub-tópicos, se existirem
+            if "subtopicos" in topic_data and topic_data["subtopicos"]:
+                _recursive_alias_mapper(topic_data["subtopicos"], current_path, flat_map)
 
 def create_hierarchical_alias_map(kb: dict) -> dict:
     """
-    Cria um mapeamento plano de qualquer alias (em minúsculas) para seu
-    caminho hierárquico completo.
-    AGORA SUPORTA ALIASES NA CATEGORIA PAI.
+    [VERSÃO CORRIGIDA] Cria um mapeamento plano de qualquer alias (em minúsculas)
+    para seu caminho hierárquico completo.
     """
     alias_map = {}
-    for section, data in kb.items():  # Ex: section="MecanicasCicloDeVida"
+    for section, data in kb.items():  # Ex: section="ParticipantesCondicoes"
         path_str = section
         
-        # --- LÓGICA ADICIONADA ---
-        # 1. Mapeia os aliases da categoria principal (ex: "mecanicas")
+        # Mapeia os aliases da própria categoria principal (se houver)
         for alias in data.get("aliases", []):
             alias_map[alias.lower()] = path_str
         
-        # 2. Mapeia o nome canônico da própria categoria
         canonical_alias = section.replace('_', ' ').lower()
         if canonical_alias not in alias_map:
             alias_map[canonical_alias] = path_str
-        # --- FIM DA LÓGICA ADICIONADA ---
 
-        # 3. Continua a recursão para os sub-tópicos, se existirem
-        if "subtopicos" in data:
-            _recursive_alias_mapper(data["subtopicos"], [section], alias_map)
+        # **A CORREÇÃO PRINCIPAL:** Inicia a recursão diretamente nos dados da seção,
+        # sem a verificação falha de "if 'subtopicos' in data".
+        _recursive_alias_mapper(data, [section], alias_map)
             
     return alias_map
 
