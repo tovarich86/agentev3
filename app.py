@@ -729,7 +729,7 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
                 mentioned_companies.append(empresa_nome)
     
     plan["empresas"] = mentioned_companies
-    logger.info(f"Empresas identificadas: {plan['empresas']}")
+    #logger.info(f"Empresas identificadas: {plan['empresas']}")
 
     # --- Identificação de Tópicos (Hierárquico) ---
     alias_map = create_hierarchical_alias_map(kb)
@@ -961,7 +961,7 @@ def main():
     status_message_2.info("Carregando modelo de Re-ranking (Cross-Encoder)...")
     
     # A linha abaixo deve ser executada após o carregamento do modelo de re-ranking.
-    # time.sleep(2)
+    # time.sleep(1)
     
     # Suas chamadas de carregamento
     artifacts, summary_data, setores_disponiveis, controles_disponiveis, embedding_model, cross_encoder_model = setup_and_load_data()
@@ -1005,15 +1005,16 @@ def main():
             help="Substitui os nomes das empresas por placeholders como 'Empresa A', 'Empresa B' para garantir a confidencialidade durante a apresentação."
         )
         
-        st.markdown("---")
-
         
+       
         prioritize_recency = st.checkbox(
             "Priorizar documentos mais recentes",
             value=True,
             help="Dá um bônus de relevância para os documentos mais novos.")
         st.header("⚙️ Filtros da Análise")
         st.caption("Filtre a base de dados antes de fazer sua pergunta.")
+
+        st.markdown("---")
         
         selected_setor = st.selectbox(
             label="Filtrar por Setor",
@@ -1026,7 +1027,7 @@ def main():
             options=controles_disponiveis,
             index=0
         )
-        st.markdown("---") 
+        
         with st.expander("Empresas com dados no resumo"):
             st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
         
