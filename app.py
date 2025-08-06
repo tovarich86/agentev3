@@ -207,6 +207,17 @@ def setup_and_load_data():
 
 # ... (o resto do seu código, desde a função _create_flat_alias_map, permanece exatamente o mesmo)
 # --- FUNÇÕES GLOBAIS E DE RAG ---
+def normalizar_nome(nome):
+    """
+    Normaliza um nome de empresa para uma chave de busca consistente.
+    (Função sugerida pelo usuário)
+    """
+    if not isinstance(nome, str):
+        return nome
+    # Remove acentos e caracteres especiais
+    nome = unicodedata.normalize('NFKD', nome).encode('ASCII', 'ignore').decode('utf-8')
+    # Padroniza para minúsculas e remove pontuação comum e sufixos S.A.
+    return nome.lower().replace('.', '').replace(',', '').replace('sa', '').replace('s a', '').strip()
 
 def construir_mapa_anonimizacao(company_catalog_rich):
     """
@@ -218,7 +229,8 @@ def construir_mapa_anonimizacao(company_catalog_rich):
     for idx, empresa in enumerate(sorted_catalog):
         anon_name = f"Empresa {chr(65 + idx)}"
         # Mapeia o nome canônico para os detalhes de anonimização
-        anom_map[empresa['canonical_name']] = {
+        nome_normalizado = normalizar_nome(empresa['canonical_name'])
+        anom_map[nome_normalizado] = {
             "anon_name": anon_name,
             "aliases_to_replace": [empresa['canonical_name']] + empresa.get('aliases', [])
         }
@@ -286,16 +298,17 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
         
         # 2. Se encontrou a coluna, aplica a anonimização diretamente nela
         if target_col and anom_map:
-            # Pega o mapa de substituição (nome real -> nome anônimo) do mapa global
-            # Apenas para os nomes que existem na coluna, para eficiência
-            nomes_na_coluna = df_anonimizado[target_col].unique()
-            mapa_de_substituicao = {}
-            for nome_real, detalhes in anom_map.items():
-                if nome_real in nomes_na_coluna:
-                    mapa_de_substituicao[nome_real] = detalhes['anon_name']
-
-            # Usa a função .replace() do Pandas, que é otimizada para isso
-            df_anonimizado[target_col] = df_anonimizado[target_col].replace(mapa_de_substituicao)
+            # Cria uma nova coluna com os nomes normalizados para fazer a correspondência
+            coluna_normalizada = df_anonimizado[target_col].apply(normalizar_nome)
+            
+            # Cria o mapa de substituição (nome normalizado -> nome anônimo)
+            mapa_normalizado_para_anonimo = {
+                nome_norm: detalhes['anon_name'] 
+                for nome_norm, detalhes in anom_map.items()
+            }
+            
+            # Substitui os nomes na coluna original usando a coluna normalizada como guia
+            df_anonimizado[target_col] = coluna_normalizada.map(mapa_normalizado_para_anonimo).fillna(df_anonimizado[target_col])
 
         return df_anonimizado, anom_map
 
