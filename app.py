@@ -312,8 +312,14 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
                 anon_name = mapping["anon_name"]
                 aliases_sorted = sorted(mapping["aliases_to_replace"], key=len, reverse=True)
                 for alias in aliases_sorted:
+                    # Proteção para ignorar aliases problemáticos, conforme sugerido
+                    if not alias or alias.endswith('\\'):
+                        logger.warning(f"Alias inválido detectado e ignorado: '{alias}'")
+                        continue  # Pula para o próximo alias
+
                     pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
-                    texto_anonimizado = re.sub(pattern, anon_name, texto_anonimizado, flags=re.IGNORECASE)
+                    safe_anon_name = anon_name.replace('\\', '\\\\')
+                    texto_anonimizado = re.sub(pattern, safe_anon_name, texto_anonimizado, flags=re.IGNORECASE)
         # SEMPRE retorna uma tupla, mesmo que o texto não tenha sido alterado
         return texto_anonimizado, anom_map
         
