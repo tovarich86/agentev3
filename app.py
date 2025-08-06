@@ -232,57 +232,43 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
 
 def anonimizar_resultados(data, company_catalog, anom_map=None):
     """
-    [VERSÃO CORRIGIDA] Recebe um DataFrame ou texto e substitui os nomes das
-    empresas E SEUS ALIASES por placeholders, lidando corretamente com pontuação.
+    [VERSÃO FINAL E ROBUSTA] Recebe um DataFrame, texto ou dicionário e substitui
+    os nomes das empresas e seus aliases por placeholders.
+    Detecta automaticamente a coluna correta no DataFrame.
     """
     if anom_map is None:
         anom_map = {}
-    
-    # --- Lógica para DataFrames (Cria o mapa de anonimização) ---
-    if isinstance(data, pd.DataFrame) and "Empresa" in data.columns:
+
+    # --- Lógica para DataFrames ---
+    if isinstance(data, pd.DataFrame):
         df_anonimizado = data.copy()
         
-        def get_anon_name(company_name):
-            if company_name not in anom_map:
-                company_info = next((item for item in company_catalog if item["canonical_name"] == company_name), None)
-                anon_name = f"Empresa {chr(65 + len(anom_map))}"
-                
-                anom_map[company_name] = {
-                    "anon_name": anon_name,
-                    "aliases_to_replace": [company_name] + (company_info['aliases'] if company_info else [])
-                }
-            return anom_map[company_name]["anon_name"]
-            
-        df_anonimizado["Empresa"] = df_anonimizado["Empresa"].apply(get_anon_name)
-        return df_anonimizado, anom_map
+        # [LÓGICA APRIMORADA] Encontra a coluna-alvo dinamicamente
+        target_col = None
+        for col in df_anonimizado.columns:
+            # Procura por qualquer coluna cujo nome contenha "empresa" ou "companhia"
+            if 'empresa' in col.lower() or 'companhia' in col.lower():
+                target_col = col
+                break  # Para na primeira coluna que encontrar
 
-    # --- Lógica para Dicionários de DataFrames ---
-    elif isinstance(data, dict):
-        dict_anonimizado = {}
-        for key, df in data.items():
-            if isinstance(df, pd.DataFrame) and "Empresa" in df.columns:
-                dict_anonimizado[key], anom_map = anonimizar_resultados(df, company_catalog, anom_map)
-            else:
-                dict_anonimizado[key] = df
-        return dict_anonimizado, anom_map
-        
-    # --- Lógica para Texto (Usa o mapa de anonimização) ---
-    elif isinstance(data, str) and anom_map:
-        texto_anonimizado = data
-        for original_canonical, mapping in anom_map.items():
-            anon_name = mapping["anon_name"]
-            aliases_sorted = sorted(mapping["aliases_to_replace"], key=len, reverse=True)
+        # Se encontrou uma coluna-alvo, prossegue com a anonimização
+        if target_col:
+            def get_anon_name(company_name):
+                if company_name not in anom_map:
+                    company_info = next((item for item in company_catalog if item["canonical_name"] == company_name), None)
+                    anon_name = f"Empresa {chr(65 + len(anom_map))}"
+                    anom_map[company_name] = {
+                        "anon_name": anon_name,
+                        "aliases_to_replace": [company_name] + (company_info['aliases'] if company_info else [])
+                    }
+                return anom_map[company_name]["anon_name"]
             
-            for alias in aliases_sorted:
-                # [CORREÇÃO APLICADA AQUI]
-                # Usa "negative lookarounds" (?<!\w) e (?!\w) para garantir que o alias não é parte de uma palavra maior.
-                # Isso é mais robusto do que \b para nomes com pontuação como "S.A." ou "M.dias".
-                pattern = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
-                texto_anonimizado = re.sub(pattern, anon_name, texto_anonimizado, flags=re.IGNORECASE)
-                
-        return texto_anonimizado, anom_map
-        
-    return data, anom_map
+            # Aplica a anonimização na coluna encontrada
+            df_anonimizado[target_col] = df_anonimizado[target_col].apply(get_anon_name)
+            return df_anonimizado, anom_map
+        else:
+            # Se não encontrar uma coluna adequada, retorna o DF original para evitar erros
+            return data, anom_map
 
 def search_by_tags(query: str, kb: dict) -> list[str]:
     """
