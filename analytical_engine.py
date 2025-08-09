@@ -161,7 +161,7 @@ class AnalyticalEngine:
             (lambda q: ('lockup' in q or 'lock-up' in q or 'restricao de venda' in q) and ('periodo' in q or 'prazo' in q or 'medio' in q or 'media' in q), self._analyze_lockup_period),
 
             # Diluição: Adicionado "percentual", "estatisticas"
-            (lambda q: 'diluicao' in q and ('media' in q or 'percentual' in q or 'estatisticas' in q), self._analyze_dilution),
+            (lambda q: 'diluicao' in q and ('media' in q or 'medio' in q or 'percentual' in q or 'estatisticas' in q), self._analyze_dilution),
 
             # Desconto/Strike: A regra original já era boa.
             (lambda q: 'desconto' in q and ('preco de exercicio' in q or 'strike' in q), self._analyze_strike_discount),
@@ -182,7 +182,7 @@ class AnalyticalEngine:
             (lambda q: 'conselho de administracao' in q and ('elegivel' in q or 'aprovador' in q), self._count_plans_for_board),
             
             # Metas/Indicadores: A regra original já era boa.
-            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q or 'quais os indicadores mais comuns' in q, self._analyze_common_goals),
+            (lambda q: 'metas mais comuns' in q or 'indicadores de desempenho' in q or 'metas de desempenho' in q or 'metas de performance' in q or 'indicadores de performance' in q or 'indicadores mais comuns' in q, self._analyze_common_goals),
             
             # Regra para tipos de plano (agora separada e com sua própria vírgula)
             (lambda q: all(k in q for k in ['tipos', 'planos', 'comuns']), self._analyze_common_plan_types),
