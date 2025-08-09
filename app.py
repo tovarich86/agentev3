@@ -96,9 +96,6 @@ h1, h2, h3, h4, h5, h6 {{
 st.markdown(page_bg_img, unsafe_allow_html=True)
 
 
-# ==============================================================================
-# O RESTO DO SEU CÓDIGO COMEÇA AQUI
-# ==============================================================================
 
 # --- Constantes e Configurações ---
 MODEL_NAME = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
@@ -106,7 +103,7 @@ TOP_K_SEARCH = 5
 TOP_K_INITIAL_RETRIEVAL = 30
 TOP_K_FINAL = 15
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash" # Recomendo usar um modelo mais recente se possível
+GEMINI_MODEL = "gemini-2.5-flash" # Recomendo usar um modelo mais recente se possível
 CVM_SEARCH_URL = "https://www.rad.cvm.gov.br/ENET/frmConsultaExternaCVM.aspx"
 
 FILES_TO_DOWNLOAD = {
@@ -205,7 +202,7 @@ def setup_and_load_data():
     
     return artifacts, summary_data, all_setores, all_controles, embedding_model, cross_encoder_model
 
-# ... (o resto do seu código, desde a função _create_flat_alias_map, permanece exatamente o mesmo)
+
 # --- FUNÇÕES GLOBAIS E DE RAG ---
 def normalizar_nome(nome):
     """
@@ -277,11 +274,7 @@ def expand_search_terms(base_term: str, kb: dict) -> list[str]:
     return list(expanded_terms)
 
 def anonimizar_resultados(data, company_catalog, anom_map=None):
-    """
-    [VERSÃO CORRIGIDA E ROBUSTA] Recebe um DataFrame, texto ou dicionário e substitui
-    os nomes das empresas e seus aliases por placeholders.
-    Garante que a função sempre retorne uma tupla (data, anom_map).
-    """
+
     if anom_map is None:
         anom_map = {}
 
@@ -345,10 +338,7 @@ def anonimizar_resultados(data, company_catalog, anom_map=None):
     return data, anom_map
 
 def search_by_tags(query: str, kb: dict) -> list[str]:
-    """
-    Versão melhorada que busca por palavras-chave na query e retorna as tags correspondentes.
-    Evita o uso de expressões regulares complexas para cada chunk.
-    """
+
     found_tags = set()
     # Converte a query para minúsculas e remove pontuação para uma busca mais limpa
     clean_query = query.lower().strip()
@@ -392,7 +382,7 @@ def get_final_unified_answer(query: str, context: str) -> str:
         logger.error(f"ERRO ao gerar resposta final com LLM: {e}")
         return f"Ocorreu um erro ao contatar o modelo de linguagem. Detalhes: {str(e)}"
 
-# <<< MELHORIA 1 ADICIONADA >>>
+
 def get_query__with_llm(query: str) -> str:
     """
     Usa um LLM para classificar a intenção do usuário em 'quantitativa' ou 'qualitativa'.
@@ -447,7 +437,7 @@ def get_query__with_llm(query: str) -> str:
         logger.error(f"ERRO ao determinar intenção com LLM: {e}. Usando 'qualitativa' como padrão.")
         return "qualitativa"
 
-# O restante do seu código pode seguir aqui...
+
 
 from datetime import datetime # Certifique-se que 'datetime' está importado no topo do seu script
 
@@ -617,7 +607,7 @@ def execute_dynamic_plan(
                                 add_candidate(chunks_to_search[idx])
 
         elif empresas and topicos:
-            # ROTA HÍBRIDA: Lógica original e robusta preservada.
+            # ROTA HÍBRIDA: 
             logger.info(f"ROTA HÍBRIDA: Empresas: {empresas}, Tópicos: {topicos}")
             target_topic_paths = plan.get("topicos", [])
 
@@ -726,10 +716,7 @@ def execute_dynamic_plan(
 
     
 def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, filters: dict):
-    """
-    [VERSÃO FINAL E CORRIGIDA] Gera um plano de análise dinâmico usando uma lógica de
-    identificação de empresas robusta que lida com pontuação e caracteres especiais.
-    """
+
     logger.info(f"Gerando plano dinâmico v3.2 para a pergunta: '{query}'")
     query_lower = query.lower().strip()
     
