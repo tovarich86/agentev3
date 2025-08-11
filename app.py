@@ -756,6 +756,8 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     plan["empresas"] = mentioned_companies
     logger.info(f"Empresas identificadas:{plan['empresas']} ") #
 
+    
+
     # --- Identificação de Tópicos (Hierárquico) ---
     alias_map = create_hierarchical_alias_map(kb)
     found_topics = set()
@@ -766,14 +768,23 @@ def create_dynamic_analysis_plan(query, company_catalog_rich, kb, summary_data, 
     plan["topicos"] = sorted(list(found_topics))
     logger.info(f"Tópicos identificados: {plan['topicos']}")
         
-    # --- Lógica de Fallback ---
-    if plan["empresas"] and not plan["topicos"]:
+    # 1. Verifica a intenção específica para o item 8.4, que tem a maior prioridade.
+    if plan["empresas"] and ("item" in query_lower and "8.4" in query_lower):
+        plan["plan_type"] = "section_8_4"
+        logger.info("ROTA DETECTADA: Análise específica do item 8.4.")
+
+    # 2. Se não for sobre o item 8.4, verifica a condição de fallback para resumo geral.
+    elif plan["empresas"] and not plan["topicos"]:
         plan["plan_type"] = "summary"
+        logger.info("ROTA DETECTADA: Resumo geral da empresa (fallback).")
         plan["topicos"] = [
             "TiposDePlano", "ParticipantesCondicoes,Elegibilidade", "MecanicasCicloDeVida,Vesting", 
             "MecanicasCicloDeVida,Lockup", "IndicadoresPerformance", 
             "EventosFinanceiros,DividendosProventos"
         ]
+    
+    # Se nenhuma das condições acima for atendida, o plan_type permanecerá "default".
+
 
     return {"status": "success", "plan": plan}
 
