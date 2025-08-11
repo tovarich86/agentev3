@@ -37,6 +37,22 @@ from analytical_engine import AnalyticalEngine
 
 st.set_page_config(page_title="Pria", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
+FRASES_NEGATIVAS = [
+    "não se aplica",
+    "nao se aplica",
+    "a companhia não possui",
+    "a companhia nao possui",
+    "inexistente",
+    "não há planos",
+    "nao ha planos",
+    "não possui plano",
+    "nao possui plano",
+    "remuneração baseada em ações a ser distribuída", # Frase padrão da CVM para item em branco
+    "não possui programas",
+    "nao possui programas",
+    "nenhum plano",
+]
+
 # ==============================================================================
 # 2. INJEÇÃO DE CSS CUSTOMIZADO (BACKGROUND E FONTES)
 # ==============================================================================
@@ -167,6 +183,37 @@ def setup_and_load_data():
         st.error(f"Erro crítico: '{SUMMARY_FILENAME}' não foi encontrado.")
         st.stop()
 
+    try:
+        # Supondo que a função identificar_empresas_sem_ilp() já foi definida antes no código
+        empresas_excluidas_set = identificar_empresas_sem_ilp(artifacts)
+        
+        # Armazena na sessão para referência futura, se necessário
+        st.session_state.empresas_excluidas = empresas_excluidas_set
+        logger.info(f"Encontradas {len(empresas_excluidas_set)} empresas sem ILP para filtrar.")
+
+        # Filtra os dados de resumo (usados pelo motor quantitativo)
+        summary_data_filtrado = {
+            empresa: dados
+            for empresa, dados in summary_data.items()
+            if empresa.lower() not in empresas_excluidas_set
+        }
+        summary_data = summary_data_filtrado
+        logger.info(f"Motor quantitativo agora opera com {len(summary_data)} empresas após filtro.")
+
+        # Filtra os chunks em todos os artefatos (usados pelo motor qualitativo/RAG)
+        for category in artifacts:
+            original_count = len(artifacts[category]['chunks'])
+            artifacts[category]['chunks'] = [
+                chunk for chunk in artifacts[category]['chunks']
+                if chunk.get('company_name', '').lower() not in empresas_excluidas_set
+            ]
+            filtered_count = len(artifacts[category]['chunks'])
+            logger.info(f"Chunks da categoria '{category}' filtrados: {original_count} -> {filtered_count}")
+
+    except Exception as e:
+        logger.error(f"Erro ao tentar filtrar empresas sem ILP: {e}")
+        st.session_state.empresas_excluidas = set()
+
     setores = set()
     controles = set()
 
@@ -202,6 +249,40 @@ def setup_and_load_data():
 
 
 # --- FUNÇÕES GLOBAIS E DE RAG ---
+def identificar_empresas_sem_ilp(artifacts: dict) -> set:
+    """
+    Analisa os chunks do item 8.4 para identificar empresas que declaram
+    não possuir incentivos de longo prazo.
+
+    Args:
+        artifacts (dict): O dicionário de artefatos carregado, contendo os chunks.
+
+    Returns:
+        set: Um conjunto de nomes de empresas (em minúsculas) a serem excluídas.
+    """
+    empresas_a_excluir = set()
+    # Focamos apenas nos dados do item 8.4, que é a fonte do problema
+    chunks_8_4 = artifacts.get('item_8_4', {}).get('chunks', [])
+
+    if not chunks_8_4:
+        return empresas_a_excluir
+
+    for chunk in chunks_8_4:
+        texto_chunk = chunk.get('text', '').lower()
+        nome_empresa = chunk.get('company_name', '').lower()
+
+        if not nome_empresa:
+            continue
+
+        # Se qualquer uma das frases negativas for encontrada no texto, adicionamos a empresa à lista.
+        if any(frase in texto_chunk for frase in FRASES_NEGATIVAS):
+            # Verificação adicional: se o texto for muito curto, é um forte indicativo de ausência de plano.
+            if len(texto_chunk) < 250: # O valor 250 é um limiar, pode ser ajustado.
+                empresas_a_excluir.add(nome_empresa)
+
+    logger.info(f"Identificadas {len(empresas_a_excluir)} empresas sem planos de ILP para exclusão.")
+    return empresas_a_excluir
+
 def normalizar_nome(nome):
     """
     Normaliza um nome de empresa para uma chave de busca consistente.
