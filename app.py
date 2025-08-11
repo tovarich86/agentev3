@@ -37,21 +37,7 @@ from analytical_engine import AnalyticalEngine
 
 st.set_page_config(page_title="Pria", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
-FRASES_NEGATIVAS = [
-    "não se aplica",
-    "nao se aplica",
-    "a companhia não possui",
-    "a companhia nao possui",
-    "inexistente",
-    "não há planos",
-    "nao ha planos",
-    "não possui plano",
-    "nao possui plano",
-    "remuneração baseada em ações a ser distribuída", # Frase padrão da CVM para item em branco
-    "não possui programas",
-    "nao possui programas",
-    "nenhum plano",
-]
+
 
 # ==============================================================================
 # 2. INJEÇÃO DE CSS CUSTOMIZADO (BACKGROUND E FONTES)
@@ -252,17 +238,24 @@ def setup_and_load_data():
 def identificar_empresas_sem_ilp(artifacts: dict) -> set:
     """
     Analisa os chunks do item 8.4 para identificar empresas que declaram
-    não possuir incentivos de longo prazo.
-
-    Args:
-        artifacts (dict): O dicionário de artefatos carregado, contendo os chunks.
-
-    Returns:
-        set: Um conjunto de nomes de empresas (em minúsculas) a serem excluídas.
+    não possuir incentivos de longo prazo, usando duas condições independentes:
+    1. A presença de frases negativas explícitas.
+    2. O tamanho do texto ser muito curto para descrever um plano real.
     """
     empresas_a_excluir = set()
-    # Focamos apenas nos dados do item 8.4, que é a fonte do problema
     chunks_8_4 = artifacts.get('item_8_4', {}).get('chunks', [])
+
+
+    LIMIAR_DE_TEXTO_CURTO = 500
+
+    # A lista de frases negativas que definimos anteriormente
+    FRASES_NEGATIVAS = [
+        "não se aplica", "nao se aplica", "inexistente", "a companhia não possui",
+        "a companhia nao possui", "não há planos", "nao ha planos", "não possui plano",
+        "nao possui plano", "não possui programas", "nao possui programas", "nenhum plano",
+        "nenhuma opção de compra de ações foi outorgada", "não houve qualquer exercício",
+        "nao houve qualquer exercício", "remuneração baseada em ações a ser distribuída"
+    ]
 
     if not chunks_8_4:
         return empresas_a_excluir
@@ -274,11 +267,14 @@ def identificar_empresas_sem_ilp(artifacts: dict) -> set:
         if not nome_empresa:
             continue
 
-        # Se qualquer uma das frases negativas for encontrada no texto, adicionamos a empresa à lista.
+        # Verificação 1: O texto contém uma frase negativa explícita?
         if any(frase in texto_chunk for frase in FRASES_NEGATIVAS):
-            # Verificação adicional: se o texto for muito curto, é um forte indicativo de ausência de plano.
-            if len(texto_chunk) < 250: # O valor 250 é um limiar, pode ser ajustado.
-                empresas_a_excluir.add(nome_empresa)
+            empresas_a_excluir.add(nome_empresa)
+            continue  # Se já identificamos por esta regra, podemos pular para o próximo chunk
+
+        # Verificação 2: O texto é muito curto para ser um plano de verdade?
+        if len(texto_chunk) < LIMIAR_DE_TEXTO_CURTO:
+            empresas_a_excluir.add(nome_empresa)
 
     logger.info(f"Identificadas {len(empresas_a_excluir)} empresas sem planos de ILP para exclusão.")
     return empresas_a_excluir
