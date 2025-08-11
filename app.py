@@ -1041,8 +1041,24 @@ def main():
         )
         
         with st.expander("Empresas com dados no resumo"):
-            st.dataframe(pd.DataFrame(sorted(list(summary_data.keys())), columns=["Empresa"]), use_container_width=True, hide_index=True)
+            # Cria um dicionário de filtros baseado na seleção do usuário
+            active_filters = {}
+            if selected_setor != "Todos":
+                active_filters['setor'] = selected_setor.lower()
+            if selected_controle != "Todos":
+                active_filters['controle_acionario'] = selected_controle.lower()
+            
+            # Filtra os dados de resumo antes de exibir as empresas
+            filtered_companies = []
+            for company, data in summary_data.items():
+                match_setor = 'setor' not in active_filters or (data.get('setor') and data['setor'].lower() == active_filters['setor'])
+                match_controle = 'controle_acionario' not in active_filters or (data.get('controle_acionario') and data['controle_acionario'].lower() == active_filters['controle_acionario'])
+                
+                if match_setor and match_controle:
+                    filtered_companies.append(company)
 
+            # Exibe a lista filtrada em um DataFrame
+            st.dataframe(pd.DataFrame(sorted(filtered_companies), columns=["Empresa"]), use_container_width=True, hide_index=True)
     # --- Interface Principal ---
     st.header("💬 Faça sua pergunta")
     
