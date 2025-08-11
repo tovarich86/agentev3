@@ -170,35 +170,52 @@ def setup_and_load_data():
         st.stop()
 
     try:
-        # Supondo que a função identificar_empresas_sem_ilp() já foi definida antes no código
-        empresas_excluidas_set = identificar_empresas_sem_ilp(artifacts)
-        
-        # Armazena na sessão para referência futura, se necessário
-        st.session_state.empresas_excluidas = empresas_excluidas_set
-        logger.info(f"Encontradas {len(empresas_excluidas_set)} empresas sem ILP para filtrar.")
+    # PASSO 1: Gerar a lista de CANDIDATOS à exclusão a partir do item 8.4
+    candidatos_a_excluir = identificar_empresas_sem_ilp(artifacts)
+    logger.info(f"[FILTRO] {len(candidatos_a_excluir)} empresas são candidatas à exclusão com base no item 8.4.")
 
-        # Filtra os dados de resumo (usados pelo motor quantitativo)
+    # PASSO 2: Criar a "lista de proteção" estritamente com base em 'outros_documentos'
+    empresas_com_plano_confirmado = set()
+
+    # A única evidência positiva para proteger uma empresa da exclusão
+    # será a presença de documentos na categoria "outros_documentos".
+    if 'outros_documentos' in artifacts and 'chunks' in artifacts['outros_documentos']:
+        chunks_outros_docs = artifacts['outros_documentos']['chunks']
+        empresas_protegidas = {
+            chunk.get('company_name', '').lower()
+            for chunk in chunks_outros_docs if chunk.get('company_name')
+        }
+        empresas_com_plano_confirmado.update(empresas_protegidas)
+        logger.info(f"[FILTRO] {len(empresas_protegidas)} empresas estão na lista de proteção por possuírem 'outros_documentos'.")
+
+    # PASSO 3: Calcular a lista final de exclusão (Candidatos - Protegidos)
+    empresas_excluidas_final = candidatos_a_excluir - empresas_com_plano_confirmado
+    
+    logger.info(f"[FILTRO FINAL] {len(empresas_excluidas_final)} empresas serão efetivamente removidas da análise.")
+    
+    # Armazena na sessão para referência e depuração
+    st.session_state.empresas_excluidas = empresas_excluidas_final
+
+    # PASSO 4: Aplicar o filtro final e definitivo sobre todos os dados
+    if empresas_excluidas_final:
+        # Filtra os dados de resumo (summary_data)
         summary_data_filtrado = {
             empresa: dados
             for empresa, dados in summary_data.items()
-            if empresa.lower() not in empresas_excluidas_set
+            if empresa.lower() not in empresas_excluidas_final
         }
         summary_data = summary_data_filtrado
-        logger.info(f"Motor quantitativo agora opera com {len(summary_data)} empresas após filtro.")
 
-        # Filtra os chunks em todos os artefatos (usados pelo motor qualitativo/RAG)
+        # Filtra os chunks em todos os artefatos
         for category in artifacts:
-            original_count = len(artifacts[category]['chunks'])
             artifacts[category]['chunks'] = [
                 chunk for chunk in artifacts[category]['chunks']
-                if chunk.get('company_name', '').lower() not in empresas_excluidas_set
+                if chunk.get('company_name', '').lower() not in empresas_excluidas_final
             ]
-            filtered_count = len(artifacts[category]['chunks'])
-            logger.info(f"Chunks da categoria '{category}' filtrados: {original_count} -> {filtered_count}")
 
-    except Exception as e:
-        logger.error(f"Erro ao tentar filtrar empresas sem ILP: {e}")
-        st.session_state.empresas_excluidas = set()
+except Exception as e:
+    logger.error(f"Erro crítico durante o processo de filtragem de empresas: {e}")
+    st.session_state.empresas_excluidas = set()
 
     setores = set()
     controles = set()
@@ -237,18 +254,18 @@ def setup_and_load_data():
 # --- FUNÇÕES GLOBAIS E DE RAG ---
 def identificar_empresas_sem_ilp(artifacts: dict) -> set:
     """
-    Analisa os chunks do item 8.4 para identificar empresas que declaram
-    não possuir incentivos de longo prazo, usando duas condições independentes:
-    1. A presença de frases negativas explícitas.
-    2. O tamanho do texto ser muito curto para descrever um plano real.
+    Analisa os dados agregados por empresa para identificar aquelas que não possuem
+    incentivos de longo prazo, usando uma abordagem holística.
     """
     empresas_a_excluir = set()
     chunks_8_4 = artifacts.get('item_8_4', {}).get('chunks', [])
 
+    # --- Constantes para a Lógica de Filtragem ---
 
-    LIMIAR_DE_TEXTO_CURTO = 500
+    # Limiar para o texto AGREGADO. Se uma empresa tem SÓ 1 chunk e o texto é menor
+    # que isso, é um forte indicativo de ausência de plano. 700 é um valor seguro.
+    LIMIAR_DE_TEXTO_AGREGADO_CURTO = 700
 
-    # A lista de frases negativas que definimos anteriormente
     FRASES_NEGATIVAS = [
         "não se aplica", "nao se aplica", "inexistente", "a companhia não possui",
         "a companhia nao possui", "não há planos", "nao ha planos", "não possui plano",
@@ -260,24 +277,34 @@ def identificar_empresas_sem_ilp(artifacts: dict) -> set:
     if not chunks_8_4:
         return empresas_a_excluir
 
-    for chunk in chunks_8_4:
-        texto_chunk = chunk.get('text', '').lower()
-        nome_empresa = chunk.get('company_name', '').lower()
+    # --- PASSO 1: Agregar todos os dados por empresa ---
+    dados_por_empresa = defaultdict(lambda: {'total_chars': 0, 'num_chunks': 0, 'full_text': ''})
 
+    for chunk in chunks_8_4:
+        nome_empresa = chunk.get('company_name', '').lower()
         if not nome_empresa:
             continue
+        
+        texto_chunk = chunk.get('text', '').lower()
+        dados_por_empresa[nome_empresa]['num_chunks'] += 1
+        dados_por_empresa[nome_empresa]['total_chars'] += len(texto_chunk)
+        dados_por_empresa[nome_empresa]['full_text'] += texto_chunk + " "
 
-        # Verificação 1: O texto contém uma frase negativa explícita?
-        if any(frase in texto_chunk for frase in FRASES_NEGATIVAS):
-            empresas_a_excluir.add(nome_empresa)
-            continue  # Se já identificamos por esta regra, podemos pular para o próximo chunk
+    # --- PASSO 2: Aplicar as regras de filtro sobre os dados agregados ---
+    for empresa, dados in dados_por_empresa.items():
+        
+        # Regra 1: O texto completo contém uma frase negativa explícita? (Sinal mais forte)
+        if any(frase in dados['full_text'] for frase in FRASES_NEGATIVAS):
+            empresas_a_excluir.add(empresa)
+            continue
 
-        # Verificação 2: O texto é muito curto para ser um plano de verdade?
-        if len(texto_chunk) < LIMIAR_DE_TEXTO_CURTO:
-            empresas_a_excluir.add(nome_empresa)
+        # Regra 2: A empresa tem apenas 1 chunk E o texto total é muito curto?
+        if dados['num_chunks'] == 1 and dados['total_chars'] < LIMIAR_DE_TEXTO_AGREGADO_CURTO:
+            empresas_a_excluir.add(empresa)
 
-    logger.info(f"Identificadas {len(empresas_a_excluir)} empresas sem planos de ILP para exclusão.")
+    logger.info(f"Análise agregada concluída. Identificadas {len(empresas_a_excluir)} empresas para exclusão.")
     return empresas_a_excluir
+
 
 def normalizar_nome(nome):
     """
