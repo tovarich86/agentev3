@@ -170,52 +170,52 @@ def setup_and_load_data():
         st.stop()
 
     try:
-    # PASSO 1: Gerar a lista de CANDIDATOS à exclusão a partir do item 8.4
-    candidatos_a_excluir = identificar_empresas_sem_ilp(artifacts)
-    logger.info(f"[FILTRO] {len(candidatos_a_excluir)} empresas são candidatas à exclusão com base no item 8.4.")
+        # PASSO 1: Gerar a lista de CANDIDATOS à exclusão a partir do item 8.4
+        candidatos_a_excluir = identificar_empresas_sem_ilp(artifacts)
+        logger.info(f"[FILTRO] {len(candidatos_a_excluir)} empresas são candidatas à exclusão com base no item 8.4.")
 
-    # PASSO 2: Criar a "lista de proteção" estritamente com base em 'outros_documentos'
-    empresas_com_plano_confirmado = set()
+        # PASSO 2: Criar a "lista de proteção" estritamente com base em 'outros_documentos'
+        empresas_com_plano_confirmado = set()
 
-    # A única evidência positiva para proteger uma empresa da exclusão
-    # será a presença de documentos na categoria "outros_documentos".
-    if 'outros_documentos' in artifacts and 'chunks' in artifacts['outros_documentos']:
-        chunks_outros_docs = artifacts['outros_documentos']['chunks']
-        empresas_protegidas = {
-            chunk.get('company_name', '').lower()
-            for chunk in chunks_outros_docs if chunk.get('company_name')
-        }
-        empresas_com_plano_confirmado.update(empresas_protegidas)
-        logger.info(f"[FILTRO] {len(empresas_protegidas)} empresas estão na lista de proteção por possuírem 'outros_documentos'.")
+        # A única evidência positiva para proteger uma empresa da exclusão
+        # será a presença de documentos na categoria "outros_documentos".
+        if 'outros_documentos' in artifacts and 'chunks' in artifacts['outros_documentos']:
+            chunks_outros_docs = artifacts['outros_documentos']['chunks']
+            empresas_protegidas = {
+                chunk.get('company_name', '').lower()
+                for chunk in chunks_outros_docs if chunk.get('company_name')
+            }
+            empresas_com_plano_confirmado.update(empresas_protegidas)
+            logger.info(f"[FILTRO] {len(empresas_protegidas)} empresas estão na lista de proteção por possuírem 'outros_documentos'.")
 
-    # PASSO 3: Calcular a lista final de exclusão (Candidatos - Protegidos)
-    empresas_excluidas_final = candidatos_a_excluir - empresas_com_plano_confirmado
-    
-    logger.info(f"[FILTRO FINAL] {len(empresas_excluidas_final)} empresas serão efetivamente removidas da análise.")
-    
-    # Armazena na sessão para referência e depuração
-    st.session_state.empresas_excluidas = empresas_excluidas_final
+        # PASSO 3: Calcular a lista final de exclusão (Candidatos - Protegidos)
+        empresas_excluidas_final = candidatos_a_excluir - empresas_com_plano_confirmado
+        
+        logger.info(f"[FILTRO FINAL] {len(empresas_excluidas_final)} empresas serão efetivamente removidas da análise.")
+        
+        # Armazena na sessão para referência e depuração
+        st.session_state.empresas_excluidas = empresas_excluidas_final
 
-    # PASSO 4: Aplicar o filtro final e definitivo sobre todos os dados
-    if empresas_excluidas_final:
-        # Filtra os dados de resumo (summary_data)
-        summary_data_filtrado = {
-            empresa: dados
-            for empresa, dados in summary_data.items()
-            if empresa.lower() not in empresas_excluidas_final
-        }
-        summary_data = summary_data_filtrado
+        # PASSO 4: Aplicar o filtro final e definitivo sobre todos os dados
+        if empresas_excluidas_final:
+            # Filtra os dados de resumo (summary_data)
+            summary_data_filtrado = {
+                empresa: dados
+                for empresa, dados in summary_data.items()
+                if empresa.lower() not in empresas_excluidas_final
+            }
+            summary_data = summary_data_filtrado
 
-        # Filtra os chunks em todos os artefatos
-        for category in artifacts:
-            artifacts[category]['chunks'] = [
-                chunk for chunk in artifacts[category]['chunks']
-                if chunk.get('company_name', '').lower() not in empresas_excluidas_final
-            ]
+            # Filtra os chunks em todos os artefatos
+            for category in artifacts:
+                artifacts[category]['chunks'] = [
+                    chunk for chunk in artifacts[category]['chunks']
+                    if chunk.get('company_name', '').lower() not in empresas_excluidas_final
+                ]
 
-except Exception as e:
-    logger.error(f"Erro crítico durante o processo de filtragem de empresas: {e}")
-    st.session_state.empresas_excluidas = set()
+    except Exception as e:
+        logger.error(f"Erro crítico durante o processo de filtragem de empresas: {e}")
+        st.session_state.empresas_excluidas = set()
 
     setores = set()
     controles = set()
@@ -249,7 +249,6 @@ except Exception as e:
     logger.info(f"Filtros dinâmicos encontrados: {len(all_setores)-1} setores e {len(all_controles)-1} tipos de controle.")
     
     return artifacts, summary_data, all_setores, all_controles, embedding_model, cross_encoder_model
-
 
 # --- FUNÇÕES GLOBAIS E DE RAG ---
 def identificar_empresas_sem_ilp(artifacts: dict) -> set:
