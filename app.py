@@ -1172,7 +1172,7 @@ def main():
                     filtered_companies.append(company)
 
             # Exibe a lista filtrada em um DataFrame
-            st.dataframe(pd.DataFrame(sorted(filtered_companies), columns=["Empresa"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(sorted(filtered_companies), columns=["Empresa"]), width='stretch', hide_index=True)
     # --- Interface Principal ---
     st.header("💬 Faça sua pergunta")
     
@@ -1205,7 +1205,7 @@ def main():
     user_query = st.text_area("Sua pergunta:", height=100, placeholder="Ex: Quais são os modelos típicos de vesting? ou Como funciona o plano da Vale?")
     
     # --- Lógica de Execução ao Clicar no Botão ---
-    if st.button("🔍 Analisar", type="primary", use_container_width=True):
+    if st.button("🔍 Analisar", type="primary", width='stretch'):
         if not user_query.strip():
             st.warning("⚠️ Por favor, digite uma pergunta.")
             st.stop()
@@ -1265,12 +1265,12 @@ def main():
             if data_result is not None:
                 if isinstance(data_result, pd.DataFrame):
                     if not data_result.empty:
-                        st.dataframe(data_result, use_container_width=True, hide_index=True)
+                        st.dataframe(data_result, width='stretch', hide_index=True)
                 elif isinstance(data_result, dict):
                     for df_name, df_content in data_result.items():
                         if isinstance(df_content, pd.DataFrame) and not df_content.empty:
                             st.markdown(f"#### {df_name}")
-                            st.dataframe(df_content, use_container_width=True, hide_index=True)
+                            st.dataframe(df_content, width='stretch', hide_index=True)
         else: # intent == 'qualitativa'
             # Executa o pipeline de RAG para perguntas qualitativas
             final_answer, sources = handle_rag_query(
